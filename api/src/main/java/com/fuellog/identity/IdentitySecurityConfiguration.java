@@ -20,6 +20,8 @@ import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableConfigurationProperties(IdentitySecurityProperties.class)
@@ -68,9 +70,25 @@ class IdentitySecurityConfiguration {
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(new JwtIssuerValidator(properties.issuer()), timestamps, claims));
         return new SessionCheckingJwtDecoder(decoder, sessions, users, identityClock);
     }
-    @Bean SecurityFilterChain identitySecurity(HttpSecurity http) throws Exception {
+    @Bean UrlBasedCorsConfigurationSource identityCors(Environment environment) {
+        var origins = Arrays.stream(environment.getRequiredProperty("fuellog.cors.allowed-origins").split(","))
+                .map(String::trim).filter(origin -> !origin.isEmpty()).toList();
+        if (origins.stream().anyMatch(origin -> origin.contains("*")))
+            throw new IllegalArgumentException("CORS origins must be explicit; wildcards are not allowed");
+        var cors = new CorsConfiguration();
+        cors.setAllowedOrigins(origins);
+        cors.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        cors.setExposedHeaders(List.of("ETag"));
+        cors.setAllowCredentials(false);
+        var source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/v1/**", cors);
+        return source;
+    }
+    @Bean SecurityFilterChain identitySecurity(HttpSecurity http, UrlBasedCorsConfigurationSource identityCors) throws Exception {
         DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
-        http.csrf(csrf -> csrf.disable()).sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        http.cors(cors -> cors.configurationSource(identityCors))
+                .csrf(csrf -> csrf.disable()).sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(c -> c.disable()).formLogin(c -> c.disable()).httpBasic(c -> c.disable()).logout(c -> c.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(request -> publicCredentials(request.getMethod(), request.getServletPath())).permitAll()

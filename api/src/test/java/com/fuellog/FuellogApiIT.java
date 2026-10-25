@@ -38,6 +38,54 @@ class FuellogApiIT {
     org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping mappings;
 
     @Test
+    void corsPreflightRunsBeforeAuthenticationAndRejectsUnapprovedOriginsAndHeaders() throws Exception {
+        for (String origin : List.of("http://localhost:8081", "http://127.0.0.1:8081")) {
+            var response = client.send(HttpRequest.newBuilder(URI.create(base() + "/api/v1/vehicles"))
+                    .header("Origin", origin).header("Access-Control-Request-Method", "POST")
+                    .header("Access-Control-Request-Headers", "authorization,content-type")
+                    .header("Authorization", "Bearer invalid")
+                    .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).contains(origin);
+            assertThat(response.headers().firstValue("Access-Control-Allow-Headers").orElseThrow().toLowerCase())
+                    .contains("authorization", "content-type");
+            assertThat(response.headers().firstValue("Access-Control-Allow-Credentials")).isEmpty();
+        }
+        for (String[] rejected : List.of(
+                new String[]{"http://localhost:8081.evil.example", "POST", "authorization"},
+                new String[]{"http://localhost:8082", "POST", "authorization"},
+                new String[]{"null", "POST", "authorization"},
+                new String[]{"http://localhost:8081", "DELETE", "authorization"},
+                new String[]{"http://localhost:8081", "POST", "x-unapproved"})) {
+            var response = client.send(HttpRequest.newBuilder(URI.create(base() + "/api/v1/vehicles"))
+                    .header("Origin", rejected[0]).header("Access-Control-Request-Method", rejected[1])
+                    .header("Access-Control-Request-Headers", rejected[2])
+                    .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(403);
+            assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).isEmpty();
+        }
+    }
+
+    @Test
+    void corsExposesEtagButStillRequiresBearerAndOwnership() throws Exception {
+        var owner = account();
+        var stranger = account();
+        String vehicle = vehicle(owner.access());
+        for (String token : List.of("", "invalid", stranger.access(), owner.access())) {
+            var builder = HttpRequest.newBuilder(URI.create(base() + "/api/v1/vehicles/" + vehicle))
+                    .header("Origin", "http://localhost:8081");
+            if (!token.isEmpty()) builder.header("Authorization", "Bearer " + token);
+            var response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString());
+            int expected = token.equals(owner.access()) ? 200 : token.equals(stranger.access()) ? 404 : 401;
+            assertThat(response.statusCode()).isEqualTo(expected);
+            assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).contains("http://localhost:8081");
+            assertThat(response.headers().firstValue("Access-Control-Expose-Headers")).contains("ETag");
+            assertThat(response.headers().firstValue("Access-Control-Allow-Credentials")).isEmpty();
+            if (expected == 200) assertThat(response.headers().firstValue("ETag")).contains("\"0\"");
+        }
+    }
+
+    @Test
     void documentedRoutesMatchImplementedBusinessRoutes() throws Exception {
         var spec = json.readTree(java.nio.file.Files.readString(java.nio.file.Path.of("..", "contracts", "openapi.json")));
         var documented = new java.util.HashSet<String>();
