@@ -33,7 +33,7 @@ class IdentityController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(identity.me(currentUser.requireUserId()));
     }
     record Register(@NotBlank @Size(max=100) String name, @NotBlank @Email @Size(max=254) String email,
-                    @NotBlank @Size(min=12, max=128) String password) {}
+                    @NotBlank @Size(min=6, max=128) String password) {}
     record Login(@NotBlank @Email @Size(max=254) String email, @NotBlank @Size(max=128) String password) {}
     record Refresh(@NotBlank @Pattern(regexp="[A-Za-z0-9_-]{43}") String refresh_token) {}
 }

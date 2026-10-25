@@ -1465,7 +1465,7 @@
           },
           "password": {
             "type": "string",
-            "minLength": 12,
+          "minLength": 6,
             "maxLength": 128,
             "writeOnly": true
           }

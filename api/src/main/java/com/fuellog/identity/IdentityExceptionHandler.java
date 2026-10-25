@@ -22,4 +22,12 @@ class IdentityExceptionHandler {
         if (error.status() == 401) response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
         return response.body(problem);
     }
+
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    ResponseEntity<ProblemDetail> validation(org.springframework.web.bind.MethodArgumentNotValidException error) {
+        var fields = new java.util.LinkedHashMap<String, String>();
+        error.getBindingResult().getFieldErrors().forEach(field ->
+                fields.putIfAbsent(field.getField(), field.getDefaultMessage()));
+        return domain(new ApiException(422, "VALIDATION_FAILED", "Confira os campos informados.", fields));
+    }
 }

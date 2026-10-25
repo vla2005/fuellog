@@ -38,6 +38,29 @@ class FuellogApiIT {
     org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping mappings;
 
     @Test
+    void registrationAcceptsSixCharactersAndPreservesPasswordBoundaries() throws Exception {
+        for (String password : List.of("12345", "      ", "a".repeat(129))) {
+            String email = UUID.randomUUID() + "@example.test";
+            var rejected = request("POST", "/auth/register", null,
+                    Map.of("name", "Password boundary", "email", email, "password", password));
+            assertThat(rejected.status()).as("%s", rejected.body()).isEqualTo(422);
+            assertThat(rejected.body().path("fieldErrors").has("password")).isTrue();
+            assertThat(jdbc.queryForObject("select count(*) from users where email = ?", Integer.class, email)).isZero();
+        }
+        for (String password : List.of("abc123", "a".repeat(128))) {
+            String email = UUID.randomUUID() + "@example.test";
+            assertThat(request("POST", "/auth/register", null,
+                    Map.of("name", "Password boundary", "email", email, "password", password)).status()).isEqualTo(201);
+            var login = request("POST", "/auth/login", null, Map.of("email", email, "password", password));
+            assertThat(login.status()).isEqualTo(200);
+            assertThat(request("GET", "/me", login.body().path("access_token").asString(), null).status()).isEqualTo(200);
+            String hash = jdbc.queryForObject("select password_hash from users where email = ?", String.class, email);
+            assertThat(hash).isNotEqualTo(password);
+            assertThat(passwordEncoder.matches(password, hash)).isTrue();
+        }
+    }
+
+    @Test
     void corsPreflightRunsBeforeAuthenticationAndRejectsUnapprovedOriginsAndHeaders() throws Exception {
         for (String origin : List.of("http://localhost:8081", "http://127.0.0.1:8081")) {
             var response = client.send(HttpRequest.newBuilder(URI.create(base() + "/api/v1/vehicles"))

@@ -13,6 +13,19 @@ import tools.jackson.databind.ObjectMapper;
 
 class OpenApiContractTest {
     @Test
+    void registrationPasswordBoundsMatchTheHttpValidation() throws Exception {
+        var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
+        var password = spec.path("components").path("schemas").path("Register").path("properties").path("password");
+        var component = Arrays.stream(Class.forName("com.fuellog.identity.IdentityController$Register").getRecordComponents())
+                .filter(field -> field.getName().equals("password")).findFirst().orElseThrow();
+        var size = component.getAccessor().getAnnotation(jakarta.validation.constraints.Size.class);
+        assertThat(size.min()).isEqualTo(6);
+        assertThat(size.max()).isEqualTo(128);
+        assertThat(password.path("minLength").asInt()).isEqualTo(size.min());
+        assertThat(password.path("maxLength").asInt()).isEqualTo(size.max());
+    }
+
+    @Test
     void documentedDtoPropertiesMatchTheHttpRecords() throws Exception {
         var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
         assertThat(spec.path("openapi").asString()).isEqualTo("3.1.0");
