@@ -1,0 +1,2378 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FuelLog API",
+    "version": "0.1.0",
+    "description": "Backend with identity, vehicles, fuel entries, full-tank consumption cycles and summaries. No frontend. Editing, deletion, exports, password recovery and complete account management are planned. All protected queries enforce ownership. Decimal values use strings. Consumption is null with a reason when unavailable."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "summary": "Register an account; login is separate",
+        "responses": {
+          "201": {
+            "description": "Created; fuel entry creation returns idempotentReplay=false.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredUser"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Register"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Create a session family",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "Rotate refresh without extending the six-month absolute deadline",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Refresh"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Revoke the current session",
+        "responses": {
+          "204": {
+            "description": "Completed without a response body.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "summary": "Read the authenticated account",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fuel-types": {
+      "get": {
+        "summary": "List supported fuel codes",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FuelType"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vehicles": {
+      "get": {
+        "summary": "List owned vehicles",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Vehicle"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a vehicle",
+        "responses": {
+          "201": {
+            "description": "Created; fuel entry creation returns idempotentReplay=false.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vehicle"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVehicle"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vehicles/{vehicleId}": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Read an owned vehicle",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vehicle"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vehicles/{vehicleId}/fuel-entries": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Read owned fuel history ordered by occurredAt DESC and id DESC",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuelEntryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive first civil date."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive final civil date; converted to the start of the following day as an exclusive bound."
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "America/Sao_Paulo"
+            },
+            "description": "IANA timezone for the date interval."
+          },
+          {
+            "name": "fuelType",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/FuelType"
+            },
+            "description": ""
+          },
+          {
+            "name": "tankState",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/TankState"
+            },
+            "description": ""
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": ""
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            },
+            "description": ""
+          }
+        ]
+      },
+      "post": {
+        "summary": "Register a purchase with a stable UUID and normalized command hash",
+        "responses": {
+          "201": {
+            "description": "Created; fuel entry creation returns idempotentReplay=false.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuelEntry"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuelEntry"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFuelEntry"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vehicles/{vehicleId}/fuel-entries/{entryId}": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "entryId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Read an owned fuel entry",
+        "responses": {
+          "200": {
+            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuelEntry"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vehicles/{vehicleId}/summary": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Read owned vehicle purchase totals and full-tank consumption",
+        "description": "Purchases are filtered by occurrence date. Consumption aggregates valid cycles closed in the interval, including purchases before the interval. The latest valid cycle is global and carries explicit dates. Replenishment cost per km is an operational approximation.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive first civil date."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive final civil date."
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "America/Sao_Paulo"
+            },
+            "description": "IANA timezone for date boundaries."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Summary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vehicles/{vehicleId}/consumption-cycles": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Read explainable full-tank cycles",
+        "description": "Initial full tank volume is excluded; intermediate purchases and the closing full tank are included. History gaps and zero distance produce null consumption with a reason. Items are filtered by closure date. currentUnavailableReason describes the global current history segment.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive first civil date."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive final civil date."
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "America/Sao_Paulo"
+            },
+            "description": "IANA timezone for date boundaries."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cycles"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "FuelType": {
+        "type": "string",
+        "enum": [
+          "GASOLINE_REGULAR",
+          "GASOLINE_ADDITIVE",
+          "ETHANOL",
+          "DIESEL_S10",
+          "DIESEL_S500"
+        ]
+      },
+      "TankState": {
+        "type": "string",
+        "enum": [
+          "FULL",
+          "PARTIAL",
+          "UNKNOWN"
+        ]
+      },
+      "Register": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password"
+        ]
+      },
+      "Login": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "Refresh": {
+        "type": "object",
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "refresh_token"
+        ]
+      },
+      "RegisteredUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email"
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "preferredTimezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "preferredTimezone"
+        ]
+      },
+      "TokenResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "expires_in": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 900
+          },
+          "access_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "refresh_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "access_expires_at",
+          "refresh_token",
+          "refresh_expires_at",
+          "session_id"
+        ]
+      },
+      "CreateVehicle": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "modelYear": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1886,
+                "maximum": 2200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tankCapacityLiters": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+                "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowedFuels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FuelType"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "nickname",
+          "allowedFuels"
+        ]
+      },
+      "Vehicle": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "modelYear": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1886,
+                "maximum": 2200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tankCapacityLiters": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+                "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowedFuels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FuelType"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "brand",
+          "model",
+          "modelYear",
+          "plate",
+          "tankCapacityLiters",
+          "allowedFuels",
+          "archivedAt",
+          "version"
+        ]
+      },
+      "CreateFuelEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, for example America/Sao_Paulo.",
+            "maxLength": 64
+          },
+          "odometerKm": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fuelType": {
+            "$ref": "#/components/schemas/FuelType"
+          },
+          "liters": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "tankState": {
+            "$ref": "#/components/schemas/TankState"
+          },
+          "historyGapBefore": {
+            "type": "boolean"
+          },
+          "adjustmentReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stationName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "occurredAt",
+          "timezone",
+          "odometerKm",
+          "fuelType",
+          "liters",
+          "unitPrice",
+          "paidTotal",
+          "tankState",
+          "historyGapBefore"
+        ]
+      },
+      "FuelEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, for example America/Sao_Paulo.",
+            "maxLength": 64
+          },
+          "odometerKm": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fuelType": {
+            "$ref": "#/components/schemas/FuelType"
+          },
+          "liters": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "tankState": {
+            "$ref": "#/components/schemas/TankState"
+          },
+          "historyGapBefore": {
+            "type": "boolean"
+          },
+          "adjustmentReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stationName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "referenceTotal": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]{2}$"
+          },
+          "adjustmentAmount": {
+            "type": "string",
+            "pattern": "^-?[0-9]+\\.[0-9]{2}$"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "idempotentReplay": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "occurredAt",
+          "timezone",
+          "odometerKm",
+          "fuelType",
+          "liters",
+          "unitPrice",
+          "paidTotal",
+          "tankState",
+          "historyGapBefore",
+          "adjustmentReason",
+          "stationName",
+          "notes",
+          "vehicleId",
+          "referenceTotal",
+          "adjustmentAmount",
+          "version",
+          "idempotentReplay"
+        ]
+      },
+      "FuelEntryPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FuelEntry"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "totalPages": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "size",
+          "totalElements",
+          "totalPages"
+        ]
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "code": {
+            "type": "string"
+          },
+          "fieldErrors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "fieldErrors",
+          "correlationId"
+        ]
+      },
+      "UnavailableReason": {
+        "type": "string",
+        "enum": [
+          "NEEDS_FULL_TANK_BASELINE",
+          "OPEN_CYCLE",
+          "HISTORY_GAP",
+          "ZERO_DISTANCE",
+          "NO_VALID_CYCLE_IN_PERIOD"
+        ]
+      },
+      "Cycle": {
+        "type": "object",
+        "properties": {
+          "startEntryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endEntryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "distanceKm": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "liters": {
+            "type": "string",
+            "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+          },
+          "paidTotal": {
+            "type": "string",
+            "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+          },
+          "consumptionKmPerLiter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replacementCostPerKm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fuelTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FuelType"
+            }
+          },
+          "mixed": {
+            "type": "boolean"
+          },
+          "unavailableReason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "startEntryId",
+          "endEntryId",
+          "startedAt",
+          "endedAt",
+          "distanceKm",
+          "liters",
+          "paidTotal",
+          "consumptionKmPerLiter",
+          "replacementCostPerKm",
+          "fuelTypes",
+          "mixed",
+          "unavailableReason"
+        ]
+      },
+      "Cycles": {
+        "type": "object",
+        "properties": {
+          "vehicleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Cycle"
+            }
+          },
+          "currentUnavailableReason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "vehicleId",
+          "from",
+          "to",
+          "timezone",
+          "items",
+          "currentUnavailableReason"
+        ]
+      },
+      "Summary": {
+        "type": "object",
+        "properties": {
+          "vehicleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "purchaseCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "paidTotal": {
+            "type": "string",
+            "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+          },
+          "purchasedLiters": {
+            "type": "string",
+            "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+          },
+          "weightedPaidPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validCycleCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cycleDistanceKm": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cycleLiters": {
+            "type": "string",
+            "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+          },
+          "periodConsumptionKmPerLiter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "periodReplacementCostPerKm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact derived decimal string; HALF_UP. Liters: 3 places, paid total: 2, km/L: 2, unit costs: 4."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "periodUnavailableReason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastValidCycle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cycle"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastConsumptionUnavailableReason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "vehicleId",
+          "from",
+          "to",
+          "timezone",
+          "purchaseCount",
+          "paidTotal",
+          "purchasedLiters",
+          "weightedPaidPrice",
+          "validCycleCount",
+          "cycleDistanceKm",
+          "cycleLiters",
+          "periodConsumptionKmPerLiter",
+          "periodReplacementCostPerKm",
+          "periodUnavailableReason",
+          "lastValidCycle",
+          "lastConsumptionUnavailableReason"
+        ]
+      }
+    }
+  }
+}
