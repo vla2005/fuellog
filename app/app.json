@@ -17,6 +17,7 @@
         "backgroundColor": "#10203B",
         "foregroundImage": "./assets/brand/mascote_icon_square.png"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false
     },
     "web": {

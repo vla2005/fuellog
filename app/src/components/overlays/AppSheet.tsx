@@ -1,7 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import {
   Animated,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -67,57 +70,70 @@ export function AppSheet({
     };
   }, [duration, easing.enter, opacity, reduceMotion, translateY, visible]);
 
+  const handleDismiss = () => {
+    Keyboard.dismiss();
+    onClose();
+  };
+
   return (
     <Modal
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleDismiss}
     >
       <View style={styles.modalRoot}>
         <Pressable
           style={[styles.scrim, { backgroundColor: colors.scrim }]}
-          onPress={onClose}
+          onPress={handleDismiss}
           accessibilityRole="button"
           accessibilityLabel="Fechar painel"
         />
-        <Animated.View
-          style={[
-            styles.sheetCard,
-            {
-              backgroundColor: colors.bgElevated,
-              borderColor: colors.borderDefault,
-              opacity,
-              transform: [{ translateY }],
-            },
-          ]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          pointerEvents="box-none"
+          style={styles.keyboardAvoid}
         >
-          <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
-          <View style={styles.headerRow}>
-            <View style={styles.headerTextGroup}>
-              <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
-              {subtitle ? (
-                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                  {subtitle}
-                </Text>
-              ) : null}
-            </View>
-            <IconButton
-              icon={<CloseIcon size={18} color={colors.textPrimary} />}
-              accessibilityLabel="Fechar"
-              onPress={onClose}
-              variant="subtle"
-            />
-          </View>
-          <ScrollView
-            style={styles.scrollBody}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+          <Animated.View
+            pointerEvents="auto"
+            style={[
+              styles.sheetCard,
+              {
+                backgroundColor: colors.bgElevated,
+                borderColor: colors.borderDefault,
+                opacity,
+                transform: [{ translateY }],
+              },
+            ]}
           >
-            {children}
-          </ScrollView>
-        </Animated.View>
+            <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+            <View style={styles.headerRow}>
+              <View style={styles.headerTextGroup}>
+                <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
+                {subtitle ? (
+                  <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+              <IconButton
+                icon={<CloseIcon size={18} color={colors.textPrimary} />}
+                accessibilityLabel="Fechar"
+                onPress={handleDismiss}
+                variant="subtle"
+              />
+            </View>
+            <ScrollView
+              style={styles.scrollBody}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </ScrollView>
+          </Animated.View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -126,6 +142,11 @@ export function AppSheet({
 const styles = StyleSheet.create({
   modalRoot: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  keyboardAvoid: {
+    flex: 1,
+    width: '100%',
     justifyContent: 'flex-end',
   },
   scrim: {
@@ -145,7 +166,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 28,
+    paddingBottom: 24,
   },
   handle: {
     width: 40,
@@ -173,9 +194,10 @@ const styles = StyleSheet.create({
   },
   scrollBody: {
     flexGrow: 0,
+    flexShrink: 1,
   },
   scrollContent: {
-    paddingBottom: 12,
+    paddingBottom: 16,
     gap: 12,
   },
 });

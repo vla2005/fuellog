@@ -8,7 +8,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { layout } from '@/theme/tokens';
@@ -31,6 +31,11 @@ export function ScreenShell({
   footer,
 }: ScreenShellProps) {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+
+  const baseBottomPadding = withDockClearance
+    ? layout.bottomDockClearance
+    : Math.max(28, insets.bottom + 8);
 
   return (
     <SafeAreaView
@@ -39,7 +44,7 @@ export function ScreenShell({
     >
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {header}
         {scrollable ? (
@@ -47,10 +52,11 @@ export function ScreenShell({
             style={styles.flex}
             contentContainerStyle={[
               styles.scrollContent,
-              withDockClearance && { paddingBottom: layout.bottomDockClearance },
+              { paddingBottom: baseBottomPadding },
               contentContainerStyle,
             ]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.maxWidthContainer}>{children}</View>
@@ -60,7 +66,11 @@ export function ScreenShell({
             style={[
               styles.flex,
               styles.nonScrollContent,
-              withDockClearance && { paddingBottom: layout.bottomDockClearance },
+              {
+                paddingBottom: withDockClearance
+                  ? layout.bottomDockClearance
+                  : Math.max(20, insets.bottom + 8),
+              },
               contentContainerStyle,
             ]}
           >

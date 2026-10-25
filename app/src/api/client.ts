@@ -94,7 +94,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = REQU
 /**
  * Executa refresh single-flight conforme o contrato OpenAPI:
  * POST /auth/refresh com body { refresh_token } e resposta TokenResponse (access_token, refresh_token, ...).
- * - Se falhar com 400/401/403 (refresh inválido, expirado ou reutilizado), limpa os tokens e avisa listener.
+ * - Se falhar com 400/401/403/422 (refresh inválido, expirado, reutilizado ou malformado), limpa os tokens e avisa listener como terminal.
  * - Se falhar por erro de rede/timeout/5xx, NÃO apaga o refresh_token válido salvo.
  * - Se a época da sessão mudar (logout/troca de conta durante o voo), descarta o resultado e lança 401.
  */
@@ -151,7 +151,12 @@ export async function performSingleFlightRefresh(): Promise<TokenResponse> {
         });
       }
 
-      if (response.status === 400 || response.status === 401 || response.status === 403) {
+      if (
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 422
+      ) {
         try {
           await clearStoredTokens();
         } finally {

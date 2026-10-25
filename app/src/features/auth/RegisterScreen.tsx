@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -79,8 +80,8 @@ export function RegisterScreen() {
       localErrors.email = 'Informe um endereço de e-mail válido.';
     }
 
-    if (password.length < 12 || password.length > 128) {
-      localErrors.password = 'A senha deve ter entre 12 e 128 caracteres.';
+    if (password.length < 6 || password.length > 128) {
+      localErrors.password = 'A senha deve ter entre 6 e 128 caracteres.';
     }
 
     if (!confirmPassword) {
@@ -164,7 +165,11 @@ export function RegisterScreen() {
       </View>
 
       {/* Split Hero: Left text + Right Mascot */}
-      <View style={styles.heroSplitRow}>
+      <Pressable
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        style={styles.heroSplitRow}
+      >
         <View style={styles.heroTextCol}>
           <Text style={[styles.heroHeadline, { color: colors.textPrimary }]}>
             Vamos começar?
@@ -176,7 +181,7 @@ export function RegisterScreen() {
         <View style={styles.heroMascotCol}>
           <PixelMascot variant="full" size={88} showSparks />
         </View>
-      </View>
+      </Pressable>
 
       {/* Form Fields directly on canvas */}
       <View style={styles.formSection}>

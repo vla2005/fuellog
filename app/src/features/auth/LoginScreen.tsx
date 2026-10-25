@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -86,7 +87,11 @@ export function LoginScreen() {
 
   return (
     <ScreenShell contentContainerStyle={styles.scrollContent}>
-      <View style={styles.heroBlock}>
+      <Pressable
+        onPress={Keyboard.dismiss}
+        accessible={false}
+        style={styles.heroBlock}
+      >
         <BrandLockup mode="auth-login" />
         <Text style={[styles.headline, { color: colors.textPrimary }]}>
           Bom te ver por aqui.
@@ -94,7 +99,7 @@ export function LoginScreen() {
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           Entre para acompanhar seus abastecimentos.
         </Text>
-      </View>
+      </Pressable>
 
       <View style={styles.formSection}>
         {errorMessage ? (
