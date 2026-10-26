@@ -233,6 +233,26 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   });
 
   await expect(page).toHaveURL(/\/\/?$/);
+
+  // 13. Verifica que o formulário foi resetado após o envio
+  await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
+  await expect(page).toHaveURL(/\/fueling\/new$/);
+  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Preço por litro', { exact: true })).toHaveValue('');
+
+  // 14. Digita valor e clica no X do topo (Fechar) -> deve resetar o estado e limpar rascunho
+  const litrosField = page.getByLabel('Litros abastecidos', { exact: true });
+  await litrosField.click();
+  await litrosField.pressSequentially('200', { delay: 20 });
+  await expect(litrosField).toHaveValue('20,0');
+
+  await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+  await expect(page).toHaveURL(/\/\/?$/);
+
+  // Reabre e confirma que voltou limpo sem resquício
+  await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
+  await expect(page).toHaveURL(/\/fueling\/new$/);
+  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('');
 });
 
 test('responsividade do formulário a 320px no modo escuro sem overflow', async ({

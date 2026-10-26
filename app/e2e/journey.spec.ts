@@ -83,7 +83,7 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
     await choice.click();
     await page.getByRole('button', { name: 'Aparência e tema', exact: true }).click();
     await expect(choice).toBeChecked();
-    await page.getByLabel('Fechar', { exact: true }).click();
+    await page.getByRole('button', { name: 'Fechar', exact: true }).filter({ visible: true }).click();
     await page.screenshot({ path: `test-results/qa/settings-${theme}.png`, fullPage: true });
   }
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();

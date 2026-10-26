@@ -815,3 +815,24 @@ test('rascunho inválido com excesso de escala ou negativo não é mascarado com
   assert.ok(h.snapshot.fieldErrors.liters, 'Deve acusar erro em litros');
   assert.ok(h.snapshot.fieldErrors.unitPrice, 'Deve acusar erro no preço');
 });
+
+test('fechar no X do topo reseta o estado do formulário e limpa o rascunho', async () => {
+  const store = new Map([[draftKey('A'), JSON.stringify({ id: randomUUID(), liters: '35,0', unitPrice: '5,00', odometerKm: '1000' })]]);
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    store,
+  });
+  await h.settle();
+  assert.equal(h.snapshot.liters, '35,0');
+  assert.equal(h.snapshot.unitPrice, '5,00');
+
+  // Fecha no X do topo
+  await h.snapshot.handleClose();
+  await h.settle();
+
+  // Estado é limpo imediatamente
+  assert.equal(h.snapshot.liters, '');
+  assert.equal(h.snapshot.unitPrice, '');
+  assert.equal(h.snapshot.odometerKm, '');
+  assert.equal(h.snapshot.manualPaidTotal, '');
+  assert.equal(store.has(draftKey('A')), false, 'Rascunho deve ser removido do storage ao fechar');
+});

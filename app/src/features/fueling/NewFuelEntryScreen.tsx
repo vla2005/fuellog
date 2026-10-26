@@ -29,6 +29,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CloseIcon,
   GaugeIcon,
   PencilIcon,
   PlusIcon,
@@ -319,11 +320,59 @@ export function NewFuelEntryScreen({
     };
   }, [activeVehicle, defaultTimezone, resetLocation, setFixedCoordinates, user]);
 
+  const resetFormState = useCallback(() => {
+    const freshNow = new Date();
+    const freshDefaultFuel = activeVehicle?.allowedFuels[0] ?? null;
+    setEntryId(generateUuidV4());
+    setLiters('');
+    setUnitPrice('');
+    setManualPaidTotal('');
+    setIsManualPaidTotal(false);
+    setAdjustmentReason('');
+    setOdometerKm('');
+    setDateStr(formatLocalDateInput(freshNow));
+    setTimeStr(formatLocalTimeInput(freshNow));
+    setTimezone(defaultTimezone);
+    setFuelType(freshDefaultFuel);
+    resetLocation();
+    setUncertainPendingPayload(null);
+    setErrorMessage(null);
+    setFieldErrors({});
+
+    if (expectedScopeKey) {
+      void AsyncStorage.removeItem(expectedScopeKey).catch(() => {});
+    }
+  }, [activeVehicle?.allowedFuels, defaultTimezone, expectedScopeKey, resetLocation]);
+
+  const handleClose = useCallback(() => {
+    isNavigatingHomeRef.current = true;
+    resetFormState();
+    if (typeof router.canGoBack === 'function' && router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/');
+    }
+  }, [resetFormState, router]);
+
   // Salva rascunho somente quando o escopo restaurado coincide exatamente com userId + vehicleId atuais
   useEffect(() => {
     if (!user || !activeVehicle) return;
+    if (isNavigatingHomeRef.current) return;
     const key = getDraftStorageKey(user.id, activeVehicle.id);
     if (restoredScopeKey !== key || restoredScopeKeyRef.current !== key) {
+      return;
+    }
+
+    const hasContent =
+      Boolean(liters) ||
+      Boolean(unitPrice) ||
+      Boolean(manualPaidTotal) ||
+      Boolean(odometerKm) ||
+      Boolean(adjustmentReason) ||
+      Boolean(uncertainPendingPayload);
+
+    if (!hasContent) {
+      void AsyncStorage.removeItem(key).catch(() => {});
       return;
     }
 
@@ -526,27 +575,8 @@ export function NewFuelEntryScreen({
     try {
       const savedEntry = await createFuelEntry(targetVehicleId, payloadToSend);
 
-      await AsyncStorage.removeItem(expectedScopeKey).catch(() => {});
-
-      if (embeddedInShell) {
-        const freshNow = new Date();
-        const freshDefaultFuel = activeVehicle?.allowedFuels[0] ?? null;
-        setEntryId(generateUuidV4());
-        setLiters('');
-        setUnitPrice('');
-        setManualPaidTotal('');
-        setIsManualPaidTotal(false);
-        setAdjustmentReason('');
-        setOdometerKm('');
-        setDateStr(formatLocalDateInput(freshNow));
-        setTimeStr(formatLocalTimeInput(freshNow));
-        setTimezone(defaultTimezone);
-        setFuelType(freshDefaultFuel);
-        resetLocation();
-        setUncertainPendingPayload(null);
-        setErrorMessage(null);
-        setFieldErrors({});
-      }
+      isNavigatingHomeRef.current = true;
+      resetFormState();
 
       invalidateFuelData();
       showToast({
@@ -556,7 +586,6 @@ export function NewFuelEntryScreen({
           : 'Abastecimento salvo com sucesso',
         subtitle: `${formatCurrencyBRL(savedEntry.paidTotal)} registrado em ${targetVehicleNickname}.`,
       });
-      isNavigatingHomeRef.current = true;
       router.replace('/');
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -599,21 +628,15 @@ export function NewFuelEntryScreen({
       contentContainerStyle={styles.scrollContent}
       footer={undefined}
     >
-      {/* Compact Header: Back chevron + Title + Vehicle dropdown */}
+      {/* Compact Header: Close button (X) + Title + Vehicle dropdown */}
       <View style={styles.compactHeaderRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Voltar"
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/');
-            }
-          }}
+          accessibilityLabel="Fechar"
+          onPress={handleClose}
           style={styles.compactBackBtn}
         >
-          <ChevronLeftIcon size={22} color={colors.brandPrimary} />
+          <CloseIcon size={20} color={colors.brandPrimary} />
         </Pressable>
 
         <View style={styles.compactTitleCol}>
