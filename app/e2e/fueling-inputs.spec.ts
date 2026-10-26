@@ -131,32 +131,32 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros inicial');
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço inicial');
 
-  // 6. Digitação sequencial em Litros: 35125 deve exibir 35,125
+  // 6. Digitação sequencial em Litros (1 casa decimal): 351 deve exibir 35,1
   await litrosInput.click();
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros focado');
-  await litrosInput.pressSequentially('35125', { delay: 30 });
-  await expect(litrosInput).toHaveValue('35,125');
-  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros após digitar 35125');
+  await litrosInput.pressSequentially('351', { delay: 30 });
+  await expect(litrosInput).toHaveValue('35,1');
+  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros após digitar 351');
 
   // Backspace apaga o último dígito
   await litrosInput.press('Backspace');
-  await expect(litrosInput).toHaveValue('3,512');
+  await expect(litrosInput).toHaveValue('3,5');
 
-  // Redigita 5 -> volta a 35,125
-  await litrosInput.press('5');
-  await expect(litrosInput).toHaveValue('35,125');
-  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros restaurado 35,125');
+  // Redigita 1 -> volta a 35,1
+  await litrosInput.press('1');
+  await expect(litrosInput).toHaveValue('35,1');
+  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros restaurado 35,1');
 
-  // 7. Digitação sequencial no Preço por litro: 54321 deve exibir 5,4321
+  // 7. Digitação sequencial no Preço por litro (2 casas decimais): 543 deve exibir 5,43
   await precoInput.click();
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço focado');
-  await precoInput.pressSequentially('54321', { delay: 30 });
-  await expect(precoInput).toHaveValue('5,4321');
-  await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço após digitar 54321');
+  await precoInput.pressSequentially('543', { delay: 30 });
+  await expect(precoInput).toHaveValue('5,43');
+  await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço após digitar 543');
 
-  // 8. Valor pago calculado automaticamente: 35.125 * 5.4321 = 190.80 (HALF_UP)
+  // 8. Valor pago calculado automaticamente: 35.1 * 5.43 = 190.59 (HALF_UP)
   await expect(
-    page.getByLabel(/^Valor total pago calculado: R\$ 190,80/),
+    page.getByLabel(/^Valor total pago calculado: R\$ 190,59/),
   ).toBeVisible();
 
   // 9. Edição do valor pago para aplicar desconto de R$ 180,00
@@ -178,7 +178,7 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   await expect(paidManualInput).toHaveValue('180,00');
   await assertInputWithinSurfaceAndViewport(page, paidManualInput, paidManualContainer, 390, 'Valor manual após digitar 18000');
 
-  // Diferença de R$ 10,80 > R$ 0,05 exige justificativa
+  // Diferença de R$ 10,59 > R$ 0,05 exige justificativa
   const reasonInput = page.getByLabel('Justificativa do ajuste', { exact: true });
   await expect(reasonInput).toBeVisible();
   await reasonInput.fill('Desconto concedido na bomba');
@@ -225,8 +225,8 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   const payload = savedResponse.request().postDataJSON();
   expect(payload).toMatchObject({
     fuelType: 'GASOLINE_REGULAR',
-    liters: '35.125',
-    unitPrice: '5.4321',
+    liters: '35.1',
+    unitPrice: '5.43',
     paidTotal: '180.00',
     odometerKm: 120542,
     adjustmentReason: 'Desconto concedido na bomba',
@@ -267,14 +267,14 @@ test('responsividade do formulário a 320px no modo escuro sem overflow', async 
   // Digita dados para verificar legibilidade e dimensões
   await litrosInput.click();
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 320, '320px Litros focado');
-  await litrosInput.pressSequentially('35125', { delay: 20 });
-  await expect(litrosInput).toHaveValue('35,125');
+  await litrosInput.pressSequentially('351', { delay: 20 });
+  await expect(litrosInput).toHaveValue('35,1');
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 320, '320px Litros digitado');
 
   await precoInput.click();
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 320, '320px Preço focado');
-  await precoInput.pressSequentially('54321', { delay: 20 });
-  await expect(precoInput).toHaveValue('5,4321');
+  await precoInput.pressSequentially('543', { delay: 20 });
+  await expect(precoInput).toHaveValue('5,43');
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 320, '320px Preço digitado');
 
   await odoInput.click();

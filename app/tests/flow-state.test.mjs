@@ -711,8 +711,8 @@ test('combustível incompatível é sanitizado no estado e no envio ao trocar de
   await h.settle();
 
   h.snapshot.setFuelType('GASOLINE_REGULAR');
-  h.snapshot.setLiters('35,000');
-  h.snapshot.setUnitPrice('5,0000');
+  h.snapshot.setLiters('35,0');
+  h.snapshot.setUnitPrice('5,00');
   h.snapshot.setOdometerKm('50000');
   await h.settle();
   assert.equal(h.snapshot.fuelType, 'GASOLINE_REGULAR');
@@ -724,8 +724,8 @@ test('combustível incompatível é sanitizado no estado e no envio ao trocar de
   assert.equal(h.snapshot.fuelType, 'DIESEL_S10', 'Deve adotar combustível permitido pelo novo veículo');
 
   // Ao salvar o abastecimento no novo veículo, envia exatamente DIESEL_S10
-  h.snapshot.setLiters('40,000');
-  h.snapshot.setUnitPrice('6,0000');
+  h.snapshot.setLiters('40,0');
+  h.snapshot.setUnitPrice('6,00');
   h.snapshot.setOdometerKm('51000');
   await h.settle();
   await h.snapshot.handleSubmit();
@@ -746,16 +746,16 @@ test('cálculo com desconto manual e payload exato sem separador de milhar', asy
   await h.snapshot.requestLocation(true);
   await h.settle();
 
-  // Litros 3 casas, preço 4 casas, odômetro inteiro 0
-  h.snapshot.setLiters('35,125');
-  h.snapshot.setUnitPrice('5,4321');
+  // Litros 1 casa, preço 2 casas, odômetro inteiro 0
+  h.snapshot.setLiters('35,1');
+  h.snapshot.setUnitPrice('5,43');
   h.snapshot.setOdometerKm('120542');
   await h.settle();
 
-  // Referência calculada 35.125 * 5.4321 = 190.8015... arredondado HALF_UP = 190.80
-  assert.equal(h.snapshot.referenceTotalDot, '190.80');
+  // Referência calculada 35.1 * 5.43 = 190.593... arredondado HALF_UP = 190.59
+  assert.equal(h.snapshot.referenceTotalDot, '190.59');
 
-  // Aplica desconto manual: pagou 180,00 (diferença de R$ 10,80 > R$ 0,05 exige justificativa)
+  // Aplica desconto manual: pagou 180,00 (diferença de R$ 10,59 > R$ 0,05 exige justificativa)
   h.snapshot.setIsManualPaidTotal(true);
   h.snapshot.setManualPaidTotal('180,00');
   await h.settle();
@@ -775,8 +775,8 @@ test('cálculo com desconto manual e payload exato sem separador de milhar', asy
 
   assert.equal(calls.length, 1);
   const sent = calls[0];
-  assert.equal(sent.liters, '35.125');
-  assert.equal(sent.unitPrice, '5.4321');
+  assert.equal(sent.liters, '35.1');
+  assert.equal(sent.unitPrice, '5.43');
   assert.equal(sent.paidTotal, '180.00');
   assert.equal(sent.odometerKm, 120542);
   assert.equal(typeof sent.odometerKm, 'number');
@@ -787,7 +787,7 @@ test('cálculo com desconto manual e payload exato sem separador de milhar', asy
 test('rascunho inválido com excesso de escala ou negativo não é mascarado como válido', async () => {
   const invalidDraft = {
     id: randomUUID(),
-    liters: '35,1259', // excesso de escala (4 casas para litros que aceita 3)
+    liters: '35,12', // excesso de escala (2 casas para litros que aceita 1)
     unitPrice: '-5,00', // negativo
     odometerKm: '1000',
     dateStr: '2026-10-20',
@@ -805,7 +805,7 @@ test('rascunho inválido com excesso de escala ou negativo não é mascarado com
   await h.settle();
 
   // Rascunho mantém os valores originais no estado sem silenciar/normalizar para válidos
-  assert.equal(h.snapshot.liters, '35,1259');
+  assert.equal(h.snapshot.liters, '35,12');
   assert.equal(h.snapshot.unitPrice, '-5,00');
 
   // Ao tentar submeter, o formulário barra com erro explícito de validação

@@ -62,8 +62,8 @@ test('veículo, abastecimento e sheet de data preservam inputs em 390x480', asyn
   await saveVehicle.click();
   await expect(page.getByLabel('Trocar veículo ativo. Atual: Layout veículo', { exact: true })).toBeVisible();
   await page.goto('/fueling/new');
-  await fillVisible(page, 'Litros abastecidos', '10,125');
-  await fillVisible(page, 'Preço por litro', '5,4321');
+  await fillVisible(page, 'Litros abastecidos', '10,1');
+  await fillVisible(page, 'Preço por litro', '5,43');
   await fillVisible(page, 'Hodômetro atual (km inteiro)', '1200');
   await expect(page.getByLabel('Nome do posto', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Observações', { exact: true })).toHaveCount(0);
@@ -77,6 +77,6 @@ test('veículo, abastecimento e sheet de data preservam inputs em 390x480', asyn
   await reachable(page, confirmDate);
   await confirmDate.click();
   await expect(page.getByLabel('Hodômetro atual (km inteiro)', { exact: true })).toHaveValue('1200');
-  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('10,125');
+  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('10,1');
   await reachable(page, page.getByRole('button', { name: 'Salvar abastecimento', exact: true }));
 });

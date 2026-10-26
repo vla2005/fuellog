@@ -431,21 +431,21 @@ export function NewFuelEntryScreen({
     } else {
       const nextErrors: Record<string, string> = {};
 
-      const parsedLiters = parsePositiveDecimalInput(liters, 3);
+      const parsedLiters = parsePositiveDecimalInput(liters, 1);
       if (!parsedLiters.valid || !parsedLiters.normalizedDot) {
         nextErrors.liters =
           parsedLiters.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Máximo de 3 casas decimais para litros.'
+            ? 'Máximo de 1 casa decimal para litros.'
             : parsedLiters.errorReason === 'NON_POSITIVE'
               ? 'Informe um volume maior que zero.'
               : 'Informe os litros.';
       }
 
-      const parsedUnitPrice = parsePositiveDecimalInput(unitPrice, 4);
+      const parsedUnitPrice = parsePositiveDecimalInput(unitPrice, 2);
       if (!parsedUnitPrice.valid || !parsedUnitPrice.normalizedDot) {
         nextErrors.unitPrice =
           parsedUnitPrice.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Máximo de 4 casas decimais para o preço.'
+            ? 'Máximo de 2 casas decimais para o preço.'
             : parsedUnitPrice.errorReason === 'NON_POSITIVE'
               ? 'Informe um preço maior que zero.'
               : 'Informe o preço por litro.';
@@ -776,9 +776,9 @@ export function NewFuelEntryScreen({
                   onChangeText={setLiters}
                   onFocus={() => setLitersFocused(true)}
                   onBlur={() => setLitersFocused(false)}
-                  scale={3}
+                  scale={1}
                   editable={!isLockedForUncertainRetry}
-                  placeholder="0,000"
+                  placeholder="0,0"
                   placeholderTextColor={colors.textMuted}
                   style={[styles.decimalInput, { color: colors.textPrimary }]}
                 />
@@ -829,9 +829,9 @@ export function NewFuelEntryScreen({
                   onChangeText={setUnitPrice}
                   onFocus={() => setUnitPriceFocused(true)}
                   onBlur={() => setUnitPriceFocused(false)}
-                  scale={4}
+                  scale={2}
                   editable={!isLockedForUncertainRetry}
-                  placeholder="0,0000"
+                  placeholder="0,00"
                   placeholderTextColor={colors.textMuted}
                   style={[styles.decimalInput, { color: colors.textPrimary }]}
                 />
