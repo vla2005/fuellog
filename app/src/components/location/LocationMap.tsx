@@ -53,34 +53,48 @@ export function LocationMap({
   const [mapError, setMapError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
+  const isLoadingRef = useRef(true);
+  const errorNotifiedRef = useRef(false);
+
   const isValid = isValidCoordinate(latitude, longitude);
   const mapUrl = isValid ? buildOsmEmbedUrl(latitude, longitude) : null;
 
+  const notifyMapError = (error: Error) => {
+    if (!errorNotifiedRef.current) {
+      errorNotifiedRef.current = true;
+      onMapError?.(error);
+    }
+  };
+
   // Timeout cancelável de carregamento do mapa (evita spinner infinito em rede offline no web iframe)
   useEffect(() => {
+    errorNotifiedRef.current = false;
+
     if (!isValid || !mapUrl) {
+      isLoadingRef.current = false;
       setLoading(false);
       return;
     }
 
     if (Platform.OS !== 'web' && !NativeWebView) {
+      isLoadingRef.current = false;
       setLoading(false);
       setMapError(true);
+      notifyMapError(new Error('Visualização nativa de mapa não suportada.'));
       return;
     }
 
+    isLoadingRef.current = true;
     setLoading(true);
     setMapError(false);
 
     const timer = setTimeout(() => {
-      setLoading((current) => {
-        if (current) {
-          setMapError(true);
-          onMapError?.(new Error('Tempo limite para carregamento dos blocos do mapa excedido.'));
-          return false;
-        }
-        return false;
-      });
+      if (isLoadingRef.current) {
+        isLoadingRef.current = false;
+        setLoading(false);
+        setMapError(true);
+        notifyMapError(new Error('Tempo limite para carregamento dos blocos do mapa excedido.'));
+      }
     }, 10000);
 
     return () => {
@@ -89,6 +103,8 @@ export function LocationMap({
   }, [latitude, longitude, mapUrl, onMapError, reloadKey, isValid]);
 
   const handleRetry = () => {
+    errorNotifiedRef.current = false;
+    isLoadingRef.current = true;
     setMapError(false);
     setLoading(true);
     setReloadKey((k) => k + 1);
@@ -145,30 +161,68 @@ export function LocationMap({
             loading="lazy"
             referrerPolicy="no-referrer-when-downgrade"
             sandbox="allow-scripts allow-same-origin"
-            onLoad={() => setLoading(false)}
+            onLoad={() => {
+              isLoadingRef.current = false;
+              setLoading(false);
+            }}
             onError={() => {
+              isLoadingRef.current = false;
               setLoading(false);
               setMapError(true);
-              onMapError?.(new Error('Falha ao carregar iframe OpenStreetMap'));
+              notifyMapError(new Error('Falha ao carregar iframe OpenStreetMap'));
             }}
           />
         ) : NativeWebView ? (
           <NativeWebView
             key={`osm-wv-${reloadKey}`}
             source={{ uri: mapUrl }}
-            style={{ flex: 1, display: mapError ? 'none' : 'flex' }}
+            containerStyle={[
+              styles.webViewContainer,
+              mapError ? styles.hidden : undefined,
+            ]}
+            style={[
+              styles.webView,
+              mapError ? styles.hidden : undefined,
+            ]}
             onShouldStartLoadWithRequest={(request: { url: string }) => {
+              if (request.url === 'about:blank') {
+                return true;
+              }
               return isAllowedMapUrl(request.url);
             }}
             originWhitelist={[OSM_EMBED_ORIGIN]}
             javaScriptEnabled={true}
             domStorageEnabled={true}
-            onLoadStart={() => setLoading(true)}
-            onLoadEnd={() => setLoading(false)}
-            onError={(syntheticEvent: any) => {
+            onLoadStart={() => {
+              isLoadingRef.current = true;
+              setLoading(true);
+            }}
+            onLoad={() => {
+              isLoadingRef.current = false;
+              if (!errorNotifiedRef.current) {
+                setLoading(false);
+              }
+            }}
+            onLoadEnd={() => {
+              isLoadingRef.current = false;
+              setLoading(false);
+            }}
+            onHttpError={(syntheticEvent: any) => {
+              const statusCode = syntheticEvent?.nativeEvent?.statusCode;
+              const description =
+                syntheticEvent?.nativeEvent?.description || `HTTP ${statusCode}`;
+              isLoadingRef.current = false;
               setLoading(false);
               setMapError(true);
-              onMapError?.(
+              notifyMapError(
+                new Error(`Falha HTTP ao carregar o mapa (${statusCode}): ${description}`),
+              );
+            }}
+            onError={(syntheticEvent: any) => {
+              isLoadingRef.current = false;
+              setLoading(false);
+              setMapError(true);
+              notifyMapError(
                 new Error(
                   syntheticEvent?.nativeEvent?.description ||
                     'Falha ao carregar WebView do mapa',
@@ -278,6 +332,22 @@ const styles = StyleSheet.create({
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  webViewContainer: {
+    width: '100%',
+    height: '100%',
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  webView: {
+    width: '100%',
+    height: '100%',
+    flex: 1,
+    alignSelf: 'stretch',
+    backgroundColor: 'transparent',
+  },
+  hidden: {
+    display: 'none',
   },
   fallbackBox: {
     padding: 16,

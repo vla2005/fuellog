@@ -55,7 +55,7 @@ const draft = (id, liters = '35') => ({ id, liters, unitPrice: '6', manualPaidTo
   fuelType: 'ETHANOL', tankState: 'FULL', historyGapBefore: false, stationName: '', notes: '', showMoreDetails: false });
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 
-function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gps = {}, clock = globalThis, props = {} } = {}) {
+function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gps = {}, clock = globalThis, props = {}, observableReturn = true } = {}) {
   let index = 0;
   let dirty = false;
   let pendingEffects = [];
@@ -63,11 +63,13 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   const writes = [];
   const activity = { tabActive: true, appActive: true };
   const navigation = [];
+  const openedUrls = [];
   const session = { status: 'authenticated', user: { id: 'user', preferredTimezone: 'America/Sao_Paulo' }, vehicles: [vehicle('A'), vehicle('B')],
     activeVehicle: vehicle('A'), selectedPeriod: period, dataVersion: 0, invalidateFuelData() {}, showToast() {},
     createNewVehicle: payload => endpoints.createVehicle(payload) };
   const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
   const react = {
+    createElement(type, props, ...children) { return { type, props: { ...props, children } }; },
     useContext() { return activity.tabActive; },
     useState(initial) {
       const i = index++;
@@ -87,9 +89,12 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
       });
     },
   };
+  react.default = react;
   class ApiError extends Error { constructor(options) { super(options.message); Object.assign(this, options); } }
   const dependencies = {
-    react, 'react-native': { StyleSheet: { create: styles => styles }, Platform: { OS: 'android' }, Linking: {} },
+    react, 'react-native': { StyleSheet: { create: styles => styles, absoluteFillObject: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } },
+      Platform: { OS: 'android' }, Linking: { openURL: async url => { openedUrls.push(url); } }, View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator' },
+    'react-native-webview': { WebView: 'NativeWebView' },
     'expo-location': {
       Accuracy: { Balanced: 3 },
       hasServicesEnabledAsync: async () => true,
@@ -116,8 +121,8 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   dependencies['./useForegroundLocation'] = {
     useForegroundLocation: loadScreen('features/fueling/useForegroundLocation.ts', 'useForegroundLocation', dependencies, false, clock),
   };
-  const screen = loadScreen(relativePath, exportName, dependencies, true, clock);
-  const harness = { session, store, writes, activity, navigation, ApiError, snapshot: null,
+  const screen = loadScreen(relativePath, exportName, dependencies, observableReturn, clock);
+  const harness = { session, store, writes, activity, navigation, openedUrls, ApiError, snapshot: null,
     render() { index = 0; dirty = false; pendingEffects = []; harness.snapshot = screen(props); const effects = pendingEffects; effects.forEach(effect => effect()); },
     async settle() { for (let i = 0; i < 12; i++) { await new Promise(resolve => setImmediate(resolve)); if (dirty) harness.render(); } },
     async remountBeforeOldCleanup() {
@@ -128,10 +133,82 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
       await harness.settle();
     },
     async switchVehicle(id) { session.activeVehicle = session.vehicles.find(item => item.id === id); harness.render(); await harness.settle(); },
+    unmount() { hooks.forEach(hook => hook?.cleanup?.()); },
   };
   harness.render();
   return harness;
 }
+
+function findElement(node, matches) {
+  if (!node || typeof node !== 'object') return null;
+  if (matches(node)) return node;
+  for (const child of node.props?.children?.flat(Infinity) ?? []) {
+    const found = findElement(child, matches);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('mapa nativo preserva erro HTTP após fim do carregamento e permite nova tentativa', async () => {
+  const errors = [];
+  const coordinates = { latitude: -23.55052, longitude: -46.633308 };
+  const h = mount('components/location/LocationMap.tsx', 'LocationMap', {
+    props: { ...coordinates, onMapError: error => errors.push(error) }, observableReturn: false,
+  });
+  await h.settle();
+  const webview = () => findElement(h.snapshot, node => node.type === 'NativeWebView');
+  const retry = () => findElement(h.snapshot, node => node.props?.accessibilityLabel === 'Tentar carregar o mapa novamente');
+  try {
+    const source = webview().props.source.uri;
+    const allowNavigation = webview().props.onShouldStartLoadWithRequest;
+    assert.equal(allowNavigation({ url: source }), true);
+    assert.equal(allowNavigation({ url: 'about:blank' }), true);
+    assert.equal(allowNavigation({ url: 'https://example.test/' }), false);
+    assert.equal(allowNavigation({ url: 'https://www.openstreetmap.org/other-page' }), false);
+    assert.deepEqual(h.openedUrls, [], 'Bloquear navegação não abre navegador externo automaticamente');
+    assert.equal(typeof webview().props.onHttpError, 'function');
+    webview().props.onHttpError({ nativeEvent: { statusCode: 503, description: 'Service unavailable', url: source } });
+    await h.settle();
+    webview().props.onLoadEnd?.({ nativeEvent: { url: source } });
+    await h.settle();
+    assert.ok(retry(), 'HTTP 503 permanece visível mesmo após onLoadEnd');
+    assert.equal(errors.length, 1);
+    retry().props.onPress();
+    await h.settle();
+    assert.equal(retry(), null);
+    assert.equal(webview().props.source.uri, source, 'Retry usa as mesmas coordenadas, sem recapturar GPS');
+    webview().props.onLoad?.({ nativeEvent: { url: source } });
+    webview().props.onLoadEnd?.({ nativeEvent: { url: source } });
+    await h.settle();
+    assert.equal(retry(), null);
+  } finally { h.unmount(); }
+});
+
+test('timeout do mapa permite retry e desmontagem cancela os temporizadores', async () => {
+  let timerId = 0;
+  const timers = new Map();
+  const clock = {
+    setTimeout(callback) { const id = ++timerId; timers.set(id, callback); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  };
+  const errors = [];
+  const h = mount('components/location/LocationMap.tsx', 'LocationMap', {
+    clock, props: { latitude: 0, longitude: 0, onMapError: error => errors.push(error) }, observableReturn: false,
+  });
+  await h.settle();
+  try {
+    assert.ok(timers.size > 0);
+    for (const [id, callback] of [...timers]) { timers.delete(id); callback(); }
+    await h.settle();
+    const retry = findElement(h.snapshot, node => node.props?.accessibilityLabel === 'Tentar carregar o mapa novamente');
+    assert.ok(retry, 'Timeout expõe recuperação em vez de spinner permanente');
+    assert.equal(errors.length, 1);
+    retry.props.onPress();
+    await h.settle();
+    assert.ok(timers.size > 0, 'Retry recebe novo prazo de carregamento');
+  } finally { h.unmount(); }
+  assert.equal(timers.size, 0);
+});
 
 test('cadastro envia quilometragem opcional sem arredondar e preserva dados em falhas', async () => {
   for (const [input, expected] of [['', undefined], ['0', 0], ['45000', 45000], ['007', 7], ['-1', 'invalid'], ['1.5', 'invalid'], ['9007199254740993', 'invalid']]) {
