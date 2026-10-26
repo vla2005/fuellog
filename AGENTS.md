@@ -1,259 +1,76 @@
 # AGENTS.md — FuelLog
 
-## Projeto
-
-FuelLog é um aplicativo para registrar abastecimentos e acompanhar
-gastos, preços e consumo por veículo.
-
-Stack definida:
-- Backend: Java + Spring Boot.
-- Banco: PostgreSQL.
-- Migrações: Flyway.
-- Mobile: React Native + Expo + TypeScript.
-- Design: Paper Design por MCP.
-
-Preserve versões e configurações existentes, salvo necessidade
-demonstrada e registrada.
-
-## Antes de começar
-
-1. Leia este arquivo e eventuais AGENTS.md mais específicos.
-2. Inspecione o código, as dependências e o estado do Git.
-3. Leia os planos pertinentes em docs.
-4. Examine as últimas imagens aprovadas antes de alterar a interface.
-5. Confirme seu papel e o escopo da tarefa recebida.
-6. Preserve alterações preexistentes do usuário.
-
-Não recrie projetos, substitua configurações ou reorganize pastas
-sem avaliar o que já existe.
-
-## Divisão de responsabilidades
-
-### Codex 6.1 Sol
-
-Responsável por:
-- Orquestração.
-- Backend e contratos HTTP.
-- Banco, índices, constraints e migrações.
-- Autenticação e autorização.
-- Regras de negócio e indicadores.
-- Estratégia e implementação dos testes.
-- Revisão técnica e integração.
+Java/Spring Boot, PostgreSQL/Flyway, React Native/Expo/TypeScript.
+Preserve versões, arquitetura e identidade aprovadas. Consulte os planos em `docs/` sob demanda.
 
-### Antigravity — 3.8 Flash ou 4 Argon
+## Execução enxuta
 
-Responsável por:
-- Design no Paper via MCP.
-- Frontend React Native.
-- Componentes, navegação e temas.
-- Animações e comportamento do mascote.
-- Acessibilidade e adaptação de layout.
-- Integração visual com os contratos do backend.
-
-O papel concreto vem da tarefa atribuída pelo orquestrador.
-Este arquivo não transforma todo agente em orquestrador.
+Esta política vale para novas tarefas e substitui exigências antigas de agentes, worktrees e documentação sistemáticos. Economize tokens e tempo sem reduzir correção, segurança ou verificações obrigatórias.
 
-Não substitua silenciosamente o Antigravity pelo Codex no frontend.
-
-Use somente ferramentas e identificadores de modelos realmente
-disponíveis. Não finja delegação ou comunicação entre agentes.
-
-## Agente de operações Git
-
-Responsável: OpenCode com MiMo-V2.6-Flash Free.
-
-Esse agente cuida exclusivamente de:
-- Inspecionar git status e diffs.
-- Organizar alterações concluídas em commits coerentes.
-- Escrever mensagens de commit.
-- Fazer push das branches autorizadas pelo orquestrador.
-- Criar e atualizar pull requests.
-- Informar branch, commits, resultado do push e URL do PR.
-
-### Limites de responsabilidade
-
-- Não implementar funcionalidades nem corrigir código por iniciativa própria.
-- Backend, banco e testes continuam com Codex.
-- Frontend e design continuam com Antigravity.
-- A revisão técnica e a decisão de integração pertencem ao orquestrador.
-- Abrir PR não autoriza fazer merge.
-- Não executar deploy.
-
-### Procedimento obrigatório
-
-1. Receber do orquestrador a branch, o escopo e os arquivos liberados.
-2. Conferir branch atual, status e alterações existentes.
-3. Verificar se os arquivos correspondem ao escopo recebido.
-4. Conferir as verificações informadas pelo responsável.
-5. Adicionar ao staging somente arquivos ou trechos autorizados.
-6. Revisar o diff do staging antes de criar o commit.
-7. Fazer commit, push e PR conforme a tarefa recebida.
-8. Retornar hashes, resultados e URL do PR.
-
-Não usar git add . ou git add -A indiscriminadamente.
-Não incluir alterações incompletas de outros agentes.
-Não incluir credenciais, tokens, arquivos .env ou dados sensíveis.
-Não ignorar hooks ou verificações para concluir uma tarefa.
-Não fazer force push, reset destrutivo, descarte de alterações
-ou reescrita de commits publicados sem autorização específica.
-
-Se arquivos continuarem sendo editados por outro agente,
-solicitar ao orquestrador uma entrega estável antes de criar o commit.
-
-Se houver conflito, falha de teste ou mudança fora do escopo,
-informar o orquestrador. Não resolver alterando a implementação.
+- Leia instruções aplicáveis, estado do Git e apenas arquivos/trechos relevantes. Faça buscas direcionadas; não releia projeto, planos, imagens ou histórico completos por rotina.
+- Use objetivo e critérios de aceite breves; dispense planejamento extenso em tarefas pequenas.
+- Padrão: orquestrador + um implementador. O orquestrador coordena e revisa. Sem agentes exclusivos de QA, documentação, status ou handoff de rotina.
+- Paralelize apenas trabalho independente com ganho claro, normalmente até dois implementadores. Defina responsáveis por arquivos. Sem escrita concorrente ou subdelegação em cascata.
+- Reutilize a sessão da tarefa; substitua-a com resumo mínimo se acumular contexto irrelevante. Delegue objetivo, critérios, referências, restrições e validação; não todo o histórico.
+- Evite consultas de status repetitivas. Diante de tentativas sem avanço, diagnostique o bloqueio; não abra mais agentes para contorná-lo sem entender a causa.
+- Resolva decisões rotineiras autonomamente. Pergunte apenas por decisão material, acesso ou autorização indispensável ainda ausente.
+- Cumpra o escopo e finalize ao atender critérios e verificações. Deixe melhorias opcionais para depois; sem refatorações, dependências, polimento ou prazos artificiais.
 
-O orquestrador deve garantir acesso exclusivo à área de staging
-durante commit, evitando comandos Git concorrentes no mesmo worktree.
+## Responsáveis
 
-### Restrição de custos
+- **Codex 6.1 Sol:** orquestração, backend, banco, contratos, segurança, regras de negócio, testes, revisão e integração.
+- **Antigravity / Gemini 3.8 Flash, esforço HIGH:** código frontend, animações, integrações, análise e correção de bugs, além de design, inclusive Paper/FigCraft. Esta é a seleção vigente até nova orientação do usuário; Gemini 4 Argon está sem cota e não deve ser utilizado.
+- **Antigravity / Gemini 3.8 Flash:** conversas, planejamento e documentação. Para atividades de frontend, confirme o modelo e o esforço HIGH nas ferramentas reais antes de implementar; se indisponíveis, informe a limitação sem substituir silenciosamente.
+- **OpenCode / MiMo V2.6 Flash Free:** somente Git.
 
-- Usar exclusivamente MiMo-V2.6-Flash Free no agente Git.
-- Não selecionar modelos pagos, auxiliares pagos ou fallbacks pagos.
-- Não comprar créditos, contratar assinaturas ou habilitar recarga automática.
-- Se o modelo gratuito ficar indisponível, interromper a tarefa
-  e informar o orquestrador, sem substituir o modelo.
-- Não habilitar serviços pagos do GitHub.
-
-## Coordenação
+Não abra uma sessão por responsabilidade. O orquestrador pode executar verificações e revisar o diff sem outro Codex; coordene arquivos de testes compartilhados com Antigravity.
 
-O orquestrador mantém em docs/orchestration:
-- CONTEXT.md: contexto e decisões vigentes.
-- TASKS.md: tarefas, responsáveis e dependências.
-- CONTRACTS.md: decisões de integração.
-- HANDOFF.md: progresso, verificações e próximos passos.
+Agrupe etapas do Antigravity para evitar trocas desnecessárias; status fica com o orquestrador. Selecione modelos nas ferramentas reais. Não alegue troca não confirmada nem substitua silenciosamente modelo indisponível.
 
-Reutilize documentos equivalentes, evitando duplicação.
+## Worktrees e coordenação
 
-Antes de trabalhar em paralelo:
-- Defina responsabilidade por arquivos.
-- Identifique dependências.
-- Combine critérios de aceite.
-- Evite dois agentes editando o mesmo arquivo.
-
-O Paper deve ter um único agente escritor por vez.
-
-Dúvidas entre frontend e backend passam pelo orquestrador.
-Mudanças de contrato precisam ser comunicadas aos consumidores.
-
-Se não houver comunicação automática, prepare um handoff completo
-e continue tarefas independentes dentro do seu escopo.
+- Trabalhe e entregue por padrão na `main`, em `C:/Users/vikto/Desktop/FuelLog`, para que o usuário acompanhe as funcionalidades juntas. Faça commits na `main` após as verificações pertinentes. Não crie novos commits nos worktrees de funcionalidades existentes; use-os somente como fonte da integração e preserve suas alterações. Novo isolamento em worktree exige pedido específico do usuário.
+- Confira base, branch e alterações antes de criar: trabalho não commitado não acompanha automaticamente o novo checkout.
+- Preserve alterações preexistentes; não descarte trabalho nem remova worktrees com pendências.
+- Um responsável pelo staging no worktree correto; commits após estabilizar arquivos.
+- Paper/FigCraft: um escritor por documento; worktrees não isolam o design.
+- Reutilize registros existentes. Não exija CONTEXT, TASKS, CONTRACTS e HANDOFF por tarefa. Registre apenas decisões duráveis, contratos alterados e pendências necessárias.
+- O orquestrador transmite dúvidas/respostas com contexto mínimo. Não mantenha agentes ociosos.
 
-## Arquitetura
+## Implementação
 
-- Backend em monólito modular, organizado por funcionalidades.
-- Concentre regras de domínio em módulos com interfaces simples.
-- Controllers traduzem HTTP; não concentram regras de negócio.
-- Não exponha entidades JPA diretamente como contrato HTTP.
-- Evite abstrações genéricas sem necessidade concreta.
-- Frontend compartilha componentes, tokens e mecanismos de feedback.
-- Mocks e integração real devem ser claramente distinguíveis.
+- Monólito modular por funcionalidade; domínio contém regras, controllers traduzem HTTP, DTOs definem contratos. Sem entidades JPA expostas ou abstrações desnecessárias.
+- Novas migrações Flyway; não edite as aplicadas. Sem `ddl-auto=update` permanente. BigDecimal/NUMERIC para precisão.
+- Valide entradas, autorização e posse no servidor, inclusive métricas/exportações. UUID não autoriza acesso. Senhas com hash; segredos fora de código, logs e bundle.
+- Preserve autenticação do plano: access curto, refresh duradouro com rotação/revogação, validação central em toda rota protegida e usuário do contexto autenticado. Refresh no app coordenado, sem loops.
+- Preserve campos e regras de abastecimento, total efetivamente pago, validação retroativa entre vizinhos, reenvios e conflitos. Consumo usa ciclos válidos entre cheios, incluindo intermediários e excluindo o volume inicial; não invente indicadores incompletos.
+- Distinga mocks de integração real. Sem destruição de dados reais ou mudanças em produção sem autorização e recuperação adequada.
+- Preserve mascote de boné, jaqueta azul e caderninho, wordmark pixelado e paleta aprovada. Sem redesenho ou propostas rejeitadas. Consulte imagens e Paper/FigCraft apenas quando pertinentes.
+- Reutilize componentes/tokens; mantenha temas claro/escuro, legibilidade, safe areas, teclado, fonte ampliada e acessibilidade.
+- Animações: movimento reduzido, limpeza na desmontagem, pausa em segundo plano; evite loops contínuos e estado React por quadro. Preserve formulários em falhas e celebre somente salvamento confirmado.
+- Atualize documentação, inclusive movimento, apenas quando seu conteúdo mudar.
 
-## Banco e segurança
+## Verificação e entrega
 
-- Evolua o esquema por migrações Flyway versionadas.
-- Não altere migrações já aplicadas; crie novas migrações.
-- Não use ddl-auto=update como estratégia permanente.
-- Use BigDecimal e NUMERIC para valores que exigem precisão.
-- Nunca armazene senhas em texto puro.
-- Não coloque segredos no código, logs ou bundle mobile.
-- Valide autorização e posse no servidor.
-- Aplique isolamento também em métricas e exportações.
-- UUID não substitui autorização.
-- Valide dados recebidos independentemente do frontend.
-- Não execute ações destrutivas em bancos com dados reais sem
-  autorização explícita e estratégia de recuperação.
+- Revise diff e caminhos afetados; amplie por risco ou evidência. Revisão independente exige motivo concreto.
+- Execute verificações pertinentes e obrigatórias. Teste cálculos, auth, isolamento, migrações, concorrência ou jornadas quando afetados. Evite testes que apenas copiem a implementação.
+- Reutilize resultados válidos; repita após alteração relevante, falha ou dúvida. Consolide observações antes de pedir correções.
+- Não declare testes ou validações não executados. Compilação/desenho não comprova animação nativa.
+- Entrega curta: mudança, validação, pendência relevante e commits/PR, se houver. Diferencie implementado de integrado/testado; dispense relatórios extensos.
 
-## Regras de abastecimento
+## Git e custos
 
-Siga o plano funcional em docs.
+Concluída uma unidade coerente, encaminhe ao agente Git o diretório principal, branch `main`, escopo, arquivos liberados e validação. Agrupe operações; não abra agente por commit. A integração local das funcionalidades atuais na `main` está autorizada pelo usuário; preserve o trabalho existente e valide a combinação antes do commit. Push/PR conforme pedido ou autorização vigente; PR não autoriza merge.
 
-Preserve:
-- Data/hora, litros, preço por litro, valor pago, hodômetro e combustível.
-- Estado do tanque e continuidade do histórico.
-- Total efetivamente pago, inclusive quando houver ajuste justificado.
-- Validação de lançamentos retroativos contra os vizinhos.
-- Prevenção de duplicação por reenvio.
-- Tratamento de conflitos de edição.
+- Confira branch/status, diff e staging. Adicione arquivos/trechos explícitos; sem `git add .` ou `git add -A` indiscriminados.
+- Commits pequenos: `feat(api): ...`, `feat(app): ...`, `fix(api): ...`, `docs: ...`, `test(api): ...`, `chore: ...`. Sem escopo vazio.
+- Exclua segredos, .env e trabalho incompleto/alheio. Preserve hooks. Git não altera implementação; conflitos/falhas voltam ao responsável.
+- Retorne hashes, resultados e URL do PR quando criado.
+- Sem merge, deploy, force push, reset destrutivo, descarte ou reescrita de commits publicados sem autorização específica.
+- Git usa MiMo V2.6 Flash Free como padrão. Enquanto estiver sem cota, o usuário autoriza outro modelo comprovadamente gratuito do OpenCode, com modelo principal e auxiliar gratuitos confirmados no ambiente. Sem fallback/auxiliar pago, créditos, assinatura, recarga automática ou serviço pago do GitHub. Se não houver modelo gratuito disponível, pare essa etapa e informe.
 
-Consumo usa ciclos válidos entre tanques cheios, incluindo os
-abastecimentos intermediários e excluindo o volume do cheio inicial.
+Configure modelos e cobrança no ambiente: instruções textuais não garantem gratuidade.
 
-Não invente consumo para ciclos incompletos.
-Ausência de indicador deve ter explicação, não um zero enganoso.
+## Exceção temporária de Git autorizada pelo usuário
 
-## Identidade e interface
-
-A referência vigente é a última identidade aprovada:
-- Mascote pixelado de boné, jaqueta azul e caderninho.
-- Wordmark FuelLog pixelado.
-- Azul royal, azul-marinho, branco quente e grafite.
-- Textos e números em tipografia moderna e legível.
-
-Não use logos antigas de bomba ou propostas abstratas rejeitadas.
-
-Preserve a aparência do mascote.
-Não redesenhe o personagem sem autorização.
-
-Mantenha temas claro e escuro, safe areas, teclado, fonte ampliada
-e rótulos acessíveis.
-
-Imagens são referências visuais; corrija inconsistências de dados
-ou usabilidade sem descaracterizar o design.
-
-## Animações
-
-Siga FuelLog_Plano_Interface_Paper_Codex.md, quando disponível,
-e registre decisões finais em MOTION.md.
-
-- Anime navegação, seleção, botões, sheets e feedback.
-- Preserve a leitura e a digitação dos valores.
-- Reutilize tokens de duração e curvas.
-- Respeite movimento reduzido.
-- Cancele efeitos na desmontagem e pause decoração em segundo plano.
-- Evite loops decorativos contínuos.
-- Não use atualização de estado React por quadro.
-- Não celebre salvamento antes da confirmação.
-- Preserve formulário e rascunho em falhas.
-
-Desenho estático no Paper não comprova animação implementada.
-Valide o movimento na aplicação executável.
-
-## Testes e verificação
-
-Codex coordena os testes, inclusive os de frontend, combinando
-alterações de arquivos com o Antigravity.
-
-Execute verificações apropriadas à mudança:
-- Regras financeiras e ciclos de consumo.
-- Integração com PostgreSQL e migrações.
-- Isolamento entre usuários.
-- Contratos HTTP.
-- Reenvio, concorrência e falhas.
-- Jornadas principais do aplicativo.
-- Estados visuais e acessibilidade.
-
-Não declare teste aprovado sem executá-lo.
-Não afirme fluidez nativa apenas porque o bundle compilou.
-
-## Entrega de cada tarefa
-
-Informe:
-- O que mudou.
-- Arquivos alterados.
-- Verificações executadas e resultados.
-- Dependências, limitações e riscos concretos.
-- Próximo passo ou handoff necessário.
-
-Diferencie planejado, desenhado, implementado, integrado e testado.
-
-## Autonomia e limites
-
-Resolva escolhas rotineiras com base nos planos e no código.
-Não peça confirmação para decisões já autorizadas.
-
-Consulte o usuário quando faltar uma decisão relevante, acesso
-indispensável ou autorização para ação externa ou destrutiva.
-
-Não publique em lojas, contrate serviços, altere produção,
-execute force push ou descarte trabalho sem autorização específica.
+Para as atividades atuais, use GPT-6 Luna com esforço low nas operações Git, conforme autorização explícita do usuário. Confirme modelo e esforço nas ferramentas reais. Essa exceção substitui temporariamente apenas o roteamento e a exigência de modelo gratuito do agente Git; não autoriza compra, recarga, serviços pagos, push/PR/merge além do escopo aprovado, nem alterações de implementação pelo agente Git.
