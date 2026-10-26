@@ -1,7 +1,12 @@
 import React from 'react';
-
-import { HomeScreen } from '@/features/home/HomeScreen';
+import { StyleSheet, View } from 'react-native';
 
 export default function IndexRoute() {
-  return <HomeScreen />;
+  return <View style={styles.placeholder} />;
 }
+
+const styles = StyleSheet.create({
+  placeholder: {
+    flex: 1,
+  },
+});

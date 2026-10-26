@@ -24,6 +24,7 @@ export interface PrimaryButtonProps {
   style?: StyleProp<ViewStyle>;
   testID?: string;
   accessibilityLabel?: string;
+  stepped?: boolean;
 }
 
 export function PrimaryButton({
@@ -36,6 +37,7 @@ export function PrimaryButton({
   style,
   testID,
   accessibilityLabel,
+  stepped = true,
 }: PrimaryButtonProps) {
   const { colors, isDark } = useAppTheme();
   const { reduceMotion, duration, easing } = useMotionPolicy();
@@ -43,8 +45,23 @@ export function PrimaryButton({
 
   const isInteractive = !disabled && !loading;
 
+  React.useEffect(() => {
+    if (reduceMotion) {
+      scale.stopAnimation();
+      scale.setValue(1);
+    }
+  }, [reduceMotion, scale]);
+
+  React.useEffect(() => {
+    return () => {
+      scale.stopAnimation();
+      scale.setValue(1);
+    };
+  }, [scale]);
+
   const handlePressIn = () => {
     if (!isInteractive || reduceMotion) return;
+    scale.stopAnimation();
     Animated.timing(scale, {
       toValue: 0.98,
       duration: duration('fast'),
@@ -55,6 +72,7 @@ export function PrimaryButton({
 
   const handlePressOut = () => {
     if (reduceMotion) return;
+    scale.stopAnimation();
     Animated.timing(scale, {
       toValue: 1,
       duration: duration('fast'),
@@ -63,6 +81,7 @@ export function PrimaryButton({
     }).start();
   };
 
+  const isPrimary = variant === 'primary';
   const bgColor =
     variant === 'primary'
       ? colors.accentPrimary
@@ -88,6 +107,8 @@ export function PrimaryButton({
         ? colors.dangerText
         : colors.textPrimary;
 
+  const useStepped = isPrimary && stepped;
+
   return (
     <Animated.View style={[{ transform: [{ scale }] }, style]}>
       <Pressable
@@ -102,30 +123,79 @@ export function PrimaryButton({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={({ pressed }) => [
-          styles.button,
-          {
-            backgroundColor:
-              pressed && variant === 'primary' ? colors.accentPressed : bgColor,
-            borderColor,
-            opacity: disabled && !loading ? 0.52 : 1,
-          },
-          variant === 'primary' && !isDark ? shadows.lightFloating : null,
+          styles.pressableRoot,
+          { opacity: disabled && !loading ? 0.52 : 1 },
         ]}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color={textColor} />
-        ) : (
-          <View style={styles.contentRow}>
-            {leftIcon}
-            <Text style={[styles.label, { color: textColor }]}>{label}</Text>
-          </View>
-        )}
+        {({ pressed }) => {
+          const currentBg = pressed && isPrimary ? colors.accentPressed : bgColor;
+          if (useStepped) {
+            return (
+              <View style={styles.steppedContainer}>
+                {/* Top stepped cap */}
+                <View style={[styles.stepCap, { backgroundColor: currentBg }]} />
+                {/* Center body */}
+                <View style={[styles.stepBody, { backgroundColor: currentBg }]}>
+                  {loading ? (
+                    <ActivityIndicator size="small" color={textColor} />
+                  ) : (
+                    <View style={styles.contentRow}>
+                      {leftIcon}
+                      <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+                    </View>
+                  )}
+                </View>
+                {/* Bottom stepped cap */}
+                <View style={[styles.stepCap, { backgroundColor: currentBg }]} />
+              </View>
+            );
+          }
+
+          return (
+            <View
+              style={[
+                styles.button,
+                {
+                  backgroundColor: currentBg,
+                  borderColor,
+                },
+                isPrimary && !isDark ? shadows.lightFloating : null,
+              ]}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={textColor} />
+              ) : (
+                <View style={styles.contentRow}>
+                  {leftIcon}
+                  <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+                </View>
+              )}
+            </View>
+          );
+        }}
       </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  pressableRoot: {
+    width: '100%',
+  },
+  steppedContainer: {
+    width: '100%',
+  },
+  stepCap: {
+    height: 3,
+    marginHorizontal: 8,
+  },
+  stepBody: {
+    minHeight: 48,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   button: {
     minHeight: 54,
     paddingHorizontal: 20,
@@ -144,5 +214,6 @@ const styles = StyleSheet.create({
   label: {
     ...typography.bodyStrong,
     fontSize: 16,
+    fontWeight: '700',
   },
 });

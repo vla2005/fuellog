@@ -2,7 +2,7 @@ import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
+  Image,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -13,7 +13,6 @@ import {
 
 import { ApiError } from '@/api/types';
 import { BrandLockup } from '@/components/brand/BrandLockup';
-import { DiagonalPixelSpark, PixelMascot } from '@/components/brand/PixelMascot';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
   ChevronLeftIcon,
@@ -27,19 +26,17 @@ import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { FONTS, radii, typography } from '@/theme/tokens';
+import { radii, typography } from '@/theme/tokens';
 
 export function RegisterScreen() {
   const router = useRouter();
-  const { colors, isDark } = useAppTheme();
+  const { colors } = useAppTheme();
   const { signUpAndSignIn, showToast } = useSession();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -82,12 +79,6 @@ export function RegisterScreen() {
 
     if (password.length < 6 || password.length > 128) {
       localErrors.password = 'A senha deve ter entre 6 e 128 caracteres.';
-    }
-
-    if (!confirmPassword) {
-      localErrors.confirmPassword = 'Confirme a senha digitada.';
-    } else if (confirmPassword !== password) {
-      localErrors.confirmPassword = 'As senhas informadas não coincidem.';
     }
 
     if (Object.keys(localErrors).length > 0) {
@@ -164,7 +155,7 @@ export function RegisterScreen() {
         <View style={styles.headerRightSpacer} />
       </View>
 
-      {/* Split Hero: Left text + Right Mascot */}
+      {/* Split Hero: Left title + Right Mascot sitting spot illustration */}
       <Pressable
         onPress={Keyboard.dismiss}
         accessible={false}
@@ -172,18 +163,23 @@ export function RegisterScreen() {
       >
         <View style={styles.heroTextCol}>
           <Text style={[styles.heroHeadline, { color: colors.textPrimary }]}>
-            Vamos começar?
+            Criar conta
           </Text>
           <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-            Crie sua conta no FuelLog.
+            Acompanhe seus gastos com precisão.
           </Text>
         </View>
         <View style={styles.heroMascotCol}>
-          <PixelMascot variant="full" size={88} showSparks />
+          <Image
+            source={require('@/assets/brand/mascote_sitting.png')}
+            style={styles.mascotImage}
+            resizeMode="contain"
+            accessibilityLabel="Mascote FuelLog sentado com prancheta"
+          />
         </View>
       </Pressable>
 
-      {/* Form Fields directly on canvas */}
+      {/* Form Fields directly on canvas: Nome, E-mail, Senha */}
       <View style={styles.formSection}>
         {errorMessage ? (
           <InlineNotice tone="danger" message={errorMessage} />
@@ -291,98 +287,24 @@ export function RegisterScreen() {
             </Text>
           ) : (
             <Text style={[styles.helperText, { color: colors.textSecondary }]}>
-              Use uma senha exclusiva.
+              Mínimo de 6 caracteres.
             </Text>
           )}
         </View>
 
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.label, { color: colors.textPrimary }]}>
-            Confirmar senha
-          </Text>
-          <View
-            style={[
-              styles.inputRow,
-              {
-                backgroundColor: inputBg,
-                borderColor: fieldErrors.confirmPassword
-                  ? colors.dangerBorder
-                  : inputBorder,
-              },
-            ]}
-          >
-            <LockIcon size={20} color={colors.accentPrimary} />
-            <TextInput
-              accessibilityLabel="Confirmar senha"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="••••••••"
-              placeholderTextColor={colors.textMuted}
-              secureTextEntry={!showConfirmPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[styles.textInput, { color: colors.textPrimary }]}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                showConfirmPassword
-                  ? 'Ocultar confirmação de senha'
-                  : 'Mostrar confirmação de senha'
-              }
-              onPress={() => setShowConfirmPassword((prev) => !prev)}
-              style={styles.eyeButton}
-            >
-              <EyeIcon
-                size={20}
-                color={colors.textSecondary}
-                off={showConfirmPassword}
-              />
-            </Pressable>
-          </View>
-          {fieldErrors.confirmPassword ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {fieldErrors.confirmPassword}
-            </Text>
-          ) : null}
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Criar conta"
-          accessibilityState={{ disabled: submitting, busy: submitting }}
-          aria-disabled={submitting}
-          aria-busy={submitting}
-          disabled={submitting}
+        <PrimaryButton
+          label="Criar conta"
           onPress={handleSubmit}
-          style={({ pressed }) => [
-            styles.primaryCta,
-            {
-              backgroundColor: pressed
-                ? colors.accentPressed
-                : colors.accentPrimary,
-              opacity: submitting ? 0.7 : 1,
-            },
-          ]}
-        >
-          {submitting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <View style={styles.ctaSideSpacer} />
-              <Text style={styles.primaryCtaLabel}>Criar conta</Text>
-              <Text style={styles.primaryCtaArrow} aria-hidden>
-                →
-              </Text>
-            </>
-          )}
-        </Pressable>
+          loading={submitting}
+          stepped
+          style={{ marginTop: 4 }}
+        />
       </View>
 
       {/* Legal & Login links */}
       <View style={styles.bottomLinksBlock}>
         <View style={styles.legalCenteredRow}>
-          <Text style={[styles.legalText, { color: colors.textPrimary }]}>
+          <Text style={[styles.legalText, { color: colors.textSecondary }]}>
             Consulte nossos{' '}
           </Text>
           <Pressable
@@ -394,7 +316,7 @@ export function RegisterScreen() {
               Termos de Uso
             </Text>
           </Pressable>
-          <Text style={[styles.legalText, { color: colors.textPrimary }]}> e </Text>
+          <Text style={[styles.legalText, { color: colors.textSecondary }]}> e </Text>
           <Pressable
             accessibilityRole="link"
             accessibilityLabel="Política de Privacidade"
@@ -404,7 +326,7 @@ export function RegisterScreen() {
               Política de Privacidade
             </Text>
           </Pressable>
-          <Text style={[styles.legalText, { color: colors.textPrimary }]}>.</Text>
+          <Text style={[styles.legalText, { color: colors.textSecondary }]}>.</Text>
         </View>
 
         <View style={styles.loginInlineRow}>
@@ -426,13 +348,6 @@ export function RegisterScreen() {
               Entrar
             </Text>
           </Pressable>
-        </View>
-
-        <View style={styles.brandFooter}>
-          <DiagonalPixelSpark size={6} />
-          <Text style={[styles.brandFooterText, { color: colors.textSecondary }]}>
-            Cada abastecimento conta.
-          </Text>
         </View>
       </View>
 
@@ -462,7 +377,7 @@ export function RegisterScreen() {
 const styles = StyleSheet.create({
   scrollContent: {
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   topHeader: {
     flexDirection: 'row',
@@ -485,7 +400,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 16,
     gap: 12,
   },
   heroTextCol: {
@@ -493,30 +408,29 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   heroHeadline: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 23,
-    lineHeight: 28,
-    letterSpacing: -0.6,
+    ...typography.screenTitle,
   },
   heroSubtitle: {
     ...typography.body,
-    fontSize: 15,
+    fontSize: 14,
   },
   heroMascotCol: {
-    paddingRight: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  mascotImage: {
+    width: 84,
+    height: 60,
+  },
   formSection: {
-    gap: 12,
+    gap: 14,
   },
   fieldGroup: {
-    gap: 5,
+    gap: 6,
   },
   label: {
-    fontFamily: FONTS.bold,
+    ...typography.bodyStrong,
     fontSize: 14,
-    lineHeight: 18,
   },
   inputRow: {
     minHeight: 52,
@@ -530,7 +444,7 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     ...typography.body,
-    fontSize: 16,
+    fontSize: 15,
     paddingVertical: 10,
   },
   eyeButton: {
@@ -547,58 +461,29 @@ const styles = StyleSheet.create({
     ...typography.caption,
     fontSize: 12,
   },
-  primaryCta: {
-    minHeight: 56,
-    borderRadius: radii.lg,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  ctaSideSpacer: {
-    width: 24,
-  },
-  primaryCtaLabel: {
-    fontFamily: FONTS.bold,
-    fontSize: 18,
-    lineHeight: 22,
-    color: '#FFFFFF',
-  },
-  primaryCtaArrow: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 20,
-    lineHeight: 22,
-    color: '#FFFFFF',
-    width: 24,
-    textAlign: 'right',
-  },
   bottomLinksBlock: {
-    marginTop: 14,
+    marginTop: 24,
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   legalCenteredRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
-    maxWidth: 300,
   },
   legalText: {
     ...typography.caption,
-    fontSize: 13,
-    textAlign: 'center',
+    fontSize: 12,
   },
   legalLink: {
-    fontFamily: FONTS.bold,
-    fontSize: 13,
-    lineHeight: 18,
+    ...typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
   },
   loginInlineRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 6,
   },
   alreadyText: {
@@ -606,22 +491,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   loginAction: {
-    minHeight: 32,
+    minHeight: 30,
     justifyContent: 'center',
-    paddingHorizontal: 4,
   },
   loginActionText: {
-    fontFamily: FONTS.bold,
+    ...typography.bodyStrong,
     fontSize: 14,
-    lineHeight: 18,
-  },
-  brandFooter: {
-    marginTop: 4,
-    alignItems: 'center',
-    gap: 6,
-  },
-  brandFooterText: {
-    ...typography.caption,
-    fontSize: 13,
   },
 });

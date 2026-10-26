@@ -8,45 +8,39 @@ import {
   View,
 } from 'react-native';
 
-import { getApiBaseUrl } from '@/api/client';
 import { BrandLockup } from '@/components/brand/BrandLockup';
+import { PixelMascot } from '@/components/brand/PixelMascot';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
-import { CheckIcon, UserIcon } from '@/components/icons/AppIcons';
+import {
+  ChevronRightIcon,
+  LockIcon,
+  LogOutIcon,
+  ReceiptLogIcon,
+  SettingsIcon,
+  SunIcon,
+  UserIcon,
+} from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
 import { ThemePreference, useAppTheme } from '@/theme/ThemeProvider';
-import { radii, shadows, typography } from '@/theme/tokens';
+import { radii, typography } from '@/theme/tokens';
 
-const THEME_OPTIONS: { value: ThemePreference; label: string; subtitle: string }[] = [
-  {
-    value: 'system',
-    label: 'Automático (Sistema)',
-    subtitle: 'Segue a aparência clara ou escura do dispositivo',
-  },
-  {
-    value: 'light',
-    label: 'Modo Claro',
-    subtitle: 'Fundo claro quente com destaque em azul royal',
-  },
-  {
-    value: 'dark',
-    label: 'Modo Escuro',
-    subtitle: 'Fundo azul-marinho profundo para menor brilho',
-  },
-];
-
-export function SettingsScreen() {
+export function SettingsScreen({
+  embeddedInShell = false,
+}: {
+  embeddedInShell?: boolean;
+} = {}) {
   const router = useRouter();
   const { colors, isDark, preference, setPreference } = useAppTheme();
   const { user, signOut, showToast } = useSession();
 
   const [signingOut, setSigningOut] = useState(false);
-  const [legalDocModal, setLegalDocModal] = useState<'terms' | 'privacy' | null>(
-    null,
-  );
+  const [themeSheetOpen, setThemeSheetOpen] = useState(false);
+  const [limitationNotice, setLimitationNotice] = useState<string | null>(null);
+  const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -58,300 +52,307 @@ export function SettingsScreen() {
         subtitle: 'Você saiu da sua conta com segurança.',
       });
     } catch {
-      // SessionProvider já limpa o estado em memória em finally e exibe o aviso de falha de remoção;
-      // tratamos a rejeição aqui para evitar unhandledrejection e preservar o aviso de erro na tela.
+      // Ignore
     } finally {
       setSigningOut(false);
       router.replace('/login');
     }
   };
 
-  const openLegal = async (type: 'terms' | 'privacy') => {
-    const url =
-      type === 'terms'
-        ? process.env.EXPO_PUBLIC_TERMS_URL?.trim()
-        : process.env.EXPO_PUBLIC_PRIVACY_URL?.trim();
-
-    if (url) {
-      await Linking.openURL(url).catch(() => setLegalDocModal(type));
-      return;
-    }
-    setLegalDocModal(type);
-  };
+  const themeLabel =
+    preference === 'system'
+      ? 'Automático'
+      : preference === 'light'
+        ? 'Claro'
+        : 'Escuro';
 
   return (
     <ScreenShell
       withDockClearance
-      footer={<FloatingDock activeTab="settings" />}
+      omitTopSafeArea={embeddedInShell}
+      footer={embeddedInShell ? undefined : <FloatingDock activeTab="settings" />}
     >
-      <View style={styles.headerRow}>
-        <BrandLockup mode="header" />
+      {!embeddedInShell ? (
+        <View style={styles.standaloneHeader}>
+          <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
+        </View>
+      ) : null}
+
+      <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+        Ajustes
+      </Text>
+
+      {limitationNotice ? (
+        <InlineNotice
+          tone="info"
+          title="Aviso do sistema"
+          message={limitationNotice}
+        />
+      ) : null}
+
+      {/* Account Profile Row (Print 4) */}
+      <View style={styles.profileRow}>
+        <PixelMascot variant="avatar" size={44} withFrame />
+        <View style={styles.profileTextCol}>
+          <Text style={[styles.profileName, { color: colors.textPrimary }]}>
+            {user?.name ?? 'Motorista FuelLog'}
+          </Text>
+          <Pressable
+            onPress={() => setLimitationNotice(`Conta vinculada ao e-mail ${user?.email ?? 'do usuário'}. Alteração de dados cadastrais disponível em atualização futura.`)}
+            style={styles.minhaContaBtn}
+          >
+            <Text style={[styles.minhaContaText, { color: colors.brandPrimary }]}>
+              Minha conta &gt;
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
-      <View style={styles.titleBlock}>
-        <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-          Ajustes e conta
-        </Text>
-        <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
-          Gerencie sua sessão, tema visual e informações do aplicativo.
-        </Text>
-      </View>
+      <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-      <View style={styles.stack}>
-        {/* Account Card */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.bgElevated,
-              borderColor: colors.borderDefault,
-            },
-            isDark ? shadows.darkCard : shadows.lightCard,
-          ]}
+      {/* Menu Options List with Dividers (Print 4) */}
+      <View style={styles.menuList}>
+        {/* Aparência */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Aparência e tema"
+          onPress={() => setThemeSheetOpen(true)}
+          style={styles.menuItem}
         >
-          <View style={styles.accountRow}>
-            <View
-              style={[
-                styles.avatarCircle,
-                { backgroundColor: colors.accentSoft },
-              ]}
-            >
-              <UserIcon size={22} color={colors.accentPrimary} />
-            </View>
-            <View style={styles.accountText}>
-              <Text style={[styles.accountName, { color: colors.textPrimary }]}>
-                {user?.name ?? 'Motorista FuelLog'}
+          <View style={styles.menuLeftCol}>
+            <SunIcon size={20} color={colors.textPrimary} />
+            <View style={styles.menuTextGroup}>
+              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                Aparência
               </Text>
-              <Text
-                style={[styles.accountEmail, { color: colors.textSecondary }]}
-              >
-                {user?.email ?? 'Sessão ativa'}
+              <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                {themeLabel}
               </Text>
-              {user?.preferredTimezone ? (
-                <Text
-                  style={[styles.accountMeta, { color: colors.textMuted }]}
-                >
-                  Fuso horário: {user.preferredTimezone}
-                </Text>
-              ) : null}
             </View>
           </View>
-        </View>
+          <ChevronRightIcon size={18} color={colors.brandPrimary} />
+        </Pressable>
 
-        {/* Theme Selector */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.bgElevated,
-              borderColor: colors.borderDefault,
-            },
-          ]}
+        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+        {/* Segurança */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Segurança, senha e sessões"
+          onPress={() => setLimitationNotice('Gerenciamento de senhas e sessões ativas estará disponível em atualização futura da API.')}
+          style={styles.menuItem}
         >
-          <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
-            Aparência do aplicativo
-          </Text>
+          <View style={styles.menuLeftCol}>
+            <LockIcon size={20} color={colors.textPrimary} />
+            <View style={styles.menuTextGroup}>
+              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                Segurança
+              </Text>
+              <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                Senha e sessões
+              </Text>
+            </View>
+          </View>
+          <ChevronRightIcon size={18} color={colors.brandPrimary} />
+        </Pressable>
 
-          {THEME_OPTIONS.map((option) => {
-            const isSelected = preference === option.value;
+        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+        {/* Privacidade e termos */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Privacidade e termos"
+          onPress={() => setLegalModal('privacy')}
+          style={styles.menuItem}
+        >
+          <View style={styles.menuLeftCol}>
+            <ReceiptLogIcon size={20} color={colors.textPrimary} />
+            <View style={styles.menuTextGroup}>
+              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                Privacidade e termos
+              </Text>
+            </View>
+          </View>
+          <ChevronRightIcon size={18} color={colors.brandPrimary} />
+        </Pressable>
+
+        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+        {/* Sobre o FuelLog */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sobre o FuelLog"
+          onPress={() => setLimitationNotice('FuelLog v1.0.0 — Gestão eficiente e inteligente de abastecimentos e frotas.')}
+          style={styles.menuItem}
+        >
+          <View style={styles.menuLeftCol}>
+            <SettingsIcon size={20} color={colors.textPrimary} />
+            <View style={styles.menuTextGroup}>
+              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                Sobre o FuelLog
+              </Text>
+            </View>
+          </View>
+          <ChevronRightIcon size={18} color={colors.brandPrimary} />
+        </Pressable>
+
+        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+        {/* Sair da conta (Red text & icon) */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sair da conta"
+          onPress={handleSignOut}
+          disabled={signingOut}
+          style={styles.menuItem}
+        >
+          <View style={styles.menuLeftCol}>
+            <LogOutIcon size={20} color={colors.statusDanger} />
+            <Text style={[styles.signOutText, { color: colors.statusDanger }]}>
+              {signingOut ? 'Saindo...' : 'Sair da conta'}
+            </Text>
+          </View>
+          <ChevronRightIcon size={18} color={colors.statusDanger} />
+        </Pressable>
+      </View>
+
+      {/* Theme Picker Sheet */}
+      <AppSheet
+        visible={themeSheetOpen}
+        title="Aparência"
+        subtitle="Selecione o tema do FuelLog"
+        onClose={() => setThemeSheetOpen(false)}
+      >
+        <View style={styles.themeOptionsList}>
+          {(['dark', 'light', 'system'] as const).map((t) => {
+            const isSelected = preference === t;
+            const tLabel = t === 'dark' ? 'Modo Escuro' : t === 'light' ? 'Modo Claro' : 'Automático (Sistema)';
             return (
               <Pressable
-                key={option.value}
+                key={t}
                 accessibilityRole="radio"
+                accessibilityLabel={tLabel}
                 accessibilityState={{ checked: isSelected }}
                 aria-checked={isSelected}
-                accessibilityLabel={option.label}
-                onPress={() => setPreference(option.value)}
+                onPress={() => {
+                  setPreference(t);
+                  setThemeSheetOpen(false);
+                }}
                 style={[
-                  styles.themeRow,
+                  styles.themeOptionRow,
                   {
-                    backgroundColor: isSelected
-                      ? colors.accentSoft
-                      : colors.bgSecondary,
-                    borderColor: isSelected
-                      ? colors.accentPrimary
-                      : colors.borderDefault,
+                    backgroundColor: isSelected ? colors.brandSoft : colors.bgElevated,
+                    borderColor: isSelected ? colors.borderFocus : colors.borderSubtle,
                   },
                 ]}
               >
-                <View style={styles.themeTextCol}>
-                  <Text
-                    style={[styles.themeTitle, { color: colors.textPrimary }]}
-                  >
-                    {option.label}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.themeSubtitle,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    {option.subtitle}
-                  </Text>
-                </View>
-                {isSelected ? (
-                  <CheckIcon size={18} color={colors.accentPrimary} />
-                ) : null}
+                <Text style={[styles.themeOptionTitle, { color: colors.textPrimary }]}>
+                  {tLabel}
+                </Text>
               </Pressable>
             );
           })}
         </View>
+      </AppSheet>
 
-        {/* API & Legal Info */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.bgElevated,
-              borderColor: colors.borderDefault,
-            },
-          ]}
-        >
-          <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
-            Ambiente e documentos
-          </Text>
-          <Text style={[styles.envText, { color: colors.textSecondary }]}>
-            Servidor API: {getApiBaseUrl()}
-          </Text>
-
-          <View style={styles.legalLinksRow}>
-            <PrimaryButton
-              label="Termos de Uso"
-              variant="secondary"
-              onPress={() => openLegal('terms')}
-              style={styles.halfBtn}
-            />
-            <PrimaryButton
-              label="Privacidade"
-              variant="secondary"
-              onPress={() => openLegal('privacy')}
-              style={styles.halfBtn}
-            />
-          </View>
-        </View>
-
-        <InlineNotice
-          tone="info"
-          title="Novos recursos em breve"
-          message="Exportação de relatórios, recuperação automática de senha e edição de registros estarão disponíveis nas próximas atualizações."
-        />
-
-        <PrimaryButton
-          label="Sair da conta"
-          variant="danger"
-          loading={signingOut}
-          onPress={handleSignOut}
-        />
-      </View>
-
+      {/* Legal Modal */}
       <AppSheet
-        visible={legalDocModal !== null}
-        title={
-          legalDocModal === 'terms' ? 'Termos de Uso' : 'Política de Privacidade'
-        }
-        onClose={() => setLegalDocModal(null)}
+        visible={legalModal !== null}
+        title={legalModal === 'terms' ? 'Termos de Uso' : 'Política de Privacidade'}
+        onClose={() => setLegalModal(null)}
       >
-        <InlineNotice
-          tone="info"
-          title="Documento público em preparação"
-          message="A página institucional com os Termos de Uso e a Política de Privacidade ainda não foi vinculada neste ambiente."
-        />
-        <PrimaryButton
-          label="Fechar"
-          variant="secondary"
-          onPress={() => setLegalDocModal(null)}
-        />
+        <View style={{ paddingVertical: 12, gap: 8 }}>
+          <Text style={[styles.legalText, { color: colors.textSecondary }]}>
+            O FuelLog respeita integralmente a privacidade dos seus dados de abastecimento e frotas, mantendo segredos fora de logs e assegurando controle total ao usuário.
+          </Text>
+        </View>
       </AppSheet>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    marginBottom: 14,
-  },
-  titleBlock: {
-    gap: 4,
-    marginBottom: 16,
+  standaloneHeader: {
+    paddingVertical: 8,
   },
   screenTitle: {
+    ...typography.screenTitle,
+    fontSize: 28,
+    fontWeight: '800',
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  profileTextCol: {
+    gap: 2,
+  },
+  profileName: {
     ...typography.sectionTitle,
-    fontSize: 22,
+    fontSize: 20,
+    fontWeight: '700',
   },
-  screenSubtitle: {
-    ...typography.body,
-    fontSize: 13,
+  minhaContaBtn: {
+    paddingVertical: 2,
   },
-  stack: {
-    gap: 14,
-  },
-  card: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: 16,
-    gap: 12,
-  },
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: radii.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accountText: {
-    flex: 1,
-    gap: 2,
-  },
-  accountName: {
-    ...typography.cardTitle,
-  },
-  accountEmail: {
-    ...typography.caption,
-  },
-  accountMeta: {
-    ...typography.caption,
-    fontSize: 11,
-  },
-  cardTitle: {
-    ...typography.cardTitle,
-    fontSize: 16,
-  },
-  themeRow: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  themeTextCol: {
-    flex: 1,
-    gap: 2,
-  },
-  themeTitle: {
+  minhaContaText: {
     ...typography.bodyStrong,
     fontSize: 14,
   },
-  themeSubtitle: {
-    ...typography.caption,
-    fontSize: 12,
+  divider: {
+    height: 1,
+    marginVertical: 4,
   },
-  envText: {
-    ...typography.caption,
-    fontSize: 12,
+  menuList: {
+    paddingVertical: 4,
   },
-  legalLinksRow: {
+  menuItem: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
   },
-  halfBtn: {
-    flex: 1,
+  menuLeftCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  menuTextGroup: {
+    gap: 2,
+  },
+  menuItemTitle: {
+    ...typography.bodyStrong,
+    fontSize: 16,
+  },
+  menuItemSub: {
+    ...typography.caption,
+    fontSize: 13,
+  },
+  signOutText: {
+    ...typography.bodyStrong,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  themeOptionsList: {
+    gap: 10,
+    paddingVertical: 8,
+  },
+  themeOptionRow: {
+    padding: 16,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+  },
+  themeOptionTitle: {
+    ...typography.bodyStrong,
+    fontSize: 16,
+  },
+  legalText: {
+    ...typography.body,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

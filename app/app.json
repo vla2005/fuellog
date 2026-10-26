@@ -18,10 +18,14 @@
         "foregroundImage": "./assets/brand/mascote_icon_square.png"
       },
       "softwareKeyboardLayoutMode": "resize",
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/brand/mascote_icon_square.png"
     },
     "plugins": [
@@ -37,6 +41,12 @@
           },
           "image": "./assets/brand/mascote_icon_square.png",
           "imageWidth": 140
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FuelLog precisa da sua localização para registrar as coordenadas do abastecimento."
         }
       ]
     ],

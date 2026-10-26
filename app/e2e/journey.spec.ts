@@ -4,29 +4,36 @@ import { mkdir } from 'node:fs/promises';
 import { password } from './api-fixtures';
 
 test('cadastro real, veículo, temas, logout e login pela interface', async ({ page }) => {
-  // Jornada completa com vários cold reloads do Metro medidos em cerca de 6 s cada.
+  // Percorre os controles reais da navegação persistente, sem recarregar o app entre telas.
   test.setTimeout(90_000);
   const email = `ui-${randomUUID()}@example.test`;
   const vehicle = `Carro ${randomUUID().slice(0, 8)}`;
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/register');
+  await page.goto('/login');
+  await page.getByRole('button', { name: 'Criar conta', exact: true }).click();
+  await expect(page).toHaveURL(/\/register$/);
   await page.getByLabel('Nome', { exact: true }).fill('Pessoa E2E');
-  await page.getByLabel('E-mail', { exact: true }).fill(email);
-  await page.getByLabel('Senha', { exact: true }).fill(password);
-  await page.getByLabel('Confirmar senha', { exact: true }).fill(password);
+  await page.getByLabel('E-mail', { exact: true }).filter({ visible: true }).fill(email);
+  await page.getByLabel('Senha', { exact: true }).filter({ visible: true }).fill(password);
   await page.getByRole('button', { name: 'Criar conta', exact: true }).click();
   await expect(page).toHaveURL(/\/\/?$/);
-  await page.goto('/vehicles');
-  await page.getByRole('button', { name: 'Novo veículo', exact: true }).click();
+  await page.getByRole('tab', { name: 'Veículos', exact: true }).click();
+  await expect(page).toHaveURL(/\/vehicles$/);
+  await page.getByRole('button', { name: /^(Novo|Cadastrar) veículo$/ }).filter({ visible: true }).click();
   await page.getByLabel('Apelido do veículo', { exact: true }).fill(vehicle);
+  await page.getByLabel('Quilometragem atual (opcional)', { exact: true }).fill('900');
+  const createdVehicle = page.waitForResponse(response => response.request().method() === 'POST' && /\/vehicles$/.test(response.url()));
   await page.getByRole('button', { name: 'Salvar veículo', exact: true }).click();
-  await expect(page.getByLabel(`Selecionar veículo ${vehicle}`, { exact: true })).toBeVisible();
-  await page.goto('/fueling/new');
+  expect(await (await createdVehicle).json()).toMatchObject({ nickname: vehicle, currentOdometerKm: 900 });
+  await expect(page.getByLabel(`Trocar veículo ativo. Atual: ${vehicle}`, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
+  await expect(page).toHaveURL(/\/fueling\/new$/);
   await page.getByLabel('Litros abastecidos', { exact: true }).fill('10,125');
   await page.getByLabel('Preço por litro', { exact: true }).fill('5,4321');
   await page.getByLabel('Hodômetro atual (km inteiro)', { exact: true }).fill('1000');
-  await page.getByRole('radio', { name: 'Tanque cheio', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Recapturar localização atual', exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Tanque cheio', exact: true })).toHaveCount(0);
   let uncertainPayload: unknown;
   const failureRoute = '**/vehicles/*/fuel-entries';
   await page.route(failureRoute, async route => {
@@ -46,28 +53,41 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
   const response = await saved;
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual(uncertainPayload);
-  expect(await response.json()).toMatchObject({ liters: '10.125', unitPrice: '5.4321', paidTotal: '55.00' });
+  const persisted = await response.json();
+  expect(persisted).toMatchObject({ liters: '10.125', unitPrice: '5.4321', paidTotal: '55.00',
+    latitude: -23.55052, longitude: -46.633308, tankState: 'UNKNOWN', historyGapBefore: false,
+    stationName: null, notes: null });
   await expect(page).toHaveURL(/\/\/?$/);
-  await page.goto('/history');
+  await page.getByRole('tab', { name: 'Histórico', exact: true }).click();
   await page.getByRole('button', { name: /^Abastecimento de R\$ 55,00 em / }).click();
   await expect(page).toHaveURL(/\/fueling\/[0-9a-f-]+$/);
-  await expect(page.getByText('Volume abastecido', { exact: true })).toBeVisible();
+  await expect(page.getByText('Litros', { exact: true }).filter({ visible: true })).toBeVisible();
+  const readBack = await page.request.get(`${new URL(response.url()).origin}/api/v1/vehicles/${persisted.vehicleId}/fuel-entries/${persisted.id}`, {
+    headers: { Authorization: response.request().headers().authorization },
+  });
+  expect(readBack.status()).toBe(200);
+  expect(await readBack.json()).toMatchObject({ latitude: persisted.latitude, longitude: persisted.longitude });
   await expect(page.getByText('10,125 L', { exact: true }).filter({ visible: true })).toBeVisible();
-  await page.goto('/settings');
+  await page.goBack();
+  await expect(page).toHaveURL(/\/history$/);
+  await page.getByRole('tab', { name: 'Ajustes', exact: true }).click();
   await mkdir('test-results/qa', { recursive: true });
   for (const [label, theme] of [['Modo Claro', 'light'], ['Modo Escuro', 'dark']]) {
+    await page.getByRole('button', { name: 'Aparência e tema', exact: true }).click();
     const choice = page.getByRole('radio', { name: label, exact: true });
     await choice.click();
+    await page.getByRole('button', { name: 'Aparência e tema', exact: true }).click();
     await expect(choice).toBeChecked();
+    await page.getByLabel('Fechar', { exact: true }).click();
     await page.screenshot({ path: `test-results/qa/settings-${theme}.png`, fullPage: true });
   }
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
-  await page.getByLabel('E-mail', { exact: true }).fill(email);
-  await page.getByLabel('Senha', { exact: true }).fill(password);
+  await page.getByLabel('E-mail', { exact: true }).filter({ visible: true }).fill(email);
+  await page.getByLabel('Senha', { exact: true }).filter({ visible: true }).fill(password);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await expect(page).toHaveURL(/\/\/?$/);
-  await page.goto('/vehicles');
-  await expect(page.getByLabel(`Selecionar veículo ${vehicle}`, { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Veículos', exact: true }).click();
+  await expect(page.getByLabel(`Trocar veículo ativo. Atual: ${vehicle}`, { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

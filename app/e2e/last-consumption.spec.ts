@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { apiURL, createAccount, createVehicle } from './api-fixtures';
 
-test('Último consumo usa ciclo global de 30 km/L, não média mensal de 20 km/L', async ({ page, request }) => {
+test('resumo separa média mensal de 20 km/L do último ciclo global de 30 km/L', async ({ page, request }) => {
   const account = await createAccount(request);
   const vehicle = await createVehicle(request, account.headers, 'Último consumo E2E');
   const now = new Date();
@@ -13,7 +13,8 @@ test('Último consumo usa ciclo global de 30 km/L, não média mensal de 20 km/L
       headers: account.headers,
       data: { id: randomUUID(), occurredAt: `${year}-${month}-0${index + 1}T12:00:00-03:00`,
         timezone: 'America/Sao_Paulo', odometerKm, fuelType: 'GASOLINE_REGULAR', liters: '10.000',
-        unitPrice: '5.0000', paidTotal: '50.00', tankState: 'FULL', historyGapBefore: false },
+        unitPrice: '5.0000', paidTotal: '50.00', tankState: 'FULL', historyGapBefore: false,
+        latitude: -23.55052, longitude: -46.633308 },
     });
     expect(response.status()).toBe(201);
   }
@@ -31,10 +32,9 @@ test('Último consumo usa ciclo global de 30 km/L, não média mensal de 20 km/L
   await page.getByLabel('Senha', { exact: true }).fill(account.password);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await expect(page).toHaveURL(/\/\/?$/);
-  const lastConsumption = page.getByRole('button', { name: 'Ver detalhes dos ciclos de consumo', exact: true });
-  await expect(lastConsumption).toContainText('Último consumo');
-  await expect(lastConsumption).toContainText('30,00 km/L');
-  await expect(lastConsumption).not.toContainText('20,00 km/L');
+  await page.getByRole('button', { name: 'Ver resumo do mês', exact: true }).click();
+  await expect(page.getByText('20,00 km/L', { exact: true })).toBeVisible();
+  await expect(page.getByText('30,00 km/L', { exact: true })).toHaveCount(0);
 
   const previous = new Date(year, now.getMonth() - 1, 1);
   const label = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(previous)
@@ -47,21 +47,19 @@ test('Último consumo usa ciclo global de 30 km/L, não média mensal de 20 km/L
   expect(previousSummary.status()).toBe(200);
   expect(await previousSummary.json()).toMatchObject({ purchaseCount: 0, periodConsumptionKmPerLiter: null,
     lastValidCycle: { consumptionKmPerLiter: '30.00' } });
-  await page.getByRole('button', { name: /^Período:/ }).click();
+  await page.getByRole('button', { name: /^Mês:/ }).click();
   const refreshedSummary = page.waitForResponse(response => {
     const url = new URL(response.url());
     return url.pathname.endsWith(`/vehicles/${vehicle.id}/summary`)
       && url.searchParams.get('from') === `${previous.getFullYear()}-${previousMonth}-01`;
   });
-  await page.getByRole('radio', { name: new RegExp(`^${label}$`, 'i') }).click();
+  await page.getByText(new RegExp(`^${label}$`, 'i')).click();
   const browserSummary = await refreshedSummary;
   expect(browserSummary.status()).toBe(200);
-  expect(await browserSummary.json()).toMatchObject({ purchaseCount: 0, periodConsumptionKmPerLiter: null,
-    lastValidCycle: { consumptionKmPerLiter: '30.00' } });
-  await expect(lastConsumption).toContainText('30,00 km/L');
-  // The global cycle must remain dated even when the selected month has no purchases.
-  for (const day of ['02', '03']) {
-    const shortMonth = new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(now).replace('.', '');
-    await expect(lastConsumption).toContainText(new RegExp(`${day}(?:/${month}(?:/${year})?| ${shortMonth})`, 'i'));
-  }
+  const selectedSummary = await browserSummary.json();
+  expect(selectedSummary).toMatchObject({ purchaseCount: 0, periodConsumptionKmPerLiter: null,
+    lastValidCycle: { consumptionKmPerLiter: '30.00', startedAt: summary.lastValidCycle.startedAt,
+      endedAt: summary.lastValidCycle.endedAt } });
+  await expect(page.getByText('Consumo não disponível', { exact: true })).toBeVisible();
+  await expect(page.getByText('20,00 km/L', { exact: true })).toHaveCount(0);
 });

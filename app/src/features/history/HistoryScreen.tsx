@@ -1,7 +1,8 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -105,7 +106,11 @@ function formatHistoryDateColumn(
   return { dayMonth: iso.slice(0, 10), weekday: '' };
 }
 
-export function HistoryScreen() {
+export function HistoryScreen({
+  embeddedInShell = false,
+}: {
+  embeddedInShell?: boolean;
+} = {}) {
   const router = useRouter();
   const { colors, isDark } = useAppTheme();
   const {
@@ -139,11 +144,33 @@ export function HistoryScreen() {
 
   const requestSeqRef = useRef(0);
   const latestContextKeyRef = useRef('');
+  const lastIdentityScopeRef = useRef('');
 
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [vehicleSheetOpen, setVehicleSheetOpen] = useState(false);
 
   const monthOptions = useMemo(() => listRecentMonthPeriods(12), []);
+  const params = useLocalSearchParams<{ vehicleId?: string; from?: string; to?: string }>();
+  const lastAppliedParamsKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    const key = `${params.vehicleId ?? ''}:${params.from ?? ''}:${params.to ?? ''}`;
+    if (!key || key === '::' || key === lastAppliedParamsKeyRef.current) {
+      return;
+    }
+    lastAppliedParamsKeyRef.current = key;
+
+    if (params.vehicleId) {
+      void selectVehicle(params.vehicleId);
+    }
+    if (params.from && params.to) {
+      setUseAllPeriods(false);
+      const found = monthOptions.find((p) => p.from === params.from && p.to === params.to);
+      if (found) {
+        setSelectedPeriod(found);
+      }
+    }
+  }, [params.vehicleId, params.from, params.to, monthOptions, selectVehicle, setSelectedPeriod]);
 
   const currentContextKey = `${status}:${user?.id ?? 'anon'}:${
     activeVehicle?.id ?? 'none'
@@ -155,20 +182,29 @@ export function HistoryScreen() {
   const loadPage = useCallback(
     async (targetPage: number, append: boolean) => {
       const seq = ++requestSeqRef.current;
-      const contextSnap = `${status}:${user?.id ?? 'anon'}:${
+      const identityScope = `${status}:${user?.id ?? 'anon'}:${
         activeVehicle?.id ?? 'none'
-      }:${
+      }`;
+      const contextSnap = `${identityScope}:${
         useAllPeriods ? 'ALL' : `${selectedPeriod.from}_${selectedPeriod.to}`
       }:${filterFuel ?? 'ALL'}:${filterTank ?? 'ALL'}:${dataVersion}`;
       latestContextKeyRef.current = contextSnap;
 
-      if (!append) {
+      if (
+        lastIdentityScopeRef.current !== identityScope ||
+        status !== 'authenticated' ||
+        !user ||
+        !activeVehicle
+      ) {
+        lastIdentityScopeRef.current = identityScope;
         setEntries([]);
         setPeriodSummary(null);
         setCyclesByEndEntry({});
         setPage(0);
         setTotalPages(0);
         setTotalElements(0);
+        setLoadingMore(false);
+      } else if (!append) {
         setLoadingMore(false);
       }
 
@@ -229,11 +265,14 @@ export function HistoryScreen() {
         setTotalPages(pageData.totalPages);
         setTotalElements(pageData.totalElements);
 
-        if (summaryData) {
+        if (!append) {
           setPeriodSummary(summaryData);
-        }
-
-        if (cyclesData?.items) {
+          const map: Record<string, ConsumptionCycle> = {};
+          for (const c of cyclesData?.items ?? []) {
+            map[c.endEntryId] = c;
+          }
+          setCyclesByEndEntry(map);
+        } else if (cyclesData?.items) {
           const map: Record<string, ConsumptionCycle> = {};
           for (const c of cyclesData.items) {
             map[c.endEntryId] = c;
@@ -335,117 +374,75 @@ export function HistoryScreen() {
   return (
     <ScreenShell
       withDockClearance
-      footer={<FloatingDock activeTab="history" />}
+      omitTopSafeArea={embeddedInShell}
+      footer={embeddedInShell ? undefined : <FloatingDock activeTab="history" />}
     >
       {/* Top Row: Wordmark on left + Mascot Avatar on right */}
-      <View style={styles.topHeader}>
-        <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
-        <PixelMascot variant="avatar" size={30} withFrame />
-      </View>
+      {!embeddedInShell ? (
+        <View style={styles.topHeader}>
+          <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
+          <PixelMascot variant="avatar" size={30} withFrame />
+        </View>
+      ) : null}
 
-      {/* Title & Primary CTA Row */}
-      <View style={styles.titleRow}>
-        <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+      {/* Title with Pixel Notebook Icon */}
+      <View style={styles.historyTitleRow}>
+        <Image
+          source={require('@/assets/brand/pixel_notebook.png')}
+          style={{ width: 28, height: 35 }}
+          resizeMode="contain"
+        />
+        <Text style={[styles.historyTitleText, { color: colors.textPrimary }]}>
           Histórico
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Novo abastecimento"
-          onPress={() => router.push('/fueling/new')}
-          style={[
-            styles.newEntrySquareBtn,
-            { backgroundColor: colors.accentPrimary },
-          ]}
-        >
-          <PixelCrossIcon size={18} color="#FFFFFF" />
-        </Pressable>
       </View>
 
       {vehicles.length > 0 ? (
         <View style={styles.controlsBlock}>
-          {/* Row 1: Vehicle Selector (full width) */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Veículo: ${vehiclePillLabel}`}
-            onPress={() => setVehicleSheetOpen(true)}
-            style={[
-              styles.selectorPill,
-              {
-                backgroundColor: surfaceBg,
-                borderColor: surfaceBorder,
-              },
-            ]}
-          >
-            <CarIcon size={17} color={colors.textPrimary} />
-            <Text
-              numberOfLines={1}
-              style={[styles.selectorPillText, { color: colors.textPrimary }]}
-            >
-              {vehiclePillLabel}
-            </Text>
-            <ChevronDownIcon size={16} color={colors.textSecondary} />
-          </Pressable>
-
-          {/* Row 2: Period Selector + Filter Selector */}
-          <View style={styles.secondControlsRow}>
+          {/* 2-Column Filters Row: Vehicle + Period (Print 3) */}
+          <View style={styles.filterTwoColRow}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Período: ${
-                useAllPeriods ? 'Todo o histórico' : selectedPeriod.label
-              }`}
-              onPress={() => setFilterSheetOpen(true)}
+              accessibilityLabel={`Veículo: ${vehiclePillLabel}`}
+              onPress={() => setVehicleSheetOpen(true)}
               style={[
-                styles.selectorPill,
-                styles.periodPill,
+                styles.dropdownPill,
                 {
                   backgroundColor: surfaceBg,
                   borderColor: surfaceBorder,
                 },
               ]}
             >
-              <CalendarIcon size={16} color={colors.textPrimary} />
               <Text
                 numberOfLines={1}
-                style={[styles.selectorPillText, { color: colors.textPrimary }]}
+                style={[styles.dropdownPillText, { color: colors.textPrimary }]}
               >
-                {useAllPeriods ? 'Todo o histórico' : selectedPeriod.label}
+                {vehiclePillLabel}
               </Text>
-              <ChevronDownIcon size={16} color={colors.textSecondary} />
+              <ChevronDownIcon size={16} color={colors.brandPrimary} />
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Filtrar histórico"
+              accessibilityLabel={`Período: ${
+                useAllPeriods ? 'Todos os meses' : selectedPeriod.label
+              }`}
               onPress={() => setFilterSheetOpen(true)}
               style={[
-                styles.selectorPill,
-                styles.filterPill,
+                styles.dropdownPill,
                 {
                   backgroundColor: surfaceBg,
-                  borderColor: filterSummaryLabel
-                    ? colors.accentPrimary
-                    : surfaceBorder,
+                  borderColor: surfaceBorder,
                 },
               ]}
             >
-              <FilterIcon
-                size={16}
-                color={
-                  filterSummaryLabel ? colors.accentPrimary : colors.textPrimary
-                }
-              />
-              {filterSummaryLabel ? (
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.filterActiveText,
-                    { color: colors.accentPrimary },
-                  ]}
-                >
-                  {filterSummaryLabel}
-                </Text>
-              ) : null}
-              <ChevronDownIcon size={16} color={colors.textSecondary} />
+              <Text
+                numberOfLines={1}
+                style={[styles.dropdownPillText, { color: colors.textPrimary }]}
+              >
+                {useAllPeriods ? 'Todos os meses' : selectedPeriod.label}
+              </Text>
+              <ChevronDownIcon size={16} color={colors.brandPrimary} />
             </Pressable>
           </View>
 
@@ -502,7 +499,7 @@ export function HistoryScreen() {
         />
       ) : null}
 
-      {loading ? (
+      {loading && entries.length === 0 ? (
         <View
           style={[
             styles.loadingBox,
@@ -1061,6 +1058,63 @@ export function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
+  cleanHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+  },
+  cleanLeftCol: {
+    gap: 4,
+  },
+  cleanDateFuelText: {
+    ...typography.bodyStrong,
+    fontSize: 16,
+  },
+  cleanLitersText: {
+    ...typography.caption,
+    fontSize: 13,
+  },
+  cleanRightCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cleanAmountText: {
+    ...typography.cardTitle,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  historyTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  historyTitleText: {
+    ...typography.screenTitle,
+    fontSize: 26,
+    fontWeight: '800',
+  },
+  filterTwoColRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  dropdownPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+  },
+  dropdownPillText: {
+    ...typography.bodyStrong,
+    fontSize: 14,
+  },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -6,7 +6,7 @@ import ts from 'typescript';
 
 // Execute the screen's real hooks, effects and handlers, replacing only its JSX
 // return with an observable snapshot. This is a state regression, not visual E2E.
-function loadScreen(relativePath, exportName, dependencies) {
+function loadScreen(relativePath, exportName, dependencies, observableReturn = true, clock = globalThis) {
   const path = new URL(`../src/${relativePath}`, import.meta.url);
   const source = ts.createSourceFile(path.pathname, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const bindingNames = name => ts.isIdentifier(name) ? [name.text] : name.elements.flatMap(element => bindingNames(element.name));
@@ -25,14 +25,14 @@ function loadScreen(relativePath, exportName, dependencies) {
   const output = ts.transpileModule(source.text, {
     fileName: path.pathname,
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
-    transformers: { before: [transform] },
+    transformers: observableReturn ? { before: [transform] } : undefined,
   }).outputText;
   const module = { exports: {} };
-  new Function('require', 'module', 'exports', output)(specifier => {
+  new Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', output)(specifier => {
     if (Object.hasOwn(dependencies, specifier)) return dependencies[specifier];
     if (specifier.startsWith('@/components/') || specifier.includes('VehicleFormSheet')) return {};
     throw Error(`Unmapped dependency: ${specifier}`);
-  }, module, module.exports);
+  }, module, module.exports, clock.setTimeout.bind(clock), clock.clearTimeout.bind(clock));
   return module.exports[exportName];
 }
 
@@ -46,6 +46,7 @@ function loadUtility(name) {
 
 const date = loadUtility('date');
 const decimal = loadUtility('decimal');
+const location = loadUtility('location');
 const vehicle = id => ({ id, nickname: id, allowedFuels: ['ETHANOL'], brand: null, model: null, plate: null });
 const period = { from: '2026-10-01', to: '2026-10-31', label: 'Outubro 2026', monthKey: '2026-10' };
 const draftKey = id => `fuellog.draft.fuel_entry.v1.user.${id}`;
@@ -54,16 +55,20 @@ const draft = (id, liters = '35') => ({ id, liters, unitPrice: '6', manualPaidTo
   fuelType: 'ETHANOL', tankState: 'FULL', historyGapBefore: false, stationName: '', notes: '', showMoreDetails: false });
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 
-function mount(relativePath, exportName, { store = new Map(), endpoints = {} } = {}) {
+function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gps = {}, clock = globalThis, props = {} } = {}) {
   let index = 0;
   let dirty = false;
   let pendingEffects = [];
   const hooks = [];
   const writes = [];
+  const activity = { tabActive: true, appActive: true };
+  const navigation = [];
   const session = { status: 'authenticated', user: { id: 'user', preferredTimezone: 'America/Sao_Paulo' }, vehicles: [vehicle('A'), vehicle('B')],
-    activeVehicle: vehicle('A'), selectedPeriod: period, dataVersion: 0, invalidateFuelData() {}, showToast() {} };
+    activeVehicle: vehicle('A'), selectedPeriod: period, dataVersion: 0, invalidateFuelData() {}, showToast() {},
+    createNewVehicle: payload => endpoints.createVehicle(payload) };
   const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
   const react = {
+    useContext() { return activity.tabActive; },
     useState(initial) {
       const i = index++;
       if (!hooks[i]) hooks[i] = { value: typeof initial === 'function' ? initial() : initial };
@@ -84,23 +89,36 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {} } =
   };
   class ApiError extends Error { constructor(options) { super(options.message); Object.assign(this, options); } }
   const dependencies = {
-    react, 'react-native': { StyleSheet: { create: styles => styles } },
+    react, 'react-native': { StyleSheet: { create: styles => styles }, Platform: { OS: 'android' }, Linking: {} },
+    'expo-location': {
+      Accuracy: { Balanced: 3 },
+      hasServicesEnabledAsync: async () => true,
+      requestForegroundPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
+      getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55052, longitude: -46.633308 } }),
+      ...gps,
+    },
     '@react-native-async-storage/async-storage': {
       getItem: async key => store.get(key) ?? null,
       setItem: async (key, value) => { writes.push({ key, value: JSON.parse(value) }); store.set(key, value); },
       removeItem: async key => { store.delete(key); },
     },
-    'expo-router': { useRouter: () => ({ replace() {}, push() {} }) },
+    'expo-router': { useRouter: () => ({ replace(path) { navigation.push(path); }, push() {} }), useLocalSearchParams: () => ({}) },
+    '@/components/navigation/AuthenticatedTabShell': { TabActiveContext: {} },
+    '@/motion/useMotionPolicy': { useMotionPolicy: () => ({ isAppActive: activity.appActive }) },
+    '@/features/home/MonthlySummaryModal': {},
     '@/api/endpoints': { FUEL_TYPE_LABELS: {}, FUEL_TYPE_SHORT_LABELS: {}, TANK_STATE_LABELS: {}, TANK_STATE_SHORT_LABELS: {}, UNAVAILABLE_REASON_EXPLANATIONS: {}, ...endpoints },
     '@/api/types': { ApiError }, '@/state/SessionContext': { useSession: () => session },
     '@/api/tokenStorage': { getSessionEpoch: () => 0 },
     '@/theme/ThemeProvider': { useAppTheme: () => ({ colors: {}, isDark: false }) },
     '@/theme/tokens': { radii: {}, shadows: {}, typography: {} },
-    '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/uuid': { generateUuidV4: randomUUID },
+    '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/location': location, '@/utils/uuid': { generateUuidV4: randomUUID },
   };
-  const screen = loadScreen(relativePath, exportName, dependencies);
-  const harness = { session, store, writes, ApiError, snapshot: null,
-    render() { index = 0; dirty = false; pendingEffects = []; harness.snapshot = screen(); const effects = pendingEffects; effects.forEach(effect => effect()); },
+  dependencies['./useForegroundLocation'] = {
+    useForegroundLocation: loadScreen('features/fueling/useForegroundLocation.ts', 'useForegroundLocation', dependencies, false, clock),
+  };
+  const screen = loadScreen(relativePath, exportName, dependencies, true, clock);
+  const harness = { session, store, writes, activity, navigation, ApiError, snapshot: null,
+    render() { index = 0; dirty = false; pendingEffects = []; harness.snapshot = screen(props); const effects = pendingEffects; effects.forEach(effect => effect()); },
     async settle() { for (let i = 0; i < 12; i++) { await new Promise(resolve => setImmediate(resolve)); if (dirty) harness.render(); } },
     async remountBeforeOldCleanup() {
       const cleanups = hooks.map(hook => hook?.cleanup).filter(Boolean);
@@ -114,6 +132,166 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {} } =
   harness.render();
   return harness;
 }
+
+test('cadastro envia quilometragem opcional sem arredondar e preserva dados em falhas', async () => {
+  for (const [input, expected] of [['', undefined], ['0', 0], ['45000', 45000], ['007', 7], ['-1', 'invalid'], ['1.5', 'invalid'], ['9007199254740993', 'invalid']]) {
+    const calls = [];
+    const h = mount('features/vehicles/VehicleFormSheet.tsx', 'VehicleFormSheet', {
+      props: { visible: true, onClose() {}, onCreated() {} },
+      endpoints: { createVehicle: async payload => { calls.push(payload); return vehicle('created'); } },
+    });
+    h.snapshot.setNickname('Meu carro');
+    h.snapshot.setCurrentOdometerKm(input);
+    await h.settle();
+    await h.snapshot.handleCreate();
+    await h.settle();
+    if (expected === 'invalid') {
+      assert.equal(calls.length, 0, input);
+      assert.ok(h.snapshot.fieldErrors.currentOdometerKm, input);
+      assert.equal(h.snapshot.currentOdometerKm, input);
+    } else {
+      assert.equal(calls.length, 1, input);
+      assert.equal(calls[0].currentOdometerKm, expected, input);
+      if (expected === undefined) assert.equal(Object.hasOwn(calls[0], 'currentOdometerKm'), false);
+    }
+  }
+  const h = mount('features/vehicles/VehicleFormSheet.tsx', 'VehicleFormSheet', {
+    props: { visible: true, onClose() {}, onCreated() {} },
+    endpoints: { createVehicle: async () => { throw Error('Sem conexão'); } },
+  });
+  h.snapshot.setNickname('Meu carro');
+  h.snapshot.setCurrentOdometerKm('45000');
+  await h.settle();
+  await h.snapshot.handleCreate();
+  await h.settle();
+  assert.equal(h.snapshot.nickname, 'Meu carro');
+  assert.equal(h.snapshot.currentOdometerKm, '45000');
+  assert.ok(h.snapshot.errorMessage);
+});
+
+test('GPS negado, desligado ou indisponível bloqueia o handler real sem perder o formulário', async () => {
+  for (const gps of [
+    { requestForegroundPermissionsAsync: async () => ({ granted: false, canAskAgain: false }) },
+    { hasServicesEnabledAsync: async () => false },
+    { hasServicesEnabledAsync: async () => { throw Error('Módulo indisponível'); } },
+  ]) {
+    const calls = [];
+    const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+      store: new Map([[draftKey('A'), JSON.stringify(draft(randomUUID()))]]), gps,
+      endpoints: { createFuelEntry: async (...args) => { calls.push(args); } },
+    });
+    await h.settle();
+    await h.snapshot.requestLocation(true);
+    await h.settle();
+    assert.notEqual(h.snapshot.locationStatus, 'ready');
+    assert.equal(h.snapshot.coordinates, null);
+    await h.snapshot.handleSubmit();
+    await h.settle();
+    assert.equal(calls.length, 0);
+    assert.equal(h.snapshot.liters, '35');
+    assert.ok(h.snapshot.errorMessage);
+  }
+});
+
+test('resposta antiga de GPS não remove o timeout da recaptura atual', async () => {
+  const timers = new Map();
+  let timerId = 0;
+  const clock = {
+    setTimeout(callback) { const id = ++timerId; timers.set(id, callback); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  };
+  let enabled = false;
+  let pending = false;
+  const positions = [];
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    clock,
+    gps: {
+      hasServicesEnabledAsync: async () => enabled,
+      getCurrentPositionAsync: () => {
+        if (!pending) return Promise.resolve({ coords: { latitude: 1, longitude: 2 } });
+        const request = deferred(); positions.push(request); return request.promise;
+      },
+    },
+  });
+  await h.settle();
+  enabled = true;
+  await h.snapshot.requestLocation(true);
+  await h.settle();
+  assert.equal(h.snapshot.locationStatus, 'ready');
+  pending = true;
+  const older = h.snapshot.requestLocation(true);
+  await h.settle();
+  assert.equal(h.snapshot.coordinates, null, 'Recaptura invalida a coordenada anterior imediatamente');
+  const newer = h.snapshot.requestLocation(true);
+  await h.settle();
+  assert.equal(timers.size, 1);
+  positions[0].resolve({ coords: { latitude: 3, longitude: 4 } });
+  await older; await h.settle();
+  assert.equal(h.snapshot.coordinates, null);
+  assert.equal(timers.size, 1, 'A resposta obsoleta não pode limpar o timer da requisição nova');
+  const callback = [...timers.values()][0]; timers.clear(); callback();
+  await newer; await h.settle();
+  assert.equal(h.snapshot.locationStatus, 'error');
+  assert.equal(h.snapshot.coordinates, null);
+});
+
+for (const inactiveKey of ['tabActive', 'appActive']) {
+  test(`captura GPS ignora resposta tardia e pausa com ${inactiveKey} inativo`, async () => {
+    const pending = deferred();
+    let captures = 0;
+    const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+      gps: { getCurrentPositionAsync: () => {
+        captures++;
+        return captures === 1 ? pending.promise : Promise.resolve({ coords: { latitude: 3, longitude: 4 } });
+      } },
+    });
+    await h.settle();
+    assert.equal(captures, 1);
+    assert.equal(h.snapshot.locationStatus, 'locating');
+    h.activity[inactiveKey] = false; h.render(); await h.settle();
+    pending.resolve({ coords: { latitude: 1, longitude: 2 } });
+    await h.settle();
+    assert.equal(h.snapshot.coordinates, null);
+    assert.equal(h.snapshot.locationStatus, 'idle');
+    assert.equal(captures, 1, 'Tela inativa não reinicia captura');
+    h.activity[inactiveKey] = true; h.render(); await h.settle();
+    assert.equal(captures, 2);
+    assert.deepEqual(h.snapshot.coordinates, { latitude: 3, longitude: 4 });
+  });
+}
+
+test('salvamento confirmado envia GPS normalizado e só recaptura ao voltar ao formulário', async () => {
+  let captures = 0;
+  const calls = [];
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    props: { embeddedInShell: true },
+    store: new Map([[draftKey('A'), JSON.stringify(draft(randomUUID()))]]),
+    gps: { getCurrentPositionAsync: async () => {
+      captures++;
+      return { coords: { latitude: -23.123456789, longitude: -46.987654321 } };
+    } },
+    endpoints: { createFuelEntry: async (id, payload) => {
+      calls.push({ id, payload: structuredClone(payload) });
+      return { ...payload, idempotentReplay: false };
+    } },
+  });
+  await h.settle();
+  await h.snapshot.handleSubmit(); await h.settle();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.latitude, -23.1234568);
+  assert.equal(calls[0].payload.longitude, -46.9876543);
+  assert.equal(calls[0].payload.tankState, 'UNKNOWN');
+  assert.equal(calls[0].payload.historyGapBefore, false);
+  assert.equal(calls[0].payload.stationName, null);
+  assert.equal(calls[0].payload.notes, null);
+  assert.deepEqual(h.navigation, ['/']);
+  assert.equal(h.snapshot.liters, '');
+  assert.equal(captures, 1, 'Navegar para Início não pode solicitar GPS outra vez');
+  h.activity.tabActive = false; h.render(); await h.settle();
+  assert.equal(captures, 1);
+  h.activity.tabActive = true; h.render(); await h.settle();
+  assert.equal(captures, 2, 'Retornar ao formulário inicia uma nova captura');
+});
 
 for (const existingB of [false, true]) {
   test(`rascunho A não contamina B ${existingB ? 'com' : 'sem'} rascunho, nem durante restauração`, async () => {
@@ -149,6 +327,7 @@ test('resposta incerta preserva UUID e comando idênticos no reenvio', async () 
     } },
   });
   await h.settle();
+  assert.equal(h.snapshot.locationStatus, 'ready', 'Captura automática deve concluir após restaurar o escopo do formulário');
   await h.snapshot.handleSubmit(); await h.settle();
   await h.remountBeforeOldCleanup();
   await h.snapshot.handleSubmit(); await h.settle();

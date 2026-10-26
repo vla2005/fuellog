@@ -10,9 +10,12 @@ test('preferência de tema publica estado acessível claro e escuro', async ({ p
   await expect(page).toHaveURL(/\/\/?$/);
   await page.goto('/settings');
   for (const name of ['Modo Claro', 'Modo Escuro']) {
+    await page.getByRole('button', { name: 'Aparência e tema', exact: true }).click();
     const choice = page.getByRole('radio', { name, exact: true });
     await choice.click();
+    await page.getByRole('button', { name: 'Aparência e tema', exact: true }).click();
     await expect(choice).toBeChecked();
     await expect(page.getByRole('radio', { name: name === 'Modo Claro' ? 'Modo Escuro' : 'Modo Claro', exact: true })).not.toBeChecked();
+    await page.getByLabel('Fechar', { exact: true }).click();
   }
 });

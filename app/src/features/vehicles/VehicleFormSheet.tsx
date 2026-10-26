@@ -8,9 +8,9 @@ import {
 } from 'react-native';
 
 import { FUEL_TYPE_LABELS } from '@/api/endpoints';
-import { ApiError, FuelType, Vehicle } from '@/api/types';
+import { ApiError, CreateVehicleRequest, FuelType, Vehicle } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
-import { CheckIcon } from '@/components/icons/AppIcons';
+import { CheckIcon, ChevronDownIcon, SaveIcon } from '@/components/icons/AppIcons';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { DecimalField } from '@/components/ui/DecimalField';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -39,6 +39,7 @@ export function VehicleFormSheet({
   const [modelYear, setModelYear] = useState('');
   const [plate, setPlate] = useState('');
   const [tankCapacity, setTankCapacity] = useState('');
+  const [currentOdometerKm, setCurrentOdometerKm] = useState('');
   const [selectedFuels, setSelectedFuels] = useState<FuelType[]>([
     'GASOLINE_REGULAR',
     'ETHANOL',
@@ -46,6 +47,7 @@ export function VehicleFormSheet({
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   const toggleFuel = (fuel: FuelType) => {
     setSelectedFuels((prev) =>
@@ -60,9 +62,11 @@ export function VehicleFormSheet({
     setModelYear('');
     setPlate('');
     setTankCapacity('');
+    setCurrentOdometerKm('');
     setSelectedFuels(['GASOLINE_REGULAR', 'ETHANOL']);
     setErrorMessage(null);
     setFieldErrors({});
+    setShowMoreDetails(false);
   };
 
   const handleCreate = async () => {
@@ -109,6 +113,24 @@ export function VehicleFormSheet({
       }
     }
 
+    let parsedOdometer: number | undefined = undefined;
+    const cleanOdometer = currentOdometerKm.trim();
+    if (cleanOdometer) {
+      if (!/^-?\d+$/.test(cleanOdometer)) {
+        localErrors.currentOdometerKm = 'Informe uma quilometragem inteira em km.';
+      } else if (cleanOdometer.startsWith('-')) {
+        localErrors.currentOdometerKm = 'Informe uma quilometragem inteira não negativa.';
+      } else {
+        const normalizedDigits = cleanOdometer.replace(/^0+(?=\d)/, '');
+        const n = Number(normalizedDigits);
+        if (!Number.isSafeInteger(n) || String(n) !== normalizedDigits) {
+          localErrors.currentOdometerKm = 'Valor de quilometragem excede o limite suportado.';
+        } else {
+          parsedOdometer = n;
+        }
+      }
+    }
+
     if (Object.keys(localErrors).length > 0) {
       setFieldErrors(localErrors);
       return;
@@ -116,7 +138,7 @@ export function VehicleFormSheet({
 
     setSubmitting(true);
     try {
-      const created = await createNewVehicle({
+      const payload: CreateVehicleRequest = {
         nickname: cleanNickname,
         brand: brand.trim() || null,
         model: model.trim() || null,
@@ -124,7 +146,12 @@ export function VehicleFormSheet({
         plate: plate.trim().toUpperCase() || null,
         tankCapacityLiters: normalizedCapacity,
         allowedFuels: selectedFuels,
-      });
+      };
+      if (parsedOdometer !== undefined) {
+        payload.currentOdometerKm = parsedOdometer;
+      }
+
+      const created = await createNewVehicle(payload);
 
       resetForm();
       showToast({
@@ -157,6 +184,7 @@ export function VehicleFormSheet({
     >
       {errorMessage ? <InlineNotice tone="danger" message={errorMessage} /> : null}
 
+      {/* 1. Apelido */}
       <View style={styles.fieldGroup}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>
           Apelido do veículo *
@@ -165,7 +193,7 @@ export function VehicleFormSheet({
           accessibilityLabel="Apelido do veículo"
           value={nickname}
           onChangeText={setNickname}
-          placeholder="Ex: Civic Touring, Onix, Hilux"
+          placeholder="Ex.: Meu carro"
           placeholderTextColor={colors.textMuted}
           style={[
             styles.input,
@@ -185,6 +213,51 @@ export function VehicleFormSheet({
         ) : null}
       </View>
 
+      {/* 2. Marca (linha simples) */}
+      <View style={styles.fieldGroup}>
+        <Text style={[styles.label, { color: colors.textSecondary }]}>
+          Marca (opcional)
+        </Text>
+        <TextInput
+          accessibilityLabel="Marca"
+          value={brand}
+          onChangeText={setBrand}
+          placeholder="Ex.: Renault"
+          placeholderTextColor={colors.textMuted}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.bgSecondary,
+              borderColor: colors.borderDefault,
+              color: colors.textPrimary,
+            },
+          ]}
+        />
+      </View>
+
+      {/* 3. Modelo (linha simples) */}
+      <View style={styles.fieldGroup}>
+        <Text style={[styles.label, { color: colors.textSecondary }]}>
+          Modelo (opcional)
+        </Text>
+        <TextInput
+          accessibilityLabel="Modelo"
+          value={model}
+          onChangeText={setModel}
+          placeholder="Ex.: Captur"
+          placeholderTextColor={colors.textMuted}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.bgSecondary,
+              borderColor: colors.borderDefault,
+              color: colors.textPrimary,
+            },
+          ]}
+        />
+      </View>
+
+      {/* 4. Combustíveis aceitos */}
       <View style={styles.fieldGroup}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>
           Combustíveis aceitos *
@@ -250,118 +323,107 @@ export function VehicleFormSheet({
         ) : null}
       </View>
 
-      <View style={styles.row2Col}>
-        <View style={[styles.fieldGroup, styles.col]}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>
-            Marca (opcional)
-          </Text>
-          <TextInput
-            accessibilityLabel="Marca"
-            value={brand}
-            onChangeText={setBrand}
-            placeholder="Honda"
-            placeholderTextColor={colors.textMuted}
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.bgSecondary,
-                borderColor: colors.borderDefault,
-                color: colors.textPrimary,
-              },
-            ]}
-          />
-        </View>
-
-        <View style={[styles.fieldGroup, styles.col]}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>
-            Modelo (opcional)
-          </Text>
-          <TextInput
-            accessibilityLabel="Modelo"
-            value={model}
-            onChangeText={setModel}
-            placeholder="Civic"
-            placeholderTextColor={colors.textMuted}
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.bgSecondary,
-                borderColor: colors.borderDefault,
-                color: colors.textPrimary,
-              },
-            ]}
-          />
-        </View>
-      </View>
-
-      <View style={styles.row2Col}>
-        <View style={[styles.fieldGroup, styles.col]}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>
-            Ano (opcional)
-          </Text>
-          <TextInput
-            accessibilityLabel="Ano do modelo"
-            value={modelYear}
-            onChangeText={setModelYear}
-            placeholder="2023"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={4}
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.bgSecondary,
-                borderColor: fieldErrors.modelYear
-                  ? colors.dangerBorder
-                  : colors.borderDefault,
-                color: colors.textPrimary,
-              },
-            ]}
-          />
-          {fieldErrors.modelYear ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {fieldErrors.modelYear}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={[styles.fieldGroup, styles.col]}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>
-            Placa (opcional)
-          </Text>
-          <TextInput
-            accessibilityLabel="Placa"
-            value={plate}
-            onChangeText={setPlate}
-            placeholder="ABC1D23"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="characters"
-            maxLength={16}
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.bgSecondary,
-                borderColor: colors.borderDefault,
-                color: colors.textPrimary,
-              },
-            ]}
-          />
-        </View>
-      </View>
-
+      {/* 5. Quilometragem atual (opcional) */}
       <DecimalField
-        label="Capacidade do tanque (opcional)"
-        value={tankCapacity}
-        onChangeText={setTankCapacity}
-        placeholder="50,0"
-        suffix="L"
-        errorText={fieldErrors.tankCapacityLiters}
+        label="Quilometragem atual (opcional)"
+        value={currentOdometerKm}
+        onChangeText={setCurrentOdometerKm}
+        placeholder="Ex.: 45000"
+        suffix="km"
+        keyboardType="number-pad"
+        helperText="Leitura informada no cadastro. Não é atualizada automaticamente por abastecimentos."
+        errorText={fieldErrors.currentOdometerKm}
+        testID="vehicle-current-odometer-input"
       />
 
+      {/* 6. Seção Opcional Recolhida */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Ano, placa e capacidade do tanque"
+        onPress={() => setShowMoreDetails((prev) => !prev)}
+        style={[styles.collapsibleHeaderRow, { borderTopColor: colors.borderSubtle }]}
+      >
+        <Text style={[styles.collapsibleTitle, { color: colors.textSecondary }]}>
+          Ano, placa e capacidade do tanque
+        </Text>
+        <View style={showMoreDetails ? { transform: [{ rotate: '180deg' }] } : undefined}>
+          <ChevronDownIcon size={18} color={colors.textSecondary} />
+        </View>
+      </Pressable>
+
+      {showMoreDetails ? (
+        <View style={styles.collapsibleBody}>
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>
+              Ano (opcional)
+            </Text>
+            <TextInput
+              accessibilityLabel="Ano do modelo"
+              value={modelYear}
+              onChangeText={setModelYear}
+              placeholder="Ex.: 2023"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="number-pad"
+              maxLength={4}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.bgSecondary,
+                  borderColor: fieldErrors.modelYear
+                    ? colors.dangerBorder
+                    : colors.borderDefault,
+                  color: colors.textPrimary,
+                },
+              ]}
+            />
+            {fieldErrors.modelYear ? (
+              <Text style={[styles.errorText, { color: colors.dangerText }]}>
+                {fieldErrors.modelYear}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>
+              Placa (opcional)
+            </Text>
+            <TextInput
+              accessibilityLabel="Placa"
+              value={plate}
+              onChangeText={setPlate}
+              placeholder="Ex.: ABC1D23"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="characters"
+              maxLength={16}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.bgSecondary,
+                  borderColor: colors.borderDefault,
+                  color: colors.textPrimary,
+                },
+              ]}
+            />
+          </View>
+
+          <DecimalField
+            label="Capacidade do tanque (opcional)"
+            value={tankCapacity}
+            onChangeText={setTankCapacity}
+            placeholder="50,0"
+            suffix="L"
+            errorText={fieldErrors.tankCapacityLiters}
+          />
+        </View>
+      ) : null}
+
+      {/* 7. Botão Salvar Escalonado */}
       <PrimaryButton
         label="Salvar veículo"
+        leftIcon={<SaveIcon size={18} color="#FFFFFF" />}
         onPress={handleCreate}
         loading={submitting}
+        stepped
         style={styles.submitBtn}
       />
     </AppSheet>
@@ -373,15 +435,16 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    ...typography.caption,
+    ...typography.bodyStrong,
+    fontSize: 14,
   },
   input: {
     minHeight: 48,
     borderRadius: radii.md,
-    borderWidth: 1.5,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
     ...typography.body,
+    fontSize: 15,
   },
   fuelGrid: {
     flexDirection: 'row',
@@ -389,39 +452,48 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fuelChip: {
-    minHeight: 42,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radii.pill,
+    borderWidth: 1,
     gap: 8,
   },
   checkBox: {
     width: 18,
     height: 18,
-    borderRadius: 5,
+    borderRadius: 4,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   fuelChipLabel: {
-    ...typography.caption,
+    ...typography.bodyStrong,
     fontSize: 13,
   },
-  row2Col: {
+  collapsibleHeaderRow: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    marginTop: 4,
   },
-  col: {
-    flex: 1,
+  collapsibleTitle: {
+    ...typography.bodyStrong,
+    fontSize: 14,
+  },
+  collapsibleBody: {
+    gap: 12,
+    paddingBottom: 6,
+  },
+  submitBtn: {
+    marginTop: 12,
+    marginBottom: 6,
   },
   errorText: {
     ...typography.caption,
     fontSize: 12,
-  },
-  submitBtn: {
-    marginTop: 6,
   },
 });

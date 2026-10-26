@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
+  Image,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -12,7 +12,6 @@ import {
 
 import { ApiError } from '@/api/types';
 import { BrandLockup } from '@/components/brand/BrandLockup';
-import { DiagonalPixelSpark } from '@/components/brand/PixelMascot';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { EyeIcon, LockIcon, MailIcon } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
@@ -20,11 +19,11 @@ import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { FONTS, radii, typography } from '@/theme/tokens';
+import { radii, typography } from '@/theme/tokens';
 
 export function LoginScreen() {
   const router = useRouter();
-  const { colors, isDark } = useAppTheme();
+  const { colors } = useAppTheme();
   const { signIn, prefilledLoginEmail, showToast } = useSession();
 
   const [email, setEmail] = useState(prefilledLoginEmail);
@@ -87,16 +86,30 @@ export function LoginScreen() {
 
   return (
     <ScreenShell contentContainerStyle={styles.scrollContent}>
+      {/* Top Wordmark */}
+      <View style={styles.topHeader}>
+        <BrandLockup mode="wordmark-only" wordmarkWidth={160} />
+      </View>
+
+      {/* Hero Scene with Night Road, Mascot and Car */}
+      <View style={[styles.sceneCard, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
+        <Image
+          source={require('@/assets/brand/scene_night_road.png')}
+          style={styles.sceneImage}
+          resizeMode="cover"
+          accessibilityLabel="Cena noturna com Renault, mascote e estrada"
+        />
+      </View>
+
       <Pressable
         onPress={Keyboard.dismiss}
         accessible={false}
-        style={styles.heroBlock}
+        style={styles.heroTextWrap}
       >
-        <BrandLockup mode="auth-login" />
-        <Text style={[styles.headline, { color: colors.textPrimary }]}>
-          Bom te ver por aqui.
+        <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+          Bem-vindo de volta
         </Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+        <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
           Entre para acompanhar seus abastecimentos.
         </Text>
       </Pressable>
@@ -198,36 +211,13 @@ export function LoginScreen() {
           </View>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Entrar"
-          accessibilityState={{ disabled: submitting, busy: submitting }}
-          aria-disabled={submitting}
-          aria-busy={submitting}
-          disabled={submitting}
+        <PrimaryButton
+          label="Entrar"
           onPress={handleSubmit}
-          style={({ pressed }) => [
-            styles.primaryCta,
-            {
-              backgroundColor: pressed
-                ? colors.accentPressed
-                : colors.accentPrimary,
-              opacity: submitting ? 0.7 : 1,
-            },
-          ]}
-        >
-          {submitting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <View style={styles.ctaSideSpacer} />
-              <Text style={styles.primaryCtaLabel}>Entrar</Text>
-              <Text style={styles.primaryCtaArrow} aria-hidden>
-                →
-              </Text>
-            </>
-          )}
-        </Pressable>
+          loading={submitting}
+          stepped
+          style={{ marginTop: 4 }}
+        />
       </View>
 
       <View style={styles.registerStack}>
@@ -249,13 +239,6 @@ export function LoginScreen() {
             Criar conta
           </Text>
         </Pressable>
-      </View>
-
-      <View style={styles.brandFooter}>
-        <DiagonalPixelSpark size={6} />
-        <Text style={[styles.brandFooterText, { color: colors.textSecondary }]}>
-          Cada abastecimento conta.
-        </Text>
       </View>
 
       <AppSheet
@@ -282,26 +265,34 @@ export function LoginScreen() {
 const styles = StyleSheet.create({
   scrollContent: {
     justifyContent: 'space-between',
-    paddingVertical: 18,
+    paddingVertical: 14,
   },
-  heroBlock: {
+  topHeader: {
     alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 18,
+    marginTop: 4,
+    marginBottom: 14,
   },
-  headline: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 27,
-    lineHeight: 33,
-    letterSpacing: -0.5,
-    textAlign: 'center',
-    marginTop: 14,
+  sceneCard: {
+    height: 146,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 14,
   },
-  subtitle: {
+  sceneImage: {
+    width: '100%',
+    height: '100%',
+  },
+  heroTextWrap: {
+    marginBottom: 16,
+    gap: 4,
+  },
+  screenTitle: {
+    ...typography.screenTitle,
+  },
+  screenSubtitle: {
     ...typography.body,
-    fontSize: 15,
-    textAlign: 'center',
-    marginTop: 6,
+    fontSize: 14,
   },
   formSection: {
     gap: 14,
@@ -310,12 +301,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    fontFamily: FONTS.bold,
+    ...typography.bodyStrong,
     fontSize: 14,
-    lineHeight: 18,
   },
   inputRow: {
-    minHeight: 54,
+    minHeight: 52,
     borderRadius: radii.md,
     borderWidth: 1,
     paddingHorizontal: 14,
@@ -326,7 +316,7 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     ...typography.body,
-    fontSize: 16,
+    fontSize: 15,
     paddingVertical: 10,
   },
   eyeButton: {
@@ -344,39 +334,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   forgotLinkText: {
-    fontFamily: FONTS.bold,
+    ...typography.bodyStrong,
     fontSize: 13,
-    lineHeight: 18,
   },
   errorText: {
     ...typography.caption,
     fontSize: 12,
-  },
-  primaryCta: {
-    minHeight: 56,
-    borderRadius: radii.lg,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 2,
-  },
-  ctaSideSpacer: {
-    width: 24,
-  },
-  primaryCtaLabel: {
-    fontFamily: FONTS.bold,
-    fontSize: 18,
-    lineHeight: 22,
-    color: '#FFFFFF',
-  },
-  primaryCtaArrow: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 20,
-    lineHeight: 22,
-    color: '#FFFFFF',
-    width: 24,
-    textAlign: 'right',
   },
   registerStack: {
     marginTop: 22,
@@ -393,17 +356,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   registerActionText: {
-    fontFamily: FONTS.bold,
-    fontSize: 16,
-    lineHeight: 20,
-  },
-  brandFooter: {
-    marginTop: 20,
-    alignItems: 'center',
-    gap: 6,
-  },
-  brandFooterText: {
-    ...typography.caption,
-    fontSize: 13,
+    ...typography.bodyStrong,
+    fontSize: 15,
   },
 });

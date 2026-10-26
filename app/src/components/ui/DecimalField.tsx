@@ -85,7 +85,10 @@ export function DecimalField({
           ]}
         />
         {suffix ? (
-          <Text style={[styles.affix, { color: colors.textSecondary }]}>{suffix}</Text>
+          <View style={styles.suffixGroup}>
+            <View style={[styles.suffixDivider, { backgroundColor: colors.borderDefault }]} />
+            <Text style={[styles.suffixText, { color: colors.textSecondary }]}>{suffix}</Text>
+          </View>
         ) : null}
       </View>
       {errorText ? (
@@ -121,7 +124,24 @@ const styles = StyleSheet.create({
   },
   affix: {
     ...typography.bodyStrong,
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  suffixGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 4,
+  },
+  suffixDivider: {
+    width: 1,
+    height: 24,
+  },
+  suffixText: {
+    ...typography.bodyStrong,
+    fontSize: 15,
+    minWidth: 20,
+    textAlign: 'center',
   },
   helperText: {
     ...typography.caption,

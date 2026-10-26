@@ -21,6 +21,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BrandLockup } from '@/components/brand/BrandLockup';
 import { AppToast } from '@/components/feedback/AppToast';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
+import { AuthenticatedTabShell } from '@/components/navigation/AuthenticatedTabShell';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SessionProvider, useSession } from '@/state/SessionContext';
 import { AppThemeProvider, useAppTheme } from '@/theme/ThemeProvider';
@@ -62,6 +63,8 @@ function NavigationGuardShell() {
     status === 'connection_error' && !isPublicAuthRoute;
   const showRedirectMask =
     status === 'unauthenticated' && !isPublicAuthRoute;
+  const showAuthenticatedShell =
+    status === 'authenticated' && !isPublicAuthRoute;
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.bgPrimary }]}>
@@ -72,7 +75,7 @@ function NavigationGuardShell() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.bgPrimary },
-          animation: 'fade',
+          animation: 'none',
         }}
       >
         <Stack.Screen name="index" />
@@ -81,12 +84,11 @@ function NavigationGuardShell() {
         <Stack.Screen name="history" />
         <Stack.Screen name="vehicles" />
         <Stack.Screen name="settings" />
-        <Stack.Screen
-          name="fueling/new"
-          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-        />
+        <Stack.Screen name="fueling/new" />
         <Stack.Screen name="fueling/[entryId]" />
       </Stack>
+
+      {showAuthenticatedShell ? <AuthenticatedTabShell /> : null}
 
       {showBootOverlay ? (
         <View

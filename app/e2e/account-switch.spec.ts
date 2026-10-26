@@ -24,13 +24,13 @@ test('login inválido não mostra dados; logout A e login B isolam veículos', a
   await login(page, a.email, a.password);
   await expect(page).toHaveURL(/\/\/?$/);
   await page.goto('/vehicles');
-  await expect(page.getByLabel('Selecionar veículo Privado conta A', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Trocar veículo ativo. Atual: Privado conta A', { exact: true })).toBeVisible();
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   await login(page, b.email, b.password);
   await expect(page).toHaveURL(/\/\/?$/);
   await page.goto('/vehicles');
-  await expect(page.getByLabel('Selecionar veículo Privado conta B', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Selecionar veículo Privado conta A', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Trocar veículo ativo. Atual: Privado conta B', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Trocar veículo ativo. Atual: Privado conta A', { exact: true })).toHaveCount(0);
 });

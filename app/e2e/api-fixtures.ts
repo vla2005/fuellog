@@ -30,5 +30,6 @@ export function fuelEntry(odometerKm: number, tankState: 'FULL' | 'PARTIAL', day
     id: randomUUID(), occurredAt: occurredAt.toISOString(), timezone: 'America/Sao_Paulo',
     odometerKm, fuelType: 'GASOLINE_REGULAR', liters: '10.125', unitPrice: '5.4321',
     paidTotal: '55.00', tankState, historyGapBefore: false, stationName: 'Posto E2E',
+    latitude: -23.55052, longitude: -46.633308,
   };
 }

@@ -35,12 +35,12 @@ test('login e cadastro permitem foco, rolagem e ação em 320x480', async ({ pag
   await reachable(page, page.getByRole('button', { name: 'Entrar', exact: true }));
   await expect(page.getByLabel('E-mail', { exact: true })).toHaveValue('layout@example.test');
   await page.goto('/register');
-  for (const [label, value] of [['Nome', 'Layout curto'], ['E-mail', 'layout@example.test'], ['Senha', 'abc123'], ['Confirmar senha', 'abc123']]) {
+  for (const [label, value] of [['Nome', 'Layout curto'], ['E-mail', 'layout@example.test'], ['Senha', 'abc123']]) {
     await fillVisible(page, label, value);
   }
   await reachable(page, page.getByRole('button', { name: 'Criar conta', exact: true }));
   await expect(page.getByLabel('Nome', { exact: true })).toHaveValue('Layout curto');
-  await expect(page.getByLabel('Confirmar senha', { exact: true })).toHaveValue('abc123');
+  await expect(page.getByLabel('Senha', { exact: true })).toHaveValue('abc123');
 });
 
 test('veículo, abastecimento e sheet de data preservam inputs em 390x480', async ({ page, request }) => {
@@ -53,22 +53,21 @@ test('veículo, abastecimento e sheet de data preservam inputs em 390x480', asyn
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await expect(page).toHaveURL(/\/\/?$/);
   await page.goto('/vehicles');
-  await page.getByRole('button', { name: 'Novo veículo', exact: true }).click();
+  await page.getByRole('button', { name: /^(Novo|Cadastrar) veículo$/ }).click();
   await fillVisible(page, 'Apelido do veículo', 'Layout veículo');
+  await fillVisible(page, 'Quilometragem atual (opcional)', '1100');
+  await page.getByRole('button', { name: 'Ano, placa e capacidade do tanque', exact: true }).click();
   await fillVisible(page, 'Capacidade do tanque (opcional)', '50');
   const saveVehicle = page.getByRole('button', { name: 'Salvar veículo', exact: true });
   await reachable(page, saveVehicle);
   await saveVehicle.click();
-  await expect(page.getByLabel('Selecionar veículo Layout veículo', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Trocar veículo ativo. Atual: Layout veículo', { exact: true })).toBeVisible();
   await page.goto('/fueling/new');
   await fillVisible(page, 'Litros abastecidos', '10,125');
   await fillVisible(page, 'Preço por litro', '5,4321');
   await fillVisible(page, 'Hodômetro atual (km inteiro)', '1200');
-  const details = page.getByRole('button', { name: 'Posto e observação', exact: true });
-  await details.scrollIntoViewIfNeeded();
-  await details.click();
-  await fillVisible(page, 'Nome do posto', 'Posto layout');
-  await fillVisible(page, 'Observações', 'Rascunho preservado com viewport curto');
+  await expect(page.getByLabel('Nome do posto', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Observações', { exact: true })).toHaveCount(0);
   const dateRow = page.getByRole('button', { name: /^Data e hora do abastecimento:/ });
   await dateRow.scrollIntoViewIfNeeded();
   await dateRow.click();
@@ -78,7 +77,7 @@ test('veículo, abastecimento e sheet de data preservam inputs em 390x480', asyn
   const confirmDate = page.getByRole('button', { name: 'Confirmar data e hora', exact: true });
   await reachable(page, confirmDate);
   await confirmDate.click();
-  await expect(page.getByLabel('Observações', { exact: true })).toHaveValue('Rascunho preservado com viewport curto');
+  await expect(page.getByLabel('Hodômetro atual (km inteiro)', { exact: true })).toHaveValue('1200');
   await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('10,125');
   await reachable(page, page.getByRole('button', { name: 'Salvar abastecimento', exact: true }));
 });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -10,334 +11,280 @@ import { FUEL_TYPE_SHORT_LABELS } from '@/api/endpoints';
 import { BrandLockup } from '@/components/brand/BrandLockup';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
-import { CarIcon, CheckIcon, PlusIcon } from '@/components/icons/AppIcons';
+import { CarIcon, ChevronDownIcon, PlusIcon, SettingsIcon } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
+import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { radii, shadows, typography } from '@/theme/tokens';
-import { formatLitersBR } from '@/utils/decimal';
+import { radii, typography } from '@/theme/tokens';
 
 import { VehicleFormSheet } from './VehicleFormSheet';
 
-export function VehiclesScreen() {
-  const { colors, isDark } = useAppTheme();
+export function VehiclesScreen({
+  embeddedInShell = false,
+}: {
+  embeddedInShell?: boolean;
+} = {}) {
+  const { colors } = useAppTheme();
   const { vehicles, activeVehicle, selectVehicle, showToast } = useSession();
   const [createOpen, setCreateOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
+
+  const activeFuelsLabel = activeVehicle?.allowedFuels
+    ? activeVehicle.allowedFuels.map((f) => FUEL_TYPE_SHORT_LABELS[f] ?? f).join(' e ')
+    : 'Nenhum';
 
   return (
     <ScreenShell
       withDockClearance
-      footer={<FloatingDock activeTab="vehicles" />}
+      omitTopSafeArea={embeddedInShell}
+      footer={embeddedInShell ? undefined : <FloatingDock activeTab="vehicles" />}
     >
-      <View style={styles.headerRow}>
-        <BrandLockup mode="header" />
-        <PrimaryButton
-          label="Novo veículo"
-          leftIcon={<PlusIcon size={16} color="#FFFFFF" />}
-          onPress={() => setCreateOpen(true)}
-          style={styles.headerAction}
-        />
-      </View>
+      {!embeddedInShell ? (
+        <View style={styles.standaloneHeader}>
+          <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
+        </View>
+      ) : null}
 
-      <View style={styles.titleBlock}>
-        <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-          Meus veículos
-        </Text>
-        <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
-          Selecione o veículo ativo para consultar resumo, ciclos e histórico.
-        </Text>
+      <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+        Meus veículos
+      </Text>
+
+      {/* Garage scene with car and mascot (Print 2) */}
+      <View style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}>
+        <Image
+          source={require('@/assets/brand/scene_garage.png')}
+          style={styles.sceneImage}
+          resizeMode="cover"
+          accessibilityLabel="Garagem com carro azul e mascote"
+        />
       </View>
 
       {vehicles.length === 0 ? (
         <EmptyState
           title="Nenhum veículo cadastrado"
-          description="Cadastre seu primeiro veículo e escolha os combustíveis compatíveis para começar a registrar abastecimentos."
+          description="Cadastre seu primeiro veículo para começar a registrar abastecimentos."
           action={
             <PrimaryButton
-              label="Cadastrar primeiro veículo"
+              label="Cadastrar veículo"
               leftIcon={<PlusIcon size={18} color="#FFFFFF" />}
               onPress={() => setCreateOpen(true)}
             />
           }
         />
-      ) : (
-        <View style={styles.listColumn}>
-          {vehicles.map((vehicle) => {
-            const isSelected = activeVehicle?.id === vehicle.id;
-            const subtitleParts = [
-              vehicle.brand,
-              vehicle.model,
-              vehicle.modelYear ? String(vehicle.modelYear) : null,
-            ].filter(Boolean);
+      ) : activeVehicle ? (
+        <View style={styles.activeVehicleCard}>
+          {/* Active Vehicle Title with Dropdown (Print 2) */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Trocar veículo ativo. Atual: ${activeVehicle.nickname}`}
+            onPress={() => setPickerOpen(true)}
+            style={styles.vehicleDropdownRow}
+          >
+            <Text style={[styles.vehicleNicknameText, { color: colors.textPrimary }]}>
+              {activeVehicle.nickname}
+            </Text>
+            <ChevronDownIcon size={24} color={colors.brandPrimary} />
+          </Pressable>
 
+          <Text style={[styles.activeBadgeText, { color: colors.brandPrimary }]}>
+            Veículo ativo
+          </Text>
+
+          <Text style={[styles.vehicleSubDetails, { color: colors.textSecondary }]}>
+            {activeVehicle.brand} {activeVehicle.model} • {activeVehicle.modelYear || 'Ano não inf.'}
+          </Text>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          <View style={styles.fuelSection}>
+            <Text style={[styles.fuelLabel, { color: colors.textSecondary }]}>
+              Combustíveis
+            </Text>
+            <Text style={[styles.fuelValue, { color: colors.textPrimary }]}>
+              {activeFuelsLabel}
+            </Text>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Editar veículo"
+            onPress={() => setEditNotice('A versão atual da API do FuelLog suporta apenas criação de veículos. Edição estará disponível em versão futura.')}
+            style={styles.editLinkBtn}
+          >
+            <Text style={[styles.editLinkText, { color: colors.brandPrimary }]}>
+              Editar veículo &gt;
+            </Text>
+          </Pressable>
+
+          {editNotice ? (
+            <InlineNotice
+              tone="warning"
+              title="Recurso indisponível na API"
+              message={editNotice}
+            />
+          ) : null}
+
+          {/* Big Stepped CTA: + Novo veículo */}
+          <PrimaryButton
+            label="Novo veículo"
+            leftIcon={<PlusIcon size={20} color="#FFFFFF" />}
+            onPress={() => setCreateOpen(true)}
+            stepped
+            style={{ marginTop: 12 }}
+          />
+        </View>
+      ) : null}
+
+      {/* Vehicle Switcher Sheet */}
+      <AppSheet
+        visible={pickerOpen}
+        title="Selecionar veículo"
+        subtitle="Escolha o veículo ativo"
+        onClose={() => setPickerOpen(false)}
+      >
+        <View style={styles.pickerList}>
+          {vehicles.map((v) => {
+            const isSelected = v.id === activeVehicle?.id;
             return (
               <Pressable
-                key={vehicle.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected }}
-                aria-selected={isSelected}
-                accessibilityLabel={`Selecionar veículo ${vehicle.nickname}`}
+                key={v.id}
                 onPress={async () => {
-                  await selectVehicle(vehicle.id);
-                  showToast({
-                    tone: 'info',
-                    title: 'Veículo ativo alterado',
-                    subtitle: `${vehicle.nickname} está selecionado.`,
-                  });
+                  await selectVehicle(v.id);
+                  setPickerOpen(false);
                 }}
                 style={[
-                  styles.vehicleCard,
+                  styles.pickerOption,
                   {
-                    backgroundColor: colors.bgElevated,
-                    borderColor: isSelected
-                      ? colors.accentPrimary
-                      : colors.borderDefault,
+                    backgroundColor: isSelected ? colors.brandSoft : colors.bgElevated,
+                    borderColor: isSelected ? colors.borderFocus : colors.borderSubtle,
                   },
-                  isDark ? shadows.darkCard : shadows.lightCard,
                 ]}
               >
-                <View style={styles.cardTopRow}>
-                  <View style={styles.leftRow}>
-                    <View
-                      style={[
-                        styles.iconCircle,
-                        {
-                          backgroundColor: isSelected
-                            ? colors.accentPrimary
-                            : colors.accentSoft,
-                        },
-                      ]}
-                    >
-                      <CarIcon
-                        size={20}
-                        color={isSelected ? '#FFFFFF' : colors.accentPrimary}
-                      />
-                    </View>
-                    <View style={styles.titleGroup}>
-                      <View style={styles.nameBadgeRow}>
-                        <Text
-                          style={[styles.vehicleName, { color: colors.textPrimary }]}
-                        >
-                          {vehicle.nickname}
-                        </Text>
-                        {isSelected ? (
-                          <View
-                            style={[
-                              styles.activePill,
-                              { backgroundColor: colors.accentSoft },
-                            ]}
-                          >
-                            <CheckIcon size={12} color={colors.accentPrimary} />
-                            <Text
-                              style={[
-                                styles.activePillText,
-                                { color: colors.accentPrimary },
-                              ]}
-                            >
-                              Ativo
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Text
-                        style={[
-                          styles.vehicleSubtitle,
-                          { color: colors.textSecondary },
-                        ]}
-                      >
-                        {subtitleParts.length > 0
-                          ? subtitleParts.join(' • ')
-                          : 'Marca e modelo não informados'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.metaRow}>
-                  {vehicle.plate ? (
-                    <View
-                      style={[
-                        styles.metaChip,
-                        {
-                          backgroundColor: colors.bgSecondary,
-                          borderColor: colors.borderDefault,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.metaChipText, { color: colors.textSecondary }]}
-                      >
-                        Placa: {vehicle.plate}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {vehicle.tankCapacityLiters ? (
-                    <View
-                      style={[
-                        styles.metaChip,
-                        {
-                          backgroundColor: colors.bgSecondary,
-                          borderColor: colors.borderDefault,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.metaChipText, { color: colors.textSecondary }]}
-                      >
-                        Tanque: {formatLitersBR(vehicle.tankCapacityLiters)}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                <View style={styles.fuelsRow}>
-                  {vehicle.allowedFuels.map((fuel) => (
-                    <View
-                      key={fuel}
-                      style={[
-                        styles.fuelPill,
-                        {
-                          backgroundColor: colors.accentSoft,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.fuelPillText,
-                          { color: colors.accentPrimary },
-                        ]}
-                      >
-                        {FUEL_TYPE_SHORT_LABELS[fuel]}
-                      </Text>
-                    </View>
-                  ))}
+                <CarIcon size={20} color={isSelected ? colors.brandPrimary : colors.textPrimary} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.pickerOptionTitle, { color: colors.textPrimary }]}>
+                    {v.nickname}
+                  </Text>
+                  <Text style={[styles.pickerOptionSub, { color: colors.textSecondary }]}>
+                    {v.brand} {v.model} • {v.modelYear || 'Ano não inf.'}
+                  </Text>
                 </View>
               </Pressable>
             );
           })}
-
-          <InlineNotice
-            tone="info"
-            title="Gerenciamento de veículos"
-            message="Cadastre novos veículos e alterne o veículo ativo a qualquer momento. A edição e o arquivamento estarão disponíveis em breve."
-          />
         </View>
-      )}
+      </AppSheet>
 
+      {/* Vehicle Creation Sheet */}
       <VehicleFormSheet
         visible={createOpen}
         onClose={() => setCreateOpen(false)}
+        onCreated={async (saved) => {
+          await selectVehicle(saved.id);
+          setCreateOpen(false);
+          showToast({
+            tone: 'success',
+            title: 'Veículo cadastrado',
+            subtitle: `${saved.nickname} foi adicionado com sucesso.`,
+          });
+        }}
       />
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  headerAction: {
-    minHeight: 42,
-  },
-  titleBlock: {
-    gap: 4,
-    marginBottom: 16,
+  standaloneHeader: {
+    paddingVertical: 8,
   },
   screenTitle: {
-    ...typography.sectionTitle,
-    fontSize: 22,
+    ...typography.screenTitle,
+    fontSize: 26,
+    fontWeight: '800',
+    paddingVertical: 4,
+    marginBottom: 6,
   },
-  screenSubtitle: {
-    ...typography.body,
-    fontSize: 13,
-  },
-  listColumn: {
-    gap: 12,
-  },
-  vehicleCard: {
-    borderRadius: radii.lg,
-    borderWidth: 1.5,
-    padding: 16,
-    gap: 12,
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  leftRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  iconCircle: {
-    width: 42,
-    height: 42,
+  sceneContainer: {
+    width: '100%',
+    height: 190,
     borderRadius: radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#080E18',
+    marginBottom: 16,
   },
-  titleGroup: {
-    flex: 1,
-    gap: 2,
+  sceneImage: {
+    width: '100%',
+    height: '100%',
   },
-  nameBadgeRow: {
+  activeVehicleCard: {
+    gap: 8,
+  },
+  vehicleDropdownRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    flexWrap: 'wrap',
   },
-  vehicleName: {
-    ...typography.cardTitle,
+  vehicleNicknameText: {
+    ...typography.screenTitle,
+    fontSize: 32,
+    fontWeight: '800',
   },
-  activePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  activeBadgeText: {
+    ...typography.bodyStrong,
+    fontSize: 15,
+  },
+  vehicleSubDetails: {
+    ...typography.body,
+    fontSize: 15,
+  },
+  divider: {
+    height: 1,
+    marginVertical: 4,
+  },
+  fuelSection: {
+    paddingVertical: 4,
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
   },
-  activePillText: {
-    ...typography.caption,
-    fontSize: 11,
+  fuelLabel: {
+    ...typography.body,
+    fontSize: 14,
   },
-  vehicleSubtitle: {
-    ...typography.caption,
+  fuelValue: {
+    ...typography.bodyStrong,
+    fontSize: 16,
   },
-  metaRow: {
+  editLinkBtn: {
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+  },
+  editLinkText: {
+    ...typography.bodyStrong,
+    fontSize: 15,
+  },
+  pickerList: {
+    gap: 10,
+    paddingVertical: 8,
+  },
+  pickerOption: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
   },
-  metaChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radii.sm,
-    borderWidth: 1,
+  pickerOptionTitle: {
+    ...typography.bodyStrong,
+    fontSize: 16,
   },
-  metaChipText: {
+  pickerOptionSub: {
     ...typography.caption,
-    fontSize: 11,
-  },
-  fuelsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  fuelPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-  },
-  fuelPillText: {
-    ...typography.caption,
-    fontSize: 11,
+    fontSize: 13,
   },
 });

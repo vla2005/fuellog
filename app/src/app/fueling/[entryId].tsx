@@ -1,7 +1,12 @@
 import React from 'react';
-
-import { FuelEntryDetailScreen } from '@/features/history/FuelEntryDetailScreen';
+import { StyleSheet, View } from 'react-native';
 
 export default function FuelEntryDetailRoute() {
-  return <FuelEntryDetailScreen />;
+  return <View style={styles.placeholder} />;
 }
+
+const styles = StyleSheet.create({
+  placeholder: {
+    flex: 1,
+  },
+});

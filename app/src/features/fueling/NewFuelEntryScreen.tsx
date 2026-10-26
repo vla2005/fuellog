@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -17,13 +20,13 @@ import {
   ApiError,
   CreateFuelEntryRequest,
   FuelType,
-  TankState,
 } from '@/api/types';
 import { DiagonalPixelSpark, PixelMascot } from '@/components/brand/PixelMascot';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
   CalendarIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DropletIcon,
@@ -32,10 +35,13 @@ import {
   PlusIcon,
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
+import { LocationMap } from '@/components/location/LocationMap';
+import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
+import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
-import { TankSegmented } from '@/components/ui/TankSegmented';
 import { VehicleFormSheet } from '@/features/vehicles/VehicleFormSheet';
+import { useMotionPolicy } from '@/motion/useMotionPolicy';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, shadows, typography } from '@/theme/tokens';
@@ -51,7 +57,12 @@ import {
   formatCurrencyBRL,
   parsePositiveDecimalInput,
 } from '@/utils/decimal';
+import {
+  Coordinates,
+  isValidCoordinate,
+} from '@/utils/location';
 import { generateUuidV4 } from '@/utils/uuid';
+import { useForegroundLocation } from './useForegroundLocation';
 
 interface FuelEntryDraft {
   id: string;
@@ -65,11 +76,8 @@ interface FuelEntryDraft {
   timeStr: string;
   timezone: string;
   fuelType: FuelType | null;
-  tankState: TankState | null;
-  historyGapBefore: boolean;
-  stationName: string;
-  notes: string;
-  showMoreDetails: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
   uncertainPendingPayload?: CreateFuelEntryRequest | null;
 }
 
@@ -83,7 +91,11 @@ function formatDateBrFromIsoDate(isoDate: string): string {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
-export function NewFuelEntryScreen() {
+export function NewFuelEntryScreen({
+  embeddedInShell = false,
+}: {
+  embeddedInShell?: boolean;
+} = {}) {
   const router = useRouter();
   const { colors, isDark } = useAppTheme();
   const {
@@ -94,6 +106,10 @@ export function NewFuelEntryScreen() {
     invalidateFuelData,
     showToast,
   } = useSession();
+
+  const isTabActive = TabActiveContext ? React.useContext(TabActiveContext) : true;
+  const { isAppActive } = useMotionPolicy();
+  const isScreenActive = isTabActive && isAppActive;
 
   const now = useMemo(() => new Date(), []);
   const defaultTimezone = useMemo(
@@ -114,11 +130,17 @@ export function NewFuelEntryScreen() {
   const [fuelType, setFuelType] = useState<FuelType | null>(
     () => activeVehicle?.allowedFuels[0] ?? null,
   );
-  const [tankState, setTankState] = useState<TankState | null>(null);
-  const [historyGapBefore, setHistoryGapBefore] = useState(false);
-  const [stationName, setStationName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [showMoreDetails, setShowMoreDetails] = useState(false);
+
+  const {
+    status: locationStatus,
+    coordinates,
+    errorMessage: locationError,
+    canAskAgain,
+    requestLocation,
+    openSettings,
+    resetLocation,
+    setFixedCoordinates,
+  } = useForegroundLocation({ autoRequest: false });
 
   const [vehicleSheetOpen, setVehicleSheetOpen] = useState(false);
   const [fuelSheetOpen, setFuelSheetOpen] = useState(false);
@@ -134,6 +156,51 @@ export function NewFuelEntryScreen() {
   const [restoredScopeKey, setRestoredScopeKey] = useState<string | null>(null);
   const restoredScopeKeyRef = useRef<string | null>(null);
   const restoreSeqRef = useRef(0);
+  const isNavigatingHomeRef = useRef(false);
+
+  const expectedScopeKey =
+    user && activeVehicle
+      ? getDraftStorageKey(user.id, activeVehicle.id)
+      : null;
+  const isScopeRestored = Boolean(
+    expectedScopeKey && restoredScopeKey === expectedScopeKey,
+  );
+
+  // Cancela/invalida captura em voo se a tela ficar inativa na TabShell ou app em segundo plano
+  useEffect(() => {
+    if (!isScreenActive) {
+      resetLocation();
+    }
+  }, [isScreenActive, resetLocation]);
+
+  // Limpa o bloqueio pós-salvamento quando a tela fica inativa na TabShell
+  useEffect(() => {
+    if (!isTabActive) {
+      isNavigatingHomeRef.current = false;
+    }
+  }, [isTabActive]);
+
+  // Habilita captura automática apenas após a restauração do escopo coincidir com user + vehicle
+  // e impede reinício imediato após salvar e navegar para Home
+  useEffect(() => {
+    if (
+      isScreenActive &&
+      !isNavigatingHomeRef.current &&
+      isScopeRestored &&
+      locationStatus === 'idle' &&
+      !coordinates &&
+      !uncertainPendingPayload
+    ) {
+      void requestLocation();
+    }
+  }, [
+    coordinates,
+    isScopeRestored,
+    isScreenActive,
+    locationStatus,
+    requestLocation,
+    uncertainPendingPayload,
+  ]);
 
   // Carrega rascunho local vinculado exatamente a userId + vehicleId
   useEffect(() => {
@@ -160,11 +227,7 @@ export function NewFuelEntryScreen() {
     setTimeStr(formatLocalTimeInput(freshNow));
     setTimezone(defaultTimezone);
     setFuelType(freshDefaultFuel);
-    setTankState(null);
-    setHistoryGapBefore(false);
-    setStationName('');
-    setNotes('');
-    setShowMoreDetails(false);
+    resetLocation();
 
     if (!user || !activeVehicle) {
       return () => {
@@ -205,19 +268,26 @@ export function NewFuelEntryScreen() {
             ) {
               setFuelType(parsed.fuelType);
             }
-            if (parsed.tankState) {
-              setTankState(parsed.tankState);
-            }
-            if (typeof parsed.historyGapBefore === 'boolean') {
-              setHistoryGapBefore(parsed.historyGapBefore);
-            }
-            if (typeof parsed.stationName === 'string') setStationName(parsed.stationName);
-            if (typeof parsed.notes === 'string') setNotes(parsed.notes);
-            if (typeof parsed.showMoreDetails === 'boolean') {
-              setShowMoreDetails(parsed.showMoreDetails);
+            if (
+              typeof parsed.latitude === 'number' &&
+              typeof parsed.longitude === 'number'
+            ) {
+              setFixedCoordinates({
+                latitude: parsed.latitude,
+                longitude: parsed.longitude,
+              });
             }
             if (parsed.uncertainPendingPayload) {
               setUncertainPendingPayload(parsed.uncertainPendingPayload);
+              if (
+                typeof parsed.uncertainPendingPayload.latitude === 'number' &&
+                typeof parsed.uncertainPendingPayload.longitude === 'number'
+              ) {
+                setFixedCoordinates({
+                  latitude: parsed.uncertainPendingPayload.latitude,
+                  longitude: parsed.uncertainPendingPayload.longitude,
+                });
+              }
             }
           } catch {
             // Ignora rascunho corrompido mantendo estado limpo recém-inicializado
@@ -235,7 +305,7 @@ export function NewFuelEntryScreen() {
     return () => {
       active = false;
     };
-  }, [activeVehicle, defaultTimezone, user]);
+  }, [activeVehicle, defaultTimezone, resetLocation, setFixedCoordinates, user]);
 
   // Salva rascunho somente quando o escopo restaurado coincide exatamente com userId + vehicleId atuais
   useEffect(() => {
@@ -257,30 +327,23 @@ export function NewFuelEntryScreen() {
       timeStr,
       timezone,
       fuelType,
-      tankState,
-      historyGapBefore,
-      stationName,
-      notes,
-      showMoreDetails,
+      latitude: coordinates ? coordinates.latitude : null,
+      longitude: coordinates ? coordinates.longitude : null,
       uncertainPendingPayload,
     };
     void AsyncStorage.setItem(key, JSON.stringify(draft)).catch(() => {});
   }, [
     activeVehicle,
     adjustmentReason,
+    coordinates,
     dateStr,
     entryId,
     fuelType,
-    historyGapBefore,
     isManualPaidTotal,
     liters,
     manualPaidTotal,
-    notes,
     odometerKm,
     restoredScopeKey,
-    showMoreDetails,
-    stationName,
-    tankState,
     timeStr,
     timezone,
     uncertainPendingPayload,
@@ -312,9 +375,9 @@ export function NewFuelEntryScreen() {
   const handleToggleManualPaid = () => {
     if (isLockedForUncertainRetry) return;
     if (!isManualPaidTotal) {
-      setManualPaidTotal(
-        referenceTotalDot ? referenceTotalDot.replace('.', ',') : '',
-      );
+      if (referenceTotalDot) {
+        setManualPaidTotal(referenceTotalDot.replace('.', ','));
+      }
       setIsManualPaidTotal(true);
     } else {
       setIsManualPaidTotal(false);
@@ -326,11 +389,12 @@ export function NewFuelEntryScreen() {
     setUncertainPendingPayload(null);
     setEntryId(generateUuidV4());
     setErrorMessage(null);
+    setFieldErrors({});
   };
 
   const handleSubmit = async () => {
-    if (!activeVehicle || !user) {
-      setErrorMessage('Cadastre ou selecione um veículo antes de salvar.');
+    if (!user || !activeVehicle) {
+      setErrorMessage('Selecione ou cadastre um veículo antes de salvar.');
       return;
     }
 
@@ -339,7 +403,9 @@ export function NewFuelEntryScreen() {
       restoredScopeKey !== expectedScopeKey ||
       restoredScopeKeyRef.current !== expectedScopeKey
     ) {
-      setErrorMessage('Aguarde a preparação dos dados do veículo selecionado.');
+      setErrorMessage(
+        'Sincronizando rascunho do veículo selecionado. Tente novamente em instantes.',
+      );
       return;
     }
 
@@ -351,60 +417,74 @@ export function NewFuelEntryScreen() {
     if (uncertainPendingPayload) {
       payloadToSend = uncertainPendingPayload;
     } else {
-      const localErrors: Record<string, string> = {};
+      const nextErrors: Record<string, string> = {};
 
       const parsedLiters = parsePositiveDecimalInput(liters, 3);
       if (!parsedLiters.valid || !parsedLiters.normalizedDot) {
-        localErrors.liters =
+        nextErrors.liters =
           parsedLiters.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Litros aceita no máximo 3 casas decimais.'
-            : 'Informe uma quantidade positiva de litros.';
+            ? 'Máximo de 3 casas decimais para litros.'
+            : parsedLiters.errorReason === 'NON_POSITIVE'
+              ? 'Informe um volume maior que zero.'
+              : 'Informe os litros.';
       }
 
       const parsedUnitPrice = parsePositiveDecimalInput(unitPrice, 4);
       if (!parsedUnitPrice.valid || !parsedUnitPrice.normalizedDot) {
-        localErrors.unitPrice =
+        nextErrors.unitPrice =
           parsedUnitPrice.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Preço/L aceita no máximo 4 casas decimais.'
-            : 'Informe um preço por litro positivo.';
+            ? 'Máximo de 4 casas decimais para o preço.'
+            : parsedUnitPrice.errorReason === 'NON_POSITIVE'
+              ? 'Informe um preço maior que zero.'
+              : 'Informe o preço por litro.';
       }
 
       const parsedPaid = parsePositiveDecimalInput(effectivePaidTotalInput, 2);
       if (!parsedPaid.valid || !parsedPaid.normalizedDot) {
-        localErrors.paidTotal =
+        nextErrors.paidTotal =
           parsedPaid.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Total pago aceita no máximo 2 casas decimais.'
-            : 'Informe um valor total pago positivo.';
+            ? 'Máximo de 2 casas decimais para o valor pago.'
+            : parsedPaid.errorReason === 'NON_POSITIVE'
+              ? 'Informe um valor maior que zero.'
+              : 'Informe o valor pago.';
       }
 
       const cleanOdometer = odometerKm.trim();
       if (!/^\d+$/.test(cleanOdometer)) {
-        localErrors.odometerKm = 'Informe o hodômetro como número inteiro (km >= 0).';
+        nextErrors.odometerKm = 'Informe um hodômetro inteiro em km.';
       }
 
       if (!parsedOccurredAtIso) {
-        localErrors.occurredAt = 'Data ou hora inválida. Use AAAA-MM-DD e HH:MM.';
+        nextErrors.occurredAt = 'Data ou hora inválida. Use AAAA-MM-DD e HH:MM.';
       }
 
-      if (!fuelType || !activeVehicle.allowedFuels.includes(fuelType)) {
-        localErrors.fuelType = 'Selecione um combustível permitido para este veículo.';
-      }
-
-      if (!tankState) {
-        localErrors.tankState = 'Selecione o estado do tanque neste abastecimento.';
+      if (!fuelType) {
+        nextErrors.fuelType = 'Selecione o combustível.';
+      } else if (!activeVehicle.allowedFuels.includes(fuelType)) {
+        nextErrors.fuelType =
+          'Este combustível não é permitido para o veículo selecionado.';
       }
 
       const cleanReason = adjustmentReason.trim();
       if (adjustmentInfo.requiresReason && !cleanReason) {
-        localErrors.adjustmentReason =
-          'Justifique a diferença superior a R$ 0,05 entre o total pago e o valor calculado.';
-      } else if (cleanReason.length > 300) {
-        localErrors.adjustmentReason =
-          'A justificativa deve ter no máximo 300 caracteres.';
+        nextErrors.adjustmentReason =
+          'Diferença acima de R$ 0,05 exige justificativa.';
       }
 
-      if (Object.keys(localErrors).length > 0) {
-        setFieldErrors(localErrors);
+      if (Object.keys(nextErrors).length > 0) {
+        setFieldErrors(nextErrors);
+        setErrorMessage('Corrija os campos destacados antes de salvar.');
+        return;
+      }
+
+      if (
+        locationStatus !== 'ready' ||
+        !coordinates ||
+        !isValidCoordinate(coordinates.latitude, coordinates.longitude)
+      ) {
+        setErrorMessage(
+          'Localização obrigatória: aguarde a obtenção do GPS antes de salvar.',
+        );
         return;
       }
 
@@ -417,11 +497,13 @@ export function NewFuelEntryScreen() {
         liters: parsedLiters.normalizedDot!,
         unitPrice: parsedUnitPrice.normalizedDot!,
         paidTotal: parsedPaid.normalizedDot!,
-        tankState: tankState!,
-        historyGapBefore,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        tankState: 'UNKNOWN',
+        historyGapBefore: false,
         adjustmentReason: cleanReason || null,
-        stationName: stationName.trim() || null,
-        notes: notes.trim() || null,
+        stationName: null,
+        notes: null,
       };
     }
 
@@ -434,6 +516,26 @@ export function NewFuelEntryScreen() {
 
       await AsyncStorage.removeItem(expectedScopeKey).catch(() => {});
 
+      if (embeddedInShell) {
+        const freshNow = new Date();
+        const freshDefaultFuel = activeVehicle?.allowedFuels[0] ?? null;
+        setEntryId(generateUuidV4());
+        setLiters('');
+        setUnitPrice('');
+        setManualPaidTotal('');
+        setIsManualPaidTotal(false);
+        setAdjustmentReason('');
+        setOdometerKm('');
+        setDateStr(formatLocalDateInput(freshNow));
+        setTimeStr(formatLocalTimeInput(freshNow));
+        setTimezone(defaultTimezone);
+        setFuelType(freshDefaultFuel);
+        resetLocation();
+        setUncertainPendingPayload(null);
+        setErrorMessage(null);
+        setFieldErrors({});
+      }
+
       invalidateFuelData();
       showToast({
         tone: 'success',
@@ -442,6 +544,7 @@ export function NewFuelEntryScreen() {
           : 'Abastecimento salvo com sucesso',
         subtitle: `${formatCurrencyBRL(savedEntry.paidTotal)} registrado em ${targetVehicleNickname}.`,
       });
+      isNavigatingHomeRef.current = true;
       router.replace('/');
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -477,12 +580,17 @@ export function NewFuelEntryScreen() {
     : 'Selecionar veículo';
 
   return (
-    <ScreenShell contentContainerStyle={styles.scrollContent}>
-      {/* Header Row: Back Button + Title/Vehicle Subtitle + Mascot Avatar */}
-      <View style={styles.headerRow}>
+    <ScreenShell
+      withDockClearance={false}
+      omitTopSafeArea={false}
+      contentContainerStyle={styles.scrollContent}
+      footer={undefined}
+    >
+      {/* Compact Header: Back chevron + Title + Vehicle dropdown */}
+      <View style={styles.compactHeaderRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Fechar novo abastecimento"
+          accessibilityLabel="Voltar"
           onPress={() => {
             if (router.canGoBack()) {
               router.back();
@@ -490,39 +598,28 @@ export function NewFuelEntryScreen() {
               router.replace('/');
             }
           }}
-          style={[
-            styles.backButton,
-            {
-              backgroundColor: surfaceBg,
-              borderColor: surfaceBorder,
-            },
-          ]}
+          style={styles.compactBackBtn}
         >
-          <ChevronLeftIcon size={20} color={colors.textPrimary} />
+          <ChevronLeftIcon size={22} color={colors.brandPrimary} />
         </Pressable>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Veículo: ${vehicleHeaderSubtitle}`}
-          disabled={isLockedForUncertainRetry}
-          onPress={() => setVehicleSheetOpen(true)}
-          style={styles.headerTitleCol}
-        >
-          <Text
-            numberOfLines={1}
-            style={[styles.headerTitle, { color: colors.textPrimary }]}
-          >
+        <View style={styles.compactTitleCol}>
+          <Text style={[styles.compactTitleText, { color: colors.textPrimary }]}>
             Novo abastecimento
           </Text>
-          <Text
-            numberOfLines={1}
-            style={[styles.headerSubtitle, { color: colors.textSecondary }]}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Veículo: ${vehicleHeaderSubtitle}`}
+            disabled={isLockedForUncertainRetry}
+            onPress={() => setVehicleSheetOpen(true)}
+            style={styles.compactVehicleRow}
           >
-            {vehicleHeaderSubtitle}
-          </Text>
-        </Pressable>
-
-        <PixelMascot variant="avatar" size={30} withFrame />
+            <Text style={[styles.compactVehicleText, { color: colors.textSecondary }]}>
+              {activeVehicle?.nickname ?? 'Selecionar veículo'}
+            </Text>
+            <ChevronDownIcon size={16} color={colors.brandPrimary} />
+          </Pressable>
+        </View>
       </View>
 
       {vehicles.length === 0 ? (
@@ -949,146 +1046,143 @@ export function NewFuelEntryScreen() {
             </Text>
           ) : null}
 
-          {/* Tank State Section */}
-          <View style={styles.tankSection}>
-            <Text style={[styles.tankHeading, { color: colors.textPrimary }]}>
-              Como ficou o tanque?
-            </Text>
-            <TankSegmented
-              value={tankState}
-              onChange={(next) => {
-                if (!isLockedForUncertainRetry) {
-                  setTankState(next);
-                }
-              }}
-              errorText={fieldErrors.tankState}
-            />
-          </View>
-
-          {/* Compact History Gap Checkbox Row */}
-          <Pressable
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: historyGapBefore }}
-            aria-checked={historyGapBefore}
-            accessibilityLabel="Houve abastecimento não registrado antes deste"
-            disabled={isLockedForUncertainRetry}
-            onPress={() => setHistoryGapBefore((prev) => !prev)}
-            style={styles.gapRow}
-          >
-            <View
-              style={[
-                styles.gapCheckbox,
-                {
-                  backgroundColor: historyGapBefore
-                    ? colors.accentPrimary
-                    : surfaceBg,
-                  borderColor: historyGapBefore
-                    ? colors.accentPrimary
-                    : colors.textPrimary,
-                },
-              ]}
-            >
-              {historyGapBefore ? <CheckIcon size={12} color="#FFFFFF" /> : null}
-            </View>
-            <Text style={[styles.gapLabel, { color: colors.textPrimary }]}>
-              Houve abastecimento não registrado
-            </Text>
-          </Pressable>
           </View>
 
           <View style={styles.formBottomGroup}>
-            {/* Expandable Optional Details Row: Posto e observação */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                showMoreDetails
-                  ? 'Ocultar posto e observação'
-                  : 'Posto e observação'
-              }
-              onPress={() => setShowMoreDetails((prev) => !prev)}
+            {/* Location Section Card: GPS Foreground capture and Square Map */}
+            <View
               style={[
-                styles.moreDetailsCardRow,
+                styles.locationSectionCard,
                 {
                   backgroundColor: surfaceBg,
-                  borderColor: surfaceBorder,
+                  borderColor:
+                    locationStatus === 'error' ||
+                    locationStatus === 'permission_denied' ||
+                    locationStatus === 'services_disabled'
+                      ? colors.statusDangerBorder
+                      : surfaceBorder,
                 },
+                isDark ? shadows.darkCard : shadows.lightCard,
               ]}
             >
-              <View
-                style={[
-                  styles.morePlusBadge,
-                  { backgroundColor: badgeSquareBg },
-                ]}
-              >
-                <PlusIcon size={14} color={colors.accentPrimary} />
-              </View>
-              <Text
-                style={[styles.moreDetailsText, { color: colors.textPrimary }]}
-              >
-                Posto e observação
-              </Text>
-              <ChevronRightIcon size={15} color={colors.accentPrimary} />
-            </Pressable>
-
-            {showMoreDetails ? (
-              <View
-                style={[
-                  styles.optionalCard,
-                  {
-                    backgroundColor: surfaceBg,
-                    borderColor: surfaceBorder,
-                  },
-                ]}
-              >
-                <View style={styles.fieldGroup}>
-                  <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
-                    Nome do posto (opcional)
+              <View style={styles.locationHeaderRow}>
+                <View style={styles.locationTitleCol}>
+                  <Text style={[styles.locationHeading, { color: colors.textPrimary }]}>
+                    Localização do abastecimento
                   </Text>
-                  <TextInput
-                    accessibilityLabel="Nome do posto"
-                    value={stationName}
-                    onChangeText={setStationName}
-                    editable={!isLockedForUncertainRetry}
-                    placeholder="Ex: Posto Shell Avenida"
-                    placeholderTextColor={colors.textMuted}
-                    maxLength={120}
-                    style={[
-                      styles.optionalInput,
-                      {
-                        backgroundColor: colors.bgSecondary,
-                        borderColor: surfaceBorder,
-                        color: colors.textPrimary,
-                      },
-                    ]}
-                  />
+                  <Text style={[styles.locationSubheading, { color: colors.textSecondary }]}>
+                    {locationStatus === 'ready' && coordinates
+                      ? 'Coordenadas capturadas via GPS'
+                      : 'Obrigatório para registrar o abastecimento'}
+                  </Text>
                 </View>
 
-                <View style={styles.fieldGroup}>
-                  <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
-                    Observações (opcional)
-                  </Text>
-                  <TextInput
-                    accessibilityLabel="Observações"
-                    value={notes}
-                    onChangeText={setNotes}
-                    editable={!isLockedForUncertainRetry}
-                    placeholder="Ex: Calibragem dos pneus, viagem em rodovia..."
-                    placeholderTextColor={colors.textMuted}
-                    maxLength={1000}
-                    multiline
+                {locationStatus === 'ready' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Recapturar localização atual"
+                    disabled={isLockedForUncertainRetry}
+                    onPress={() => requestLocation(true)}
                     style={[
-                      styles.optionalInput,
-                      styles.notesInput,
+                      styles.recaptureBtn,
                       {
-                        backgroundColor: colors.bgSecondary,
-                        borderColor: surfaceBorder,
-                        color: colors.textPrimary,
+                        backgroundColor: colors.brandSoft,
                       },
                     ]}
+                  >
+                    <Text style={[styles.recaptureBtnText, { color: colors.brandPrimary }]}>
+                      Recapturar
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {locationStatus === 'requesting_permission' || locationStatus === 'locating' ? (
+                <View style={styles.locatingBox}>
+                  <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  <Text style={[styles.locatingText, { color: colors.textSecondary }]}>
+                    Obtendo coordenadas do GPS...
+                  </Text>
+                </View>
+              ) : locationStatus === 'permission_denied' ? (
+                <View style={styles.locationNoticeWrap}>
+                  <InlineNotice
+                    tone="danger"
+                    title="Permissão de localização negada"
+                    message={
+                      locationError ??
+                      'O FuelLog precisa de acesso ao GPS em primeiro plano para registrar as coordenadas do abastecimento.'
+                    }
+                    action={
+                      <View style={styles.locationActionRow}>
+                        <PrimaryButton
+                          label="Tentar novamente"
+                          variant="secondary"
+                          onPress={() => requestLocation(true)}
+                        />
+                        {Platform?.OS !== 'web' ? (
+                          <PrimaryButton
+                            label="Abrir configurações"
+                            variant="secondary"
+                            onPress={openSettings}
+                          />
+                        ) : null}
+                      </View>
+                    }
                   />
                 </View>
-              </View>
-            ) : null}
+              ) : locationStatus === 'services_disabled' ? (
+                <View style={styles.locationNoticeWrap}>
+                  <InlineNotice
+                    tone="warning"
+                    title="GPS desativado no dispositivo"
+                    message={
+                      locationError ??
+                      'Ative a localização nas configurações do aparelho para continuar.'
+                    }
+                    action={
+                      <View style={styles.locationActionRow}>
+                        <PrimaryButton
+                          label="Verificar novamente"
+                          variant="secondary"
+                          onPress={() => requestLocation(true)}
+                        />
+                        {Platform?.OS !== 'web' ? (
+                          <PrimaryButton
+                            label="Abrir configurações"
+                            variant="secondary"
+                            onPress={openSettings}
+                          />
+                        ) : null}
+                      </View>
+                    }
+                  />
+                </View>
+              ) : locationStatus === 'error' ? (
+                <View style={styles.locationNoticeWrap}>
+                  <InlineNotice
+                    tone="danger"
+                    title="Falha ao obter localização"
+                    message={
+                      locationError ??
+                      'Não foi possível obter o sinal de GPS. Verifique a recepção e tente novamente.'
+                    }
+                    action={
+                      <PrimaryButton
+                        label="Tentar novamente"
+                        variant="secondary"
+                        onPress={() => requestLocation(true)}
+                      />
+                    }
+                  />
+                </View>
+              ) : locationStatus === 'ready' && coordinates ? (
+                <LocationMap
+                  latitude={coordinates.latitude}
+                  longitude={coordinates.longitude}
+                />
+              ) : null}
+            </View>
 
             <View style={styles.brandFooterRow}>
               <DiagonalPixelSpark size={5} />
@@ -1108,6 +1202,11 @@ export function NewFuelEntryScreen() {
               }
               onPress={handleSubmit}
               loading={submitting}
+              disabled={
+                submitting ||
+                (!uncertainPendingPayload &&
+                  (locationStatus !== 'ready' || !coordinates))
+              }
             />
           </View>
         </View>
@@ -1289,8 +1388,37 @@ export function NewFuelEntryScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
+  compactHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     paddingVertical: 10,
+    marginBottom: 8,
+  },
+  compactBackBtn: {
+    padding: 6,
+    marginLeft: -6,
+  },
+  compactTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
+  compactTitleText: {
+    ...typography.screenTitle,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  compactVehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  compactVehicleText: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  scrollContent: {
+    paddingTop: 6,
   },
   headerRow: {
     flexDirection: 'row',
@@ -1298,6 +1426,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
     marginBottom: 12,
+  },
+  headerSpacer: {
+    width: 38,
+    height: 38,
   },
   backButton: {
     width: 42,
@@ -1588,5 +1720,58 @@ const styles = StyleSheet.create({
   },
   sheetRowTitle: {
     ...typography.bodyStrong,
+  },
+  locationSectionCard: {
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  locationHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  locationTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
+  locationHeading: {
+    ...typography.cardTitle,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  locationSubheading: {
+    ...typography.caption,
+    fontSize: 12,
+  },
+  recaptureBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: radii.sm,
+  },
+  recaptureBtnText: {
+    ...typography.bodyStrong,
+    fontSize: 12,
+  },
+  locatingBox: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  locatingText: {
+    ...typography.body,
+    fontSize: 13,
+  },
+  locationNoticeWrap: {
+    paddingVertical: 4,
+  },
+  locationActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
   },
 });

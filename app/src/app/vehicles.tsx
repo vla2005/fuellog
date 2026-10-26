@@ -1,7 +1,12 @@
 import React from 'react';
-
-import { VehiclesScreen } from '@/features/vehicles/VehiclesScreen';
+import { StyleSheet, View } from 'react-native';
 
 export default function VehiclesRoute() {
-  return <VehiclesScreen />;
+  return <View style={styles.placeholder} />;
 }
+
+const styles = StyleSheet.create({
+  placeholder: {
+    flex: 1,
+  },
+});

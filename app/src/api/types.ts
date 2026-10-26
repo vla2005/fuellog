@@ -60,6 +60,7 @@ export interface CreateVehicleRequest {
   plate?: string | null;
   tankCapacityLiters?: string | null;
   allowedFuels: FuelType[];
+  currentOdometerKm?: number | null;
 }
 
 export interface Vehicle {
@@ -73,6 +74,7 @@ export interface Vehicle {
   allowedFuels: FuelType[];
   archivedAt: string | null;
   version: number;
+  currentOdometerKm?: number | null;
 }
 
 export interface CreateFuelEntryRequest {
@@ -84,11 +86,13 @@ export interface CreateFuelEntryRequest {
   liters: string;
   unitPrice: string;
   paidTotal: string;
-  tankState: TankState;
-  historyGapBefore: boolean;
+  tankState?: TankState | null;
+  historyGapBefore?: boolean | null;
   adjustmentReason?: string | null;
   stationName?: string | null;
   notes?: string | null;
+  latitude: number;
+  longitude: number;
 }
 
 export interface FuelEntry {
@@ -110,6 +114,8 @@ export interface FuelEntry {
   adjustmentAmount: string;
   version: number;
   idempotentReplay: boolean;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface FuelEntryPage {

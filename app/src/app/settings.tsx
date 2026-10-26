@@ -1,7 +1,12 @@
 import React from 'react';
-
-import { SettingsScreen } from '@/features/settings/SettingsScreen';
+import { StyleSheet, View } from 'react-native';
 
 export default function SettingsRoute() {
-  return <SettingsScreen />;
+  return <View style={styles.placeholder} />;
 }
+
+const styles = StyleSheet.create({
+  placeholder: {
+    flex: 1,
+  },
+});

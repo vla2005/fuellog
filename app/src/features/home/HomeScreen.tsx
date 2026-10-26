@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -9,13 +10,10 @@ import {
 } from 'react-native';
 
 import {
-  FUEL_TYPE_LABELS,
   FUEL_TYPE_SHORT_LABELS,
   getConsumptionCycles,
   getVehicleSummary,
   listFuelEntries,
-  TANK_STATE_SHORT_LABELS,
-  UNAVAILABLE_REASON_EXPLANATIONS,
 } from '@/api/endpoints';
 import {
   ApiError,
@@ -24,26 +22,19 @@ import {
   SummaryResponse,
 } from '@/api/types';
 import { BrandLockup } from '@/components/brand/BrandLockup';
-import { DiagonalPixelSpark, PixelMascot } from '@/components/brand/PixelMascot';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
-  CalendarIcon,
   CarIcon,
-  ChartBarIcon,
-  CheckIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
-  PixelCrossIcon,
   PlusIcon,
-  ReceiptLogIcon,
-  TagIcon,
-  UserIcon,
+  SettingsIcon,
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { MonthlySummaryModal } from '@/features/home/MonthlySummaryModal';
 import { VehicleFormSheet } from '@/features/vehicles/VehicleFormSheet';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -52,15 +43,13 @@ import {
   formatDateTimeRowBR,
   listRecentMonthPeriods,
 } from '@/utils/date';
-import {
-  formatConsumptionBR,
-  formatCurrencyBRL,
-  formatLitersBR,
-  formatOdometerBR,
-  formatUnitPriceBR,
-} from '@/utils/decimal';
+import { formatCurrencyBRL, formatLitersBR, formatUnitPriceBR } from '@/utils/decimal';
 
-export function HomeScreen() {
+export function HomeScreen({
+  embeddedInShell = false,
+}: {
+  embeddedInShell?: boolean;
+} = {}) {
   const router = useRouter();
   const { colors, isDark } = useAppTheme();
   const {
@@ -70,7 +59,6 @@ export function HomeScreen() {
     activeVehicle,
     selectVehicle,
     selectedPeriod,
-    setSelectedPeriod,
     dataVersion,
   } = useSession();
 
@@ -82,30 +70,31 @@ export function HomeScreen() {
 
   const requestSeqRef = useRef(0);
   const latestContextKeyRef = useRef('');
+  const lastIdentityScopeRef = useRef('');
 
   const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
-  const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
   const [createVehicleOpen, setCreateVehicleOpen] = useState(false);
-  const [cycleDetailsOpen, setCycleDetailsOpen] = useState(false);
-
-  const monthOptions = useMemo(() => listRecentMonthPeriods(12), []);
-
-  const currentContextKey = `${status}:${user?.id ?? 'anon'}:${
-    activeVehicle?.id ?? 'none'
-  }:${selectedPeriod.from}_${selectedPeriod.to}:${dataVersion}`;
-  latestContextKeyRef.current = currentContextKey;
+  const [monthlySummaryOpen, setMonthlySummaryOpen] = useState(false);
 
   const fetchDashboardData = useCallback(async () => {
     const seq = ++requestSeqRef.current;
-    const contextSnap = `${status}:${user?.id ?? 'anon'}:${
+    const identityScope = `${status}:${user?.id ?? 'anon'}:${
       activeVehicle?.id ?? 'none'
-    }:${selectedPeriod.from}_${selectedPeriod.to}:${dataVersion}`;
+    }`;
+    const contextSnap = `${identityScope}:${selectedPeriod.from}_${selectedPeriod.to}:${dataVersion}`;
     latestContextKeyRef.current = contextSnap;
 
-    // Limpa imediatamente os dados do contexto anterior para evitar exibir valores de A sob cabeçalho de B
-    setSummary(null);
-    setCyclesData(null);
-    setRecentEntries([]);
+    if (
+      lastIdentityScopeRef.current !== identityScope ||
+      status !== 'authenticated' ||
+      !user ||
+      !activeVehicle
+    ) {
+      lastIdentityScopeRef.current = identityScope;
+      setSummary(null);
+      setCyclesData(null);
+      setRecentEntries([]);
+    }
     setErrorMessage(null);
 
     if (status !== 'authenticated' || !user || !activeVehicle) {
@@ -192,160 +181,53 @@ export function HomeScreen() {
     };
   }, [activeVehicle, fetchDashboardData, status, user]);
 
-  const lastValidCycle = summary?.lastValidCycle ?? null;
-
-  const consumptionFormatted = formatConsumptionBR(
-    lastValidCycle?.consumptionKmPerLiter,
-  );
-
-  const activeUnavailableReason = lastValidCycle
-    ? null
-    : summary?.lastConsumptionUnavailableReason ??
-      cyclesData?.currentUnavailableReason ??
-      summary?.periodUnavailableReason ??
-      null;
-
-  const unavailableExplanation = activeUnavailableReason
-    ? UNAVAILABLE_REASON_EXPLANATIONS[activeUnavailableReason]
-    : null;
-
-  const effectiveCycleTimezone =
-    summary?.timezone || user?.preferredTimezone || 'America/Sao_Paulo';
-
-  const formatCycleDdMm = useCallback(
-    (iso: string): string => {
-      try {
-        const d = new Date(iso);
-        if (!Number.isNaN(d.getTime())) {
-          return new Intl.DateTimeFormat('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            timeZone: effectiveCycleTimezone,
-          }).format(d);
-        }
-      } catch {
-        // Fallback regex
-      }
-      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-      return m ? `${m[3]}/${m[2]}` : iso.slice(0, 10);
-    },
-    [effectiveCycleTimezone],
-  );
-
-  const formatCycleLocalIsoDate = useCallback(
-    (iso: string): string => {
-      try {
-        const d = new Date(iso);
-        if (!Number.isNaN(d.getTime())) {
-          const parts = new Intl.DateTimeFormat('en-CA', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            timeZone: effectiveCycleTimezone,
-          }).formatToParts(d);
-          const y = parts.find((p) => p.type === 'year')?.value;
-          const m = parts.find((p) => p.type === 'month')?.value;
-          const day = parts.find((p) => p.type === 'day')?.value;
-          if (y && m && day) {
-            return `${y}-${m}-${day}`;
-          }
-        }
-      } catch {
-        // Fallback below
-      }
-      return iso.slice(0, 10);
-    },
-    [effectiveCycleTimezone],
-  );
-
-  const lastCycleSubtitle = useMemo(() => {
-    if (!lastValidCycle) return '';
-    const endIsoDate = formatCycleLocalIsoDate(lastValidCycle.endedAt);
-    const inSelectedPeriod =
-      (summary?.validCycleCount ?? 0) > 0 &&
-      summary?.periodUnavailableReason !== 'NO_VALID_CYCLE_IN_PERIOD' &&
-      endIsoDate >= selectedPeriod.from &&
-      endIsoDate <= selectedPeriod.to;
-
-    const rangeText = `${formatCycleDdMm(
-      lastValidCycle.startedAt,
-    )}–${formatCycleDdMm(lastValidCycle.endedAt)}`;
-
-    if (!inSelectedPeriod) {
-      return `Ciclo ${rangeText} (${formatLitersBR(lastValidCycle.liters)})`;
-    }
-    return `Ciclo concluído (${formatLitersBR(lastValidCycle.liters)})`;
-  }, [
-    formatCycleDdMm,
-    formatCycleLocalIsoDate,
-    lastValidCycle,
-    selectedPeriod.from,
-    selectedPeriod.to,
-    summary?.periodUnavailableReason,
-    summary?.validCycleCount,
-  ]);
-
-  const sheetCyclesList = useMemo(() => {
-    const periodItems = cyclesData?.items ?? [];
-    if (!lastValidCycle) return periodItems;
-    const alreadyInList = periodItems.some(
-      (c) =>
-        c.endEntryId === lastValidCycle.endEntryId &&
-        c.startEntryId === lastValidCycle.startEntryId,
-    );
-    return alreadyInList ? periodItems : [lastValidCycle, ...periodItems];
-  }, [cyclesData?.items, lastValidCycle]);
-
-  const vehiclePillLabel = activeVehicle
-    ? [
-        activeVehicle.nickname,
-        activeVehicle.modelYear ? `• ${activeVehicle.modelYear}` : null,
-      ]
-        .filter(Boolean)
-        .join(' ')
-    : 'Selecionar veículo';
-
-  const surfaceBg = colors.surface;
-  const surfaceBorder = colors.borderSubtle;
-  const badgeSquareBg = colors.subtle;
-
-  const litersRegisteredLabel = useMemo(() => {
-    const rawLiters = summary?.purchasedLiters ?? '0.000';
-    const formatted = formatLitersBR(rawLiters).replace(/\s*L$/, '');
-    return `${formatted} litros registrados`;
-  }, [summary?.purchasedLiters]);
+  const latestEntry = recentEntries.length > 0 ? recentEntries[0] : null;
 
   return (
     <ScreenShell
       withDockClearance
-      footer={<FloatingDock activeTab="home" />}
+      omitTopSafeArea={embeddedInShell}
+      footer={embeddedInShell ? undefined : <FloatingDock activeTab="home" />}
     >
-      {/* Top Header: Wordmark alone on left + Profile circle on right */}
-      <View style={styles.topHeader}>
-        <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
+      {/* Fallback Standalone Header if not embedded in shell */}
+      {!embeddedInShell ? (
+        <View style={styles.standaloneHeader}>
+          <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ajustes"
+            onPress={() => router.push('/settings')}
+          >
+            <SettingsIcon size={24} color={colors.brandPrimary} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Vehicle Selector Dropdown: Besourão ⌄ */}
+      <View style={styles.topSelectorRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Ajustes e conta"
-          onPress={() => router.push('/settings')}
-          style={[
-            styles.profileButton,
-            {
-              backgroundColor: badgeSquareBg,
-            },
-          ]}
+          accessibilityLabel={`Veículo selecionado: ${
+            activeVehicle?.nickname ?? 'Selecionar veículo'
+          }`}
+          onPress={() => setVehiclePickerOpen(true)}
+          style={styles.vehicleDropdown}
         >
-          <UserIcon size={20} color={colors.textPrimary} />
+          <Text style={[styles.vehicleDropdownText, { color: colors.textPrimary }]}>
+            {activeVehicle?.nickname ?? 'Selecionar veículo'}
+          </Text>
+          <ChevronDownIcon size={20} color={colors.brandPrimary} />
         </Pressable>
       </View>
 
       {vehicles.length === 0 ? (
-        <View style={styles.emptyVehicleSection}>
+        <View style={styles.emptyWrap}>
           <EmptyState
             title="Bem-vindo ao FuelLog!"
-            description="Cadastre seu primeiro veículo para registrar abastecimentos, acompanhar gastos reais e calcular ciclos válidos de consumo."
+            description="Cadastre seu primeiro veículo para acompanhar gastos e abastecimentos."
             action={
               <PrimaryButton
-                label="Cadastrar primeiro veículo"
+                label="Cadastrar veículo"
                 leftIcon={<PlusIcon size={18} color="#FFFFFF" />}
                 onPress={() => setCreateVehicleOpen(true)}
               />
@@ -353,58 +235,7 @@ export function HomeScreen() {
           />
         </View>
       ) : (
-        <View style={styles.dashboardStack}>
-          {/* 2-Column Selector Row: Vehicle + Period */}
-          <View style={styles.selectorRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Veículo selecionado: ${
-                activeVehicle?.nickname ?? 'Selecionar veículo'
-              }`}
-              onPress={() => setVehiclePickerOpen(true)}
-              style={[
-                styles.selectorPill,
-                styles.vehicleSelectorPill,
-                {
-                  backgroundColor: surfaceBg,
-                  borderColor: surfaceBorder,
-                },
-              ]}
-            >
-              <CarIcon size={17} color={colors.textPrimary} />
-              <Text
-                numberOfLines={1}
-                style={[styles.selectorPillText, { color: colors.textPrimary }]}
-              >
-                {vehiclePillLabel}
-              </Text>
-              <ChevronDownIcon size={16} color={colors.textSecondary} />
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Período: ${selectedPeriod.label}`}
-              onPress={() => setPeriodPickerOpen(true)}
-              style={[
-                styles.selectorPill,
-                styles.periodSelectorPill,
-                {
-                  backgroundColor: surfaceBg,
-                  borderColor: surfaceBorder,
-                },
-              ]}
-            >
-              <CalendarIcon size={16} color={colors.textPrimary} />
-              <Text
-                numberOfLines={1}
-                style={[styles.periodPillText, { color: colors.textPrimary }]}
-              >
-                {selectedPeriod.label}
-              </Text>
-              <ChevronDownIcon size={15} color={colors.textSecondary} />
-            </Pressable>
-          </View>
-
+        <View style={styles.mainContent}>
           {errorMessage ? (
             <InlineNotice
               tone="danger"
@@ -420,807 +251,315 @@ export function HomeScreen() {
             />
           ) : null}
 
-          {/* Hero Card: Gasto no mês */}
-          <View
-            style={[
-              styles.heroCard,
-              {
-                backgroundColor: surfaceBg,
-                borderColor: surfaceBorder,
-              },
-              isDark ? shadows.darkCard : shadows.lightCard,
-            ]}
-          >
-            <View style={styles.heroLeftColumn}>
-              <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>
-                Gasto no mês
-              </Text>
-              <Text
-                style={[styles.heroAmount, { color: colors.textPrimary }]}
-                accessibilityLabel={`Gasto no mês: ${formatCurrencyBRL(
-                  summary?.paidTotal ?? '0.00',
-                )}`}
-              >
-                {loading && !summary
-                  ? 'R$ —'
-                  : formatCurrencyBRL(summary?.paidTotal ?? '0.00')}
-              </Text>
-              <Text
-                style={[styles.heroSubtitle, { color: colors.textSecondary }]}
-              >
-                {litersRegisteredLabel}
-              </Text>
-            </View>
-
-            <View style={styles.heroMascotWrap}>
-              <View style={styles.heroSparkTopRight}>
-                <DiagonalPixelSpark size={6} />
-              </View>
-              <PixelMascot
-                variant="full"
-                size={88}
-                pulseKey={`${activeVehicle?.id}-${dataVersion}`}
-              />
-            </View>
+          {/* Pixel Art Scene: Night road with car and mascot */}
+          <View style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}>
+            <Image
+              source={require('@/assets/brand/scene_night_road.png')}
+              style={styles.sceneImage}
+              resizeMode="cover"
+              accessibilityLabel="Cena noturna com Renault azul e mascote na estrada"
+            />
           </View>
 
-          {/* Dual Metric Card: Último consumo & Preço médio */}
-          <View
-            style={[
-              styles.dualMetricCard,
-              {
-                backgroundColor: surfaceBg,
-                borderColor: surfaceBorder,
-              },
-              isDark ? shadows.darkCard : shadows.lightCard,
-            ]}
-          >
+          {/* Month & Spent Section */}
+          <View style={styles.spentSection}>
+            <Text style={[styles.periodText, { color: colors.textSecondary }]}>
+              {selectedPeriod.label}
+            </Text>
+            <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
+              Gasto no mês
+            </Text>
+            <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
+              {formatCurrencyBRL(summary?.paidTotal ?? '0')}
+            </Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Ver detalhes dos ciclos de consumo"
-              onPress={() => setCycleDetailsOpen(true)}
-              style={styles.metricColumn}
+              accessibilityLabel="Ver resumo do mês"
+              onPress={() => setMonthlySummaryOpen(true)}
+              style={styles.linkRow}
             >
-              <View style={styles.metricTitleRow}>
-                <ChartBarIcon size={16} color={colors.accentPrimary} />
-                <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>
-                  Último consumo
-                </Text>
-              </View>
-
-              {consumptionFormatted ? (
-                <>
-                  <Text
-                    style={[styles.metricValue, { color: colors.textPrimary }]}
-                  >
-                    {consumptionFormatted}
-                  </Text>
-                  <Text
-                    style={[styles.metricSubtext, { color: colors.textSecondary }]}
-                  >
-                    {lastCycleSubtitle}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text
-                    style={[
-                      styles.metricUnavailableValue,
-                      { color: colors.textMuted },
-                    ]}
-                  >
-                    Em formação
-                  </Text>
-                  <Text
-                    style={[styles.metricSubtext, { color: colors.textSecondary }]}
-                  >
-                    {unavailableExplanation?.badge ?? 'Toque para entender o ciclo'}
-                  </Text>
-                </>
-              )}
+              <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
+                Ver resumo &gt;
+              </Text>
             </Pressable>
-
-            <View
-              style={[
-                styles.metricDivider,
-                { backgroundColor: surfaceBorder },
-              ]}
-            />
-
-            <View style={styles.metricColumn}>
-              <View style={styles.metricTitleRow}>
-                <TagIcon size={15} color={colors.accentPrimary} />
-                <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>
-                  Preço médio
-                </Text>
-              </View>
-
-              {summary?.weightedPaidPrice ? (
-                <>
-                  <Text
-                    style={[styles.metricValue, { color: colors.textPrimary }]}
-                  >
-                    {formatUnitPriceBR(summary.weightedPaidPrice, true)}/L
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.metricSubtext, { color: colors.textSecondary }]}
-                  >
-                    Média ponderada
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text
-                    style={[
-                      styles.metricUnavailableValue,
-                      { color: colors.textMuted },
-                    ]}
-                  >
-                    Sem compras
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.metricSubtext, { color: colors.textMuted }]}
-                  >
-                    Média ponderada
-                  </Text>
-                </>
-              )}
-            </View>
           </View>
 
-          {/* Primary Action CTA: Novo abastecimento */}
-          <PrimaryButton
-            label="Novo abastecimento"
-            leftIcon={<PixelCrossIcon size={16} color="#FFFFFF" />}
-            onPress={() => router.push('/fueling/new')}
-          />
-
-          {/* Section: Últimos registros */}
-          <View style={styles.recentSection}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-                Últimos registros
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Ver histórico completo"
-                onPress={() => router.push('/history')}
-                style={styles.seeAllBtn}
-              >
-                <Text
-                  style={[styles.seeAllText, { color: colors.accentPrimary }]}
-                >
-                  Ver todos
+          {/* Section: Último abastecimento */}
+          <View style={[styles.latestCard, { borderTopColor: colors.borderSubtle }]}>
+            <Text style={[styles.latestHeading, { color: colors.textPrimary }]}>
+              Último abastecimento
+            </Text>
+            {loading && !latestEntry ? (
+              <ActivityIndicator size="small" color={colors.brandPrimary} style={{ marginVertical: 10 }} />
+            ) : latestEntry ? (
+              <View style={styles.latestItemRow}>
+                <Text style={[styles.latestMeta, { color: colors.textSecondary }]}>
+                  {formatDateTimeRowBR(latestEntry.occurredAt, user?.preferredTimezone || 'America/Sao_Paulo')} • {FUEL_TYPE_SHORT_LABELS[latestEntry.fuelType] ?? latestEntry.fuelType}
                 </Text>
-                <ChevronRightIcon size={15} color={colors.accentPrimary} />
-              </Pressable>
-            </View>
-
-            {loading && recentEntries.length === 0 ? (
-              <View
-                style={[
-                  styles.loadingCard,
-                  {
-                    backgroundColor: surfaceBg,
-                    borderColor: surfaceBorder,
-                  },
-                ]}
-              >
-                <ActivityIndicator size="small" color={colors.accentPrimary} />
-                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-                  Sincronizando registros do período...
-                </Text>
-              </View>
-            ) : recentEntries.length === 0 ? (
-              <View
-                style={[
-                  styles.emptyRecentCard,
-                  {
-                    backgroundColor: surfaceBg,
-                    borderColor: surfaceBorder,
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.emptyRecentTitle, { color: colors.textPrimary }]}
-                >
-                  Nenhum lançamento em {selectedPeriod.label}
-                </Text>
-                <Text
-                  style={[
-                    styles.emptyRecentSubtitle,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  Toque em &ldquo;Novo abastecimento&rdquo; acima para registrar sua parada no posto.
+                <Text style={[styles.latestPrice, { color: colors.textPrimary }]}>
+                  {formatCurrencyBRL(latestEntry.paidTotal)}
                 </Text>
               </View>
             ) : (
-              <View style={styles.entriesList}>
-                {recentEntries.map((entry) => {
-                  const rowDateFull = formatDateTimeRowBR(
-                    entry.occurredAt,
-                    entry.timezone,
-                  );
-                  const shortDayMonth = (
-                    rowDateFull.split(',')[0] || rowDateFull
-                  )
-                    .replace(/\s+de\s+/i, ' ')
-                    .replace(/\./g, '')
-                    .trim();
-                  const fuelLabel =
-                    FUEL_TYPE_LABELS[entry.fuelType] ??
-                    FUEL_TYPE_SHORT_LABELS[entry.fuelType] ??
-                    entry.fuelType;
-                  const tankLabel =
-                    entry.tankState === 'FULL'
-                      ? 'Cheio'
-                      : TANK_STATE_SHORT_LABELS[entry.tankState] ?? entry.tankState;
-
-                  return (
-                    <Pressable
-                      key={entry.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Abastecimento de ${formatCurrencyBRL(
-                        entry.paidTotal,
-                      )} em ${rowDateFull}`}
-                      onPress={() =>
-                        router.push({
-                          pathname: '/fueling/[entryId]',
-                          params: { entryId: entry.id },
-                        })
-                      }
-                      style={({ pressed }) => [
-                        styles.entryRow,
-                        {
-                          borderBottomColor: surfaceBorder,
-                          opacity: pressed ? 0.82 : 1,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.entryIconSquare,
-                          {
-                            backgroundColor: badgeSquareBg,
-                          },
-                        ]}
-                      >
-                        <ReceiptLogIcon size={18} color={colors.textPrimary} />
-                      </View>
-
-                      <View style={styles.entryCenterCol}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.entryPrimaryLine,
-                            { color: colors.textPrimary },
-                          ]}
-                        >
-                          {shortDayMonth} • {fuelLabel}
-                        </Text>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.entrySecondaryLine,
-                            { color: colors.textSecondary },
-                          ]}
-                        >
-                          {formatLitersBR(entry.liters)} •{' '}
-                          {formatOdometerBR(entry.odometerKm)} • {tankLabel}
-                        </Text>
-                      </View>
-
-                      <Text
-                        style={[
-                          styles.entryPaidValue,
-                          { color: colors.textPrimary },
-                        ]}
-                      >
-                        {formatCurrencyBRL(entry.paidTotal)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <Text style={[styles.latestEmpty, { color: colors.textMuted }]}>
+                Nenhum abastecimento no período selecionado.
+              </Text>
             )}
-          </View>
-
-          {/* Brand Footer */}
-          <View style={styles.brandFooterRow}>
-            <DiagonalPixelSpark size={5} />
-            <Text style={[styles.brandFooterText, { color: colors.textSecondary }]}>
-              Cada abastecimento conta.
-            </Text>
-            <DiagonalPixelSpark size={5} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Ver histórico completo"
+              onPress={() => router.replace('/history')}
+              style={styles.linkRow}
+            >
+              <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
+                Ver histórico &gt;
+              </Text>
+            </Pressable>
           </View>
         </View>
       )}
 
-      {/* Sheet: Seletor de veículo */}
+      {/* Vehicle Picker Modal */}
       <AppSheet
         visible={vehiclePickerOpen}
         title="Selecionar veículo"
-        subtitle="Alterne o veículo ou cadastre um novo"
+        subtitle="Escolha o veículo ativo para abastecimentos e estatísticas"
         onClose={() => setVehiclePickerOpen(false)}
       >
-        {vehicles.map((vehicle) => {
-          const isSelected = activeVehicle?.id === vehicle.id;
-          return (
-            <Pressable
-              key={vehicle.id}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: isSelected }}
-              aria-checked={isSelected}
-              accessibilityLabel={vehicle.nickname}
-              onPress={async () => {
-                await selectVehicle(vehicle.id);
-                setVehiclePickerOpen(false);
-              }}
-              style={[
-                styles.sheetOptionRow,
-                {
-                  backgroundColor: isSelected
-                    ? colors.accentSoft
-                    : colors.bgSecondary,
-                  borderColor: isSelected
-                    ? colors.accentPrimary
-                    : colors.borderDefault,
-                },
-              ]}
-            >
-              <View style={styles.sheetOptionText}>
-                <Text
-                  style={[styles.sheetOptionTitle, { color: colors.textPrimary }]}
-                >
-                  {vehicle.nickname}
-                </Text>
-                <Text
-                  style={[
-                    styles.sheetOptionSubtitle,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  {[vehicle.brand, vehicle.model, vehicle.plate]
-                    .filter(Boolean)
-                    .join(' • ') || 'Veículo cadastrado'}
-                </Text>
-              </View>
-              {isSelected ? (
-                <CheckIcon size={18} color={colors.accentPrimary} />
-              ) : null}
-            </Pressable>
-          );
-        })}
-
-        <PrimaryButton
-          label="Cadastrar novo veículo"
-          variant="secondary"
-          leftIcon={<PlusIcon size={18} color={colors.textPrimary} />}
-          onPress={() => {
-            setVehiclePickerOpen(false);
-            setCreateVehicleOpen(true);
-          }}
-        />
-      </AppSheet>
-
-      {/* Sheet: Seletor de período */}
-      <AppSheet
-        visible={periodPickerOpen}
-        title="Período de consulta"
-        subtitle="Selecione o mês para filtrar gastos e ciclos"
-        onClose={() => setPeriodPickerOpen(false)}
-      >
-        {monthOptions.map((option) => {
-          const isSelected = option.monthKey === selectedPeriod.monthKey;
-          return (
-            <Pressable
-              key={option.monthKey}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: isSelected }}
-              aria-checked={isSelected}
-              accessibilityLabel={option.label}
-              onPress={() => {
-                setSelectedPeriod(option);
-                setPeriodPickerOpen(false);
-              }}
-              style={[
-                styles.sheetOptionRow,
-                {
-                  backgroundColor: isSelected
-                    ? colors.accentSoft
-                    : colors.bgSecondary,
-                  borderColor: isSelected
-                    ? colors.accentPrimary
-                    : colors.borderDefault,
-                },
-              ]}
-            >
-              <View style={styles.sheetOptionText}>
-                <Text
-                  style={[styles.sheetOptionTitle, { color: colors.textPrimary }]}
-                >
-                  {option.label}
-                </Text>
-                <Text
-                  style={[
-                    styles.sheetOptionSubtitle,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  {option.from} até {option.to}
-                </Text>
-              </View>
-              {isSelected ? (
-                <CheckIcon size={18} color={colors.accentPrimary} />
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </AppSheet>
-
-      {/* Sheet: Detalhes dos ciclos de consumo */}
-      <AppSheet
-        visible={cycleDetailsOpen}
-        title="Ciclos de consumo (km/L)"
-        subtitle="Cálculo entre tanques cheios consecutivos"
-        onClose={() => setCycleDetailsOpen(false)}
-      >
-        {unavailableExplanation ? (
-          <InlineNotice
-            tone="warning"
-            title={unavailableExplanation.title}
-            message={unavailableExplanation.description}
-          />
-        ) : null}
-
-        {summary?.periodConsumptionKmPerLiter &&
-        (summary?.validCycleCount ?? 0) > 1 ? (
-          <InlineNotice
-            tone="info"
-            title={`Média do período (${summary.validCycleCount} ciclos): ${formatConsumptionBR(
-              summary.periodConsumptionKmPerLiter,
-            )}`}
-            message={`Distância acumulada nos ciclos do mês: ${formatOdometerBR(
-              summary.cycleDistanceKm,
-            )} com ${formatLitersBR(summary.cycleLiters)}.`}
-          />
-        ) : null}
-
-        {sheetCyclesList.length > 0 ? (
-          sheetCyclesList.map((cycle, index) => {
-            const isLastValid =
-              lastValidCycle &&
-              cycle.startEntryId === lastValidCycle.startEntryId &&
-              cycle.endEntryId === lastValidCycle.endEntryId;
+        <View style={styles.sheetList}>
+          {vehicles.map((v) => {
+            const isSelected = v.id === activeVehicle?.id;
             return (
-              <View
-                key={`${cycle.startEntryId}-${cycle.endEntryId}-${index}`}
+              <Pressable
+                key={v.id}
+                onPress={() => {
+                  void selectVehicle(v.id);
+                  setVehiclePickerOpen(false);
+                }}
                 style={[
-                  styles.cycleCard,
+                  styles.vehicleOption,
                   {
-                    backgroundColor: colors.bgSecondary,
-                    borderColor: isLastValid
-                      ? colors.borderFocus
-                      : colors.borderDefault,
+                    backgroundColor: isSelected ? colors.brandSoft : colors.bgElevated,
+                    borderColor: isSelected ? colors.borderFocus : colors.borderSubtle,
                   },
                 ]}
               >
-                <View style={styles.cycleCardHeader}>
-                  <Text
-                    style={[styles.sheetOptionTitle, { color: colors.textPrimary }]}
-                  >
-                    {formatConsumptionBR(cycle.consumptionKmPerLiter) ??
-                      'Ciclo inválido'}
-                    {isLastValid ? ' • Último ciclo' : ''}
+                <CarIcon size={20} color={isSelected ? colors.brandPrimary : colors.textPrimary} />
+                <View style={styles.vehicleOptionTextCol}>
+                  <Text style={[styles.vehicleOptionTitle, { color: colors.textPrimary }]}>
+                    {v.nickname}
                   </Text>
-                  <Text
-                    style={[styles.entryPaidValue, { color: colors.textPrimary }]}
-                  >
-                    {formatOdometerBR(cycle.distanceKm)}
+                  <Text style={[styles.vehicleOptionSub, { color: colors.textSecondary }]}>
+                    {v.brand} {v.model} • {v.modelYear || 'Ano não inf.'}
                   </Text>
                 </View>
-                <Text
-                  style={[
-                    styles.sheetOptionSubtitle,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  Período: {formatCycleDdMm(cycle.startedAt)} a{' '}
-                  {formatCycleDdMm(cycle.endedAt)} • Volume:{' '}
-                  {formatLitersBR(cycle.liters)} • Pago:{' '}
-                  {formatCurrencyBRL(cycle.paidTotal)}
-                </Text>
-                {cycle.replacementCostPerKm ? (
-                  <Text
-                    style={[
-                      styles.sheetOptionSubtitle,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    Custo por km: R${' '}
-                    {cycle.replacementCostPerKm.replace('.', ',')}/km
-                    {cycle.mixed ? ' • Combustível misto' : ''}
-                  </Text>
-                ) : null}
-              </View>
+              </Pressable>
             );
-          })
-        ) : (
-          <Text style={[styles.sheetOptionSubtitle, { color: colors.textSecondary }]}>
-            O FuelLog nunca exibe &ldquo;0 km/L&rdquo; enganoso. Um ciclo válido começa em um abastecimento com tanque cheio e se encerra no próximo tanque cheio sem lacuna de histórico.
-          </Text>
-        )}
-
-        <PrimaryButton
-          label="Fechar"
-          variant="secondary"
-          onPress={() => setCycleDetailsOpen(false)}
-        />
+          })}
+          <PrimaryButton
+            label="Novo veículo"
+            leftIcon={<PlusIcon size={18} color="#FFFFFF" />}
+            variant="secondary"
+            onPress={() => {
+              setVehiclePickerOpen(false);
+              setCreateVehicleOpen(true);
+            }}
+            style={{ marginTop: 8 }}
+          />
+        </View>
       </AppSheet>
 
+      {/* Vehicle Creation Form Modal */}
       <VehicleFormSheet
         visible={createVehicleOpen}
         onClose={() => setCreateVehicleOpen(false)}
+        onCreated={async (saved) => {
+          await selectVehicle(saved.id);
+          setCreateVehicleOpen(false);
+        }}
+      />
+          {/* Functional Monthly Summary Modal (Print 4) */}
+      <MonthlySummaryModal
+        visible={monthlySummaryOpen}
+        onClose={() => setMonthlySummaryOpen(false)}
       />
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  topHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  profileButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyVehicleSection: {
-    marginTop: 20,
-  },
-  dashboardStack: {
-    gap: 14,
-  },
-  selectorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  selectorPill: {
-    minHeight: 44,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  vehicleSelectorPill: {
-    flex: 1,
-    minWidth: 0,
-  },
-  periodSelectorPill: {
-    flexShrink: 0,
-  },
-  selectorPillText: {
-    flex: 1,
-    ...typography.bodyStrong,
-    fontSize: 13,
-  },
-  periodPillText: {
-    ...typography.bodyStrong,
-    fontSize: 13,
-  },
-  heroCard: {
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  heroLeftColumn: {
-    flex: 1,
-    gap: 6,
-  },
-  heroLabel: {
-    ...typography.body,
-    fontSize: 15,
-  },
-  heroAmount: {
-    ...typography.heroValue,
-    fontSize: 36,
-    lineHeight: 42,
-  },
-  heroSubtitle: {
-    ...typography.body,
-    fontSize: 14,
-  },
-  heroMascotWrap: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingRight: 4,
-  },
-  heroSparkTopRight: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    zIndex: 2,
-  },
-  dualMetricCard: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 14,
-  },
-  metricColumn: {
-    flex: 1,
-    gap: 4,
-  },
-  metricDivider: {
-    width: 1,
-    marginVertical: 2,
-  },
-  metricTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  metricLabel: {
-    ...typography.body,
-    fontSize: 13,
-  },
-  metricValue: {
-    ...typography.cardTitle,
-    fontSize: 20,
-    lineHeight: 25,
-  },
-  metricUnavailableValue: {
-    ...typography.bodyStrong,
-    fontSize: 16,
-  },
-  metricSubtext: {
-    ...typography.caption,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  recentSection: {
-    marginTop: 4,
-    gap: 6,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 2,
-  },
-  sectionTitle: {
-    ...typography.sectionTitle,
-    fontSize: 19,
-  },
-  seeAllBtn: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  seeAllText: {
-    ...typography.bodyStrong,
-    fontSize: 14,
-  },
-  loadingCard: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  loadingText: {
-    ...typography.caption,
-  },
-  emptyRecentCard: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: 18,
-    gap: 4,
-  },
-  emptyRecentTitle: {
-    ...typography.bodyStrong,
-  },
-  emptyRecentSubtitle: {
-    ...typography.caption,
-  },
-  entriesList: {
-    gap: 0,
-  },
-  entryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  entryIconSquare: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  entryCenterCol: {
-    flex: 1,
-    gap: 3,
-  },
-  entryPrimaryLine: {
-    ...typography.bodyStrong,
-    fontSize: 15,
-  },
-  entrySecondaryLine: {
-    ...typography.caption,
-    fontSize: 13,
-  },
-  entryPaidValue: {
-    ...typography.cardTitle,
-    fontSize: 16,
-  },
-  brandFooterRow: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  brandFooterText: {
-    ...typography.caption,
-    fontSize: 13,
-  },
-  sheetOptionRow: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    paddingHorizontal: 14,
+  summarySheetContent: {
     paddingVertical: 12,
+    gap: 12,
+  },
+  summaryHeroRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
   },
-  sheetOptionText: {
+  summaryHeroTextCol: {
+    gap: 2,
+  },
+  summaryMonthLabel: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  summaryHeroTitle: {
+    ...typography.sectionTitle,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  summaryHeroAmount: {
+    ...typography.heroValue,
+    fontSize: 34,
+    fontWeight: '800',
+  },
+  summaryHeroSub: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  sheetDivider: {
+    height: 1,
+    marginVertical: 4,
+  },
+  metricRow: {
+    gap: 4,
+  },
+  metricRowLabel: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  metricRowValue: {
+    ...typography.sectionTitle,
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  summaryActionRow: {
+    paddingVertical: 8,
+  },
+  summaryActionText: {
+    ...typography.bodyStrong,
+    fontSize: 16,
+  },
+  standaloneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  topSelectorRow: {
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  vehicleDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  vehicleDropdownText: {
+    ...typography.sectionTitle,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  emptyWrap: {
+    paddingVertical: 32,
+  },
+  mainContent: {
+    gap: 16,
+  },
+  sceneContainer: {
+    width: '100%',
+    height: 190,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    backgroundColor: '#080E18',
+  },
+  sceneImage: {
+    width: '100%',
+    height: '100%',
+  },
+  spentSection: {
+    paddingVertical: 8,
+    gap: 4,
+  },
+  periodText: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  spentTitle: {
+    ...typography.sectionTitle,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  spentAmount: {
+    ...typography.heroValue,
+    fontSize: 42,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  linkRow: {
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  linkText: {
+    ...typography.bodyStrong,
+    fontSize: 15,
+  },
+  latestCard: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#162338',
+    gap: 6,
+  },
+  latestHeading: {
+    ...typography.sectionTitle,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  latestItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  latestMeta: {
+    ...typography.body,
+    fontSize: 15,
+  },
+  latestPrice: {
+    ...typography.sectionTitle,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  latestEmpty: {
+    ...typography.body,
+    fontSize: 14,
+    paddingVertical: 4,
+  },
+  sheetList: {
+    gap: 10,
+    paddingVertical: 8,
+  },
+  vehicleOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+  },
+  vehicleOptionTextCol: {
     flex: 1,
     gap: 2,
   },
-  sheetOptionTitle: {
+  vehicleOptionTitle: {
     ...typography.bodyStrong,
+    fontSize: 16,
   },
-  sheetOptionSubtitle: {
+  vehicleOptionSub: {
     ...typography.caption,
-  },
-  cycleCard: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    padding: 12,
-    gap: 4,
-  },
-  cycleCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    fontSize: 13,
   },
 });

@@ -15,6 +15,9 @@ export default defineConfig({
     locale: 'pt-BR',
     timezoneId: 'America/Sao_Paulo',
     reducedMotion: 'reduce',
+    // Localização controlada exclusivamente no navegador de teste.
+    permissions: ['geolocation'],
+    geolocation: { latitude: -23.55052, longitude: -46.633308 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

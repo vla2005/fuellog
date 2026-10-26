@@ -1,7 +1,12 @@
 import React from 'react';
-
-import { NewFuelEntryScreen } from '@/features/fueling/NewFuelEntryScreen';
+import { StyleSheet, View } from 'react-native';
 
 export default function NewFuelEntryRoute() {
-  return <NewFuelEntryScreen />;
+  return <View style={styles.placeholder} />;
 }
+
+const styles = StyleSheet.create({
+  placeholder: {
+    flex: 1,
+  },
+});

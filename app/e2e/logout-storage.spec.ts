@@ -12,7 +12,8 @@ test('logout com falha de remoção limpa tela, avisa e não rejeita globalmente
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await expect(page).toHaveURL(/\/\/?$/);
   await page.goto('/settings');
-  await expect(page.getByText(account.email, { exact: true })).toBeVisible();
+  await page.getByText('Minha conta >', { exact: true }).click();
+  await expect(page.getByText(account.email, { exact: false })).toBeVisible();
   await page.evaluate(() => {
     const captured: string[] = [];
     (window as unknown as { logoutRejections: string[] }).logoutRejections = captured;
@@ -28,7 +29,7 @@ test('logout com falha de remoção limpa tela, avisa e não rejeita globalmente
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toBeVisible();
-  await expect(page.getByText(account.email, { exact: true })).toHaveCount(0);
+  await expect(page.getByText(account.email, { exact: false })).toHaveCount(0);
   await expect(page.getByText('Falha ao limpar credencial persistida', { exact: true })).toBeVisible();
   const rejections = await page.evaluate(async () => {
     await new Promise<void>(resolve => setTimeout(resolve, 0));

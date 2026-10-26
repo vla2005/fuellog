@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useContext, useEffect, useId, useRef } from 'react';
 import {
   Animated,
+  BackHandler,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -13,6 +14,8 @@ import {
 } from 'react-native';
 
 import { CloseIcon } from '@/components/icons/AppIcons';
+import { ScreenOverlayContext } from '@/components/layout/ScreenShell';
+import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { IconButton } from '@/components/ui/IconButton';
 import { useMotionPolicy } from '@/motion/useMotionPolicy';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -35,12 +38,18 @@ export function AppSheet({
 }: AppSheetProps) {
   const { colors } = useAppTheme();
   const { reduceMotion, duration, easing } = useMotionPolicy();
+  const overlayContext = useContext(ScreenOverlayContext);
+  const isPaneActive = useContext(TabActiveContext);
+  const sheetId = useId();
   const translateY = useRef(new Animated.Value(24)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  const motionPolicyRef = useRef({ duration, easing, reduceMotion });
+  motionPolicyRef.current = { duration, easing, reduceMotion };
 
   useEffect(() => {
     if (!visible) return;
-    if (reduceMotion) {
+    const policy = motionPolicyRef.current;
+    if (policy.reduceMotion) {
       translateY.setValue(0);
       opacity.setValue(1);
       return;
@@ -52,14 +61,14 @@ export function AppSheet({
     const anim = Animated.parallel([
       Animated.timing(translateY, {
         toValue: 0,
-        duration: duration('sheet'),
-        easing: easing.enter,
+        duration: policy.duration('sheet'),
+        easing: policy.easing.enter,
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
         toValue: 1,
-        duration: duration('standard'),
-        easing: easing.enter,
+        duration: policy.duration('standard'),
+        easing: policy.easing.enter,
         useNativeDriver: true,
       }),
     ]);
@@ -68,12 +77,123 @@ export function AppSheet({
     return () => {
       anim.stop();
     };
-  }, [duration, easing.enter, opacity, reduceMotion, translateY, visible]);
+  }, [opacity, translateY, visible]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible || !isPaneActive) {
+      return;
+    }
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      Keyboard.dismiss();
+      onClose();
+      return true;
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [isPaneActive, onClose, visible]);
 
   const handleDismiss = () => {
     Keyboard.dismiss();
     onClose();
   };
+
+  const withDockClearance = Boolean(overlayContext?.withDockClearance);
+
+  const sheetBody = (
+    <View
+      pointerEvents="auto"
+      style={[
+        styles.modalRoot,
+        overlayContext ? styles.inlineOverlayRoot : null,
+        withDockClearance ? styles.modalRootWithDock : null,
+      ]}
+    >
+      <Pressable
+        style={[styles.scrim, { backgroundColor: colors.scrim }]}
+        onPress={handleDismiss}
+        accessibilityRole="button"
+        accessibilityLabel="Fechar painel"
+      />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        pointerEvents="box-none"
+        style={styles.keyboardAvoid}
+      >
+        <Animated.View
+          pointerEvents="auto"
+          style={[
+            styles.sheetCard,
+            withDockClearance ? styles.sheetCardWithDock : null,
+            {
+              backgroundColor: colors.bgElevated,
+              borderColor: colors.borderDefault,
+              opacity,
+              transform: [{ translateY }],
+            },
+          ]}
+        >
+          <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+          <View style={styles.headerRow}>
+            <View style={styles.headerTextGroup}>
+              <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
+              {subtitle ? (
+                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+            <IconButton
+              icon={<CloseIcon size={18} color={colors.textPrimary} />}
+              accessibilityLabel="Fechar"
+              onPress={handleDismiss}
+              variant="subtle"
+            />
+          </View>
+          <ScrollView
+            style={styles.scrollBody}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
+            showsVerticalScrollIndicator={false}
+          >
+            {children}
+          </ScrollView>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </View>
+  );
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !overlayContext) {
+      return;
+    }
+    overlayContext.setNativeOverlay(
+      sheetId,
+      visible && isPaneActive ? sheetBody : null,
+    );
+    return () => {
+      overlayContext.setNativeOverlay(sheetId, null);
+    };
+  });
+
+  if (!visible) {
+    return null;
+  }
+
+  if (Platform.OS === 'web' && overlayContext?.webHostElement) {
+    const ReactDOM = require('react-dom') as {
+      createPortal: (
+        children: React.ReactNode,
+        container: Element,
+      ) => React.ReactPortal;
+    };
+    return ReactDOM.createPortal(sheetBody, overlayContext.webHostElement);
+  }
+
+  if (Platform.OS !== 'web' && overlayContext) {
+    return null;
+  }
 
   return (
     <Modal
@@ -82,59 +202,7 @@ export function AppSheet({
       animationType="none"
       onRequestClose={handleDismiss}
     >
-      <View style={styles.modalRoot}>
-        <Pressable
-          style={[styles.scrim, { backgroundColor: colors.scrim }]}
-          onPress={handleDismiss}
-          accessibilityRole="button"
-          accessibilityLabel="Fechar painel"
-        />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          pointerEvents="box-none"
-          style={styles.keyboardAvoid}
-        >
-          <Animated.View
-            pointerEvents="auto"
-            style={[
-              styles.sheetCard,
-              {
-                backgroundColor: colors.bgElevated,
-                borderColor: colors.borderDefault,
-                opacity,
-                transform: [{ translateY }],
-              },
-            ]}
-          >
-            <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
-            <View style={styles.headerRow}>
-              <View style={styles.headerTextGroup}>
-                <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
-                {subtitle ? (
-                  <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                    {subtitle}
-                  </Text>
-                ) : null}
-              </View>
-              <IconButton
-                icon={<CloseIcon size={18} color={colors.textPrimary} />}
-                accessibilityLabel="Fechar"
-                onPress={handleDismiss}
-                variant="subtle"
-              />
-            </View>
-            <ScrollView
-              style={styles.scrollBody}
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
-              showsVerticalScrollIndicator={false}
-            >
-              {children}
-            </ScrollView>
-          </Animated.View>
-        </KeyboardAvoidingView>
-      </View>
+      {sheetBody}
     </Modal>
   );
 }
@@ -143,6 +211,14 @@ const styles = StyleSheet.create({
   modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  inlineOverlayRoot: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 25,
+  },
+  modalRootWithDock: {
+    paddingTop: 6,
+    paddingBottom: 76,
   },
   keyboardAvoid: {
     flex: 1,
@@ -167,6 +243,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 24,
+  },
+  sheetCardWithDock: {
+    maxHeight: '100%',
+    borderBottomLeftRadius: radii.xl,
+    borderBottomRightRadius: radii.xl,
+    paddingBottom: 14,
   },
   handle: {
     width: 40,
