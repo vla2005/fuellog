@@ -1,5 +1,8 @@
+name: fuellog
+
 services:
   api:
+    image: ${COMPOSE_PROJECT_NAME:-fuellog}-api:local
     build:
       context: .
     restart: unless-stopped
