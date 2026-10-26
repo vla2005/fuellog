@@ -1,0 +1,48 @@
+services:
+  api:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      FUELLOG_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-fuellog}
+      FUELLOG_DB_USER: ${POSTGRES_USER:-fuellog}
+      FUELLOG_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      FUELLOG_SECURITY_PRIVATE_KEY_BASE64: ${FUELLOG_SECURITY_PRIVATE_KEY_BASE64:?Set private key Base64}
+      FUELLOG_SECURITY_PUBLIC_KEY_BASE64: ${FUELLOG_SECURITY_PUBLIC_KEY_BASE64:?Set public key Base64}
+      FUELLOG_SECURITY_ISSUER: ${FUELLOG_SECURITY_ISSUER:-fuellog-api}
+      FUELLOG_SECURITY_AUDIENCE: ${FUELLOG_SECURITY_AUDIENCE:-fuellog-mobile}
+      FUELLOG_CORS_ALLOWED_ORIGINS: ${FUELLOG_CORS_ALLOWED_ORIGINS:-http://localhost:8081,http://127.0.0.1:8081}
+    expose:
+      - "8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fuellog}
+      POSTGRES_USER: ${POSTGRES_USER:-fuellog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  postgres_data:
