@@ -25,13 +25,21 @@ Após resposta incerta, reenvios usam exatamente o mesmo snapshot e UUID, sem re
 
 ## Mapa
 
-Embed HTTPS do OpenStreetMap, `https://www.openstreetmap.org/export/embed.html`, com bbox e marcador calculados a partir do snapshot. Web usa iframe; Android usa react-native-webview. Há moldura quadrada, coordenadas textuais, atribuição visível, carregamento, erro/timeout e nova tentativa. Falha do mapa não invalida um GPS já capturado.
+Web mantém o embed HTTPS do OpenStreetMap, `https://www.openstreetmap.org/export/embed.html`, em iframe; iOS mantém react-native-webview. Android usa imagens raster nativas com `expo-image`, já instalado, obtidas de `https://tile.openstreetmap.org/{z}/{x}/{y}.png`. A projeção Mercator centraliza o marcador na coordenada e solicita apenas os tiles que intersectam a moldura, até nove para 300×300. Há zoom limitado, coordenadas textuais, atribuição visível, carregamento, erro/timeout e nova tentativa manual. Falha do mapa não invalida um GPS já capturado.
+
+No Android, `cachePolicy="memory-disk"` reutiliza o cache persistente do Glide, com URLs estáveis, sem prefetch, limpeza global ou parâmetros para contornar cache. A identificação é `FuelLog/1.0 (+https://github.com/vla2005/fuellog)`; não há Referer simulado. O cache é LRU e não possui expiração temporal configurada pelo app; sua permanência sob pressão de armazenamento não foi medida no aparelho.
+
+Investigação de 2026-10-26: o print do Android mostrou o bloqueio geral de tiles do provedor. O carregador anterior, `Image` do React Native 0.88, aplica `Cache-Control: no-store` no caminho Android padrão de `ReactOkHttpNetworkFetcher`, mesmo com User-Agent definido no TypeScript. A troca para `expo-image` remove esse caminho e seu cabeçalho. Uma requisição de diagnóstico no computador, com a identificação anterior legítima `FuelLog/1.0`, recebeu HTTP 200 e PNG. Isso não identifica, por si só, a causa exclusiva do 403 observado no aparelho; não foi capturado seu tráfego de rede. Não trocar identidade, host ou proxy para contornar bloqueio.
 
 O provedor recebe as coordenadas presentes na URL. A URL é construída somente com números validados; navegação nativa fica limitada à origem/caminho do embed. Não enviar tokens, nomes ou observações. Não há chave paga ou contratação. O mapa exige rede; não há garantia de disponibilidade nem SLA. Não fazer prefetch/download offline ou ignorar cabeçalhos de cache. Respeitar identificação e Referer, cache e atribuição exigidos pelo provedor. Reavaliar a solução se volume ou garantias mudarem.
 
 Referências consultadas em 2026-10-25: [embed OSM](https://wiki.openstreetmap.org/wiki/Export), [WebView no Expo](https://docs.expo.dev/versions/latest/sdk/webview/), [política de tiles](https://operations.osmfoundation.org/policies/tiles/), [copyright](https://www.openstreetmap.org/copyright) e [atribuição](https://osmfoundation.org/wiki/Licence/Attribution_Guidelines).
 
+Referências adicionais em 2026-10-26: [bloqueio de tiles](https://wiki.openstreetmap.org/wiki/Blocked_tiles), [Expo Image](https://docs.expo.dev/versions/latest/sdk/image/) e [cache do Glide](https://bumptech.github.io/glide/doc/caching.html).
+
 ## Evidências e limites
+
+Correção de 2026-10-26: typecheck e 60 testes Node passaram. Os testes exercitam geometria dos tiles, ausência de prefetch fora da moldura, cache persistente selecionado, identidade do cliente, eventos de carga/403, retry com URLs estáveis, callbacks antigos e replay de efeitos. A exportação Android passou em `app/test-results/android-native-map-export`; o Playwright com API e OSM reais passou em Novo e Detalhe, incluindo persistência das coordenadas. O usuário confirmou no Expo Go Android: "Mapa carregou". Essa confirmação comprova o funcionamento observado no aparelho após a correção; não comprova a causa exclusiva do bloqueio anterior nem mede headers ou retenção do cache no telefone.
 
 Backend integrado na main: PostgreSQL isolado em loopback 64560, `api/mvnw.cmd -f api/pom.xml -Pverification verify`, exit 0: 64 testes unitários e 27 de integração, sem falhas ou skips, incluindo V1, V2 e V3. Relatórios em `api/target/verification/{surefire-reports,failsafe-reports}`. Cluster parado ao terminar. A API local 8080 foi atualizada após backup do banco; health UP e versões Flyway 1, 2 e 3 conferidas. O teste HTTP real de precisão, ciclos, idempotência e isolamento também passou nessa API.
 
