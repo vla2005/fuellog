@@ -95,7 +95,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   class ApiError extends Error { constructor(options) { super(options.message); Object.assign(this, options); } }
   const dependencies = {
     react, 'react-native': { StyleSheet: { create: styles => styles, absoluteFillObject: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } },
-      Platform: { OS: platform }, Linking: { openURL: async url => { openedUrls.push(url); } }, View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator', Image: 'NativeImage' },
+      Platform: { OS: platform, select: map => map?.[platform] ?? map?.default }, Linking: { openURL: async url => { openedUrls.push(url); } }, View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator', Image: 'NativeImage' },
     'react-native-webview': { WebView: 'NativeWebView' },
     'expo-image': { Image: 'ExpoImage' },
     './AndroidLocationMap': { AndroidLocationMap: 'AndroidLocationMap' },
@@ -674,3 +674,144 @@ for (const [file, name] of [['home/HomeScreen', 'HomeScreen'], ['history/History
     assert.equal(visible(), 'C', 'Resposta da sessão encerrada não reaparece na sessão nova');
   });
 }
+
+test('combustível em Radio no topo exibe apenas allowedFuels e acessibilidade correta', async () => {
+  const customVehicle = { id: 'flex-car', nickname: 'Flex', allowedFuels: ['GASOLINE_REGULAR', 'ETHANOL'] };
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    observableReturn: false,
+    sessionVehicles: [customVehicle],
+  });
+  h.session.activeVehicle = customVehicle;
+  h.session.vehicles = [customVehicle];
+  h.render();
+  await h.settle();
+
+  const group = findElement(h.snapshot, node => node.props?.accessibilityRole === 'radiogroup');
+  assert.ok(group, 'Deve existir um radiogroup de combustível');
+  const radios = [...elements(group)].filter(node => node.props?.accessibilityRole === 'radio');
+  assert.equal(radios.length, 2, 'Deve exibir exatamente os 2 combustíveis permitidos');
+  assert.equal(radios[0].props.accessibilityState?.checked, true, 'Primeiro combustível permitido vem selecionado por padrão');
+  assert.equal(radios[1].props.accessibilityState?.checked, false);
+});
+
+test('combustível incompatível é sanitizado no estado e no envio ao trocar de veículo', async () => {
+  const vehicleFlex = { id: 'flex-car', nickname: 'Flex', allowedFuels: ['GASOLINE_REGULAR', 'ETHANOL'] };
+  const vehicleDiesel = { id: 'diesel-truck', nickname: 'Diesel Truck', allowedFuels: ['DIESEL_S10'] };
+
+  const calls = [];
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    gps: { getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55, longitude: -46.63 } }) },
+    endpoints: { createFuelEntry: async (id, payload) => { calls.push({ id, payload }); return { ...payload, idempotentReplay: false }; } },
+  });
+  h.session.vehicles = [vehicleFlex, vehicleDiesel];
+  h.session.activeVehicle = vehicleFlex;
+  h.render();
+  await h.settle();
+  await h.snapshot.requestLocation(true);
+  await h.settle();
+
+  h.snapshot.setFuelType('GASOLINE_REGULAR');
+  h.snapshot.setLiters('35,000');
+  h.snapshot.setUnitPrice('5,0000');
+  h.snapshot.setOdometerKm('50000');
+  await h.settle();
+  assert.equal(h.snapshot.fuelType, 'GASOLINE_REGULAR');
+
+  // Troca para veículo que só aceita DIESEL_S10
+  await h.switchVehicle('diesel-truck');
+  await h.settle();
+  assert.notEqual(h.snapshot.fuelType, 'GASOLINE_REGULAR', 'Combustível incompatível deve ser desmarcado');
+  assert.equal(h.snapshot.fuelType, 'DIESEL_S10', 'Deve adotar combustível permitido pelo novo veículo');
+
+  // Ao salvar o abastecimento no novo veículo, envia exatamente DIESEL_S10
+  h.snapshot.setLiters('40,000');
+  h.snapshot.setUnitPrice('6,0000');
+  h.snapshot.setOdometerKm('51000');
+  await h.settle();
+  await h.snapshot.handleSubmit();
+  await h.settle();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.fuelType, 'DIESEL_S10');
+  assert.equal(calls[0].id, 'diesel-truck');
+});
+
+test('cálculo com desconto manual e payload exato sem separador de milhar', async () => {
+  const calls = [];
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    gps: { getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55052, longitude: -46.633308 } }) },
+    endpoints: { createFuelEntry: async (id, payload) => { calls.push(payload); return { ...payload, idempotentReplay: false }; } },
+  });
+  await h.settle();
+  await h.snapshot.requestLocation(true);
+  await h.settle();
+
+  // Litros 3 casas, preço 4 casas, odômetro inteiro 0
+  h.snapshot.setLiters('35,125');
+  h.snapshot.setUnitPrice('5,4321');
+  h.snapshot.setOdometerKm('120542');
+  await h.settle();
+
+  // Referência calculada 35.125 * 5.4321 = 190.8015... arredondado HALF_UP = 190.80
+  assert.equal(h.snapshot.referenceTotalDot, '190.80');
+
+  // Aplica desconto manual: pagou 180,00 (diferença de R$ 10,80 > R$ 0,05 exige justificativa)
+  h.snapshot.setIsManualPaidTotal(true);
+  h.snapshot.setManualPaidTotal('180,00');
+  await h.settle();
+  assert.equal(h.snapshot.adjustmentInfo.requiresReason, true);
+
+  // Tenta submeter sem justificativa
+  await h.snapshot.handleSubmit();
+  await h.settle();
+  assert.equal(calls.length, 0, 'Deve bloquear envio sem justificativa para diferença acima de 5 centavos');
+  assert.ok(h.snapshot.fieldErrors.adjustmentReason);
+
+  // Preenche justificativa e envia
+  h.snapshot.setAdjustmentReason('Desconto fidelidade do posto');
+  await h.settle();
+  await h.snapshot.handleSubmit();
+  await h.settle();
+
+  assert.equal(calls.length, 1);
+  const sent = calls[0];
+  assert.equal(sent.liters, '35.125');
+  assert.equal(sent.unitPrice, '5.4321');
+  assert.equal(sent.paidTotal, '180.00');
+  assert.equal(sent.odometerKm, 120542);
+  assert.equal(typeof sent.odometerKm, 'number');
+  assert.equal(sent.adjustmentReason, 'Desconto fidelidade do posto');
+  assert.equal(sent.fuelType, 'ETHANOL');
+});
+
+test('rascunho inválido com excesso de escala ou negativo não é mascarado como válido', async () => {
+  const invalidDraft = {
+    id: randomUUID(),
+    liters: '35,1259', // excesso de escala (4 casas para litros que aceita 3)
+    unitPrice: '-5,00', // negativo
+    odometerKm: '1000',
+    dateStr: '2026-10-20',
+    timeStr: '12:00',
+    timezone: 'America/Sao_Paulo',
+    fuelType: 'ETHANOL',
+  };
+
+  const calls = [];
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    store: new Map([[draftKey('A'), JSON.stringify(invalidDraft)]]),
+    gps: { getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55, longitude: -46.63 } }) },
+    endpoints: { createFuelEntry: async (id, payload) => { calls.push(payload); } },
+  });
+  await h.settle();
+
+  // Rascunho mantém os valores originais no estado sem silenciar/normalizar para válidos
+  assert.equal(h.snapshot.liters, '35,1259');
+  assert.equal(h.snapshot.unitPrice, '-5,00');
+
+  // Ao tentar submeter, o formulário barra com erro explícito de validação
+  await h.snapshot.handleSubmit();
+  await h.settle();
+  assert.equal(calls.length, 0, 'Não pode enviar rascunho com escala excessiva ou negativo');
+  assert.ok(h.snapshot.fieldErrors.liters, 'Deve acusar erro em litros');
+  assert.ok(h.snapshot.fieldErrors.unitPrice, 'Deve acusar erro no preço');
+});

@@ -29,7 +29,6 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  DropletIcon,
   GaugeIcon,
   PencilIcon,
   PlusIcon,
@@ -39,6 +38,7 @@ import { LocationMap } from '@/components/location/LocationMap';
 import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
+import { FixedScaleInput } from '@/components/ui/FixedScaleInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { VehicleFormSheet } from '@/features/vehicles/VehicleFormSheet';
 import { useMotionPolicy } from '@/motion/useMotionPolicy';
@@ -143,7 +143,6 @@ export function NewFuelEntryScreen({
   } = useForegroundLocation({ autoRequest: false });
 
   const [vehicleSheetOpen, setVehicleSheetOpen] = useState(false);
-  const [fuelSheetOpen, setFuelSheetOpen] = useState(false);
   const [dateTimeSheetOpen, setDateTimeSheetOpen] = useState(false);
   const [createVehicleOpen, setCreateVehicleOpen] = useState(false);
 
@@ -153,10 +152,23 @@ export function NewFuelEntryScreen({
   const [uncertainPendingPayload, setUncertainPendingPayload] =
     useState<CreateFuelEntryRequest | null>(null);
 
+  const [litersFocused, setLitersFocused] = useState(false);
+  const [unitPriceFocused, setUnitPriceFocused] = useState(false);
+  const [manualPaidFocused, setManualPaidFocused] = useState(false);
+  const [odometerFocused, setOdometerFocused] = useState(false);
+  const [adjustmentFocused, setAdjustmentFocused] = useState(false);
+
   const [restoredScopeKey, setRestoredScopeKey] = useState<string | null>(null);
   const restoredScopeKeyRef = useRef<string | null>(null);
   const restoreSeqRef = useRef(0);
   const isNavigatingHomeRef = useRef(false);
+
+  // Garante que combustível incompatível nunca seja mantido ao trocar veículo
+  useEffect(() => {
+    if (activeVehicle && fuelType && !activeVehicle.allowedFuels.includes(fuelType)) {
+      setFuelType(activeVehicle.allowedFuels[0] ?? null);
+    }
+  }, [activeVehicle, fuelType]);
 
   const expectedScopeKey =
     user && activeVehicle
@@ -569,6 +581,7 @@ export function NewFuelEntryScreen({
   const surfaceBg = colors.surface;
   const surfaceBorder = colors.borderSubtle;
   const badgeSquareBg = colors.subtle;
+  const focusBorderColor = isDark ? colors.borderFocus : colors.brandPrimary;
 
   const vehicleHeaderSubtitle = activeVehicle
     ? [
@@ -659,108 +672,86 @@ export function NewFuelEntryScreen({
               />
             ) : null}
 
-          {/* Hero Card: Valor pago */}
-          <View
-            style={[
-              styles.paidHeroCard,
-              {
-                backgroundColor: surfaceBg,
-                borderColor: fieldErrors.paidTotal
-                  ? colors.dangerBorder
-                  : surfaceBorder,
-              },
-              isDark ? shadows.darkCard : shadows.lightCard,
-            ]}
-          >
-            <View style={styles.paidHeroRow}>
-              <View style={styles.paidHeroLeft}>
-                <Text style={[styles.paidLabel, { color: colors.textSecondary }]}>
-                  Valor pago
-                </Text>
-
-                {isManualPaidTotal ? (
-                  <View style={styles.manualPaidInputRow}>
-                    <Text
+          {/* Combustível em Radio no topo (apenas activeVehicle.allowedFuels) */}
+          <View style={styles.fuelRadioSection}>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
+              Combustível
+            </Text>
+            <View
+              accessibilityRole="radiogroup"
+              accessibilityLabel="Combustível"
+              style={styles.fuelRadioGroup}
+            >
+              {(activeVehicle?.allowedFuels ?? []).map((fuel) => {
+                const isSelected = fuelType === fuel;
+                return (
+                  <Pressable
+                    key={fuel}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: isSelected }}
+                    aria-checked={isSelected}
+                    accessibilityLabel={FUEL_TYPE_LABELS[fuel] ?? fuel}
+                    disabled={isLockedForUncertainRetry}
+                    onPress={() => setFuelType(fuel)}
+                    style={[
+                      styles.fuelRadioItem,
+                      {
+                        backgroundColor: isSelected
+                          ? (isDark ? colors.accentSoft : colors.brandSoft)
+                          : surfaceBg,
+                        borderColor: isSelected
+                          ? (isDark ? colors.borderFocus : colors.brandPrimary)
+                          : surfaceBorder,
+                      },
+                    ]}
+                  >
+                    <View
                       style={[
-                        styles.currencyPrefix,
-                        { color: colors.textPrimary },
+                        styles.radioCircle,
+                        {
+                          borderColor: isSelected
+                            ? (isDark ? colors.borderFocus : colors.brandPrimary)
+                            : colors.borderDefault,
+                        },
                       ]}
                     >
-                      R$
-                    </Text>
-                    <TextInput
-                      accessibilityLabel="Valor total pago"
-                      value={manualPaidTotal}
-                      onChangeText={setManualPaidTotal}
-                      editable={!isLockedForUncertainRetry}
-                      keyboardType="decimal-pad"
-                      placeholder="0,00"
-                      placeholderTextColor={colors.textMuted}
+                      {isSelected ? (
+                        <View
+                          style={[
+                            styles.radioDot,
+                            {
+                              backgroundColor: isDark
+                                ? colors.borderFocus
+                                : colors.brandPrimary,
+                            },
+                          ]}
+                        />
+                      ) : null}
+                    </View>
+                    <Text
                       style={[
-                        styles.manualPaidInput,
-                        { color: colors.textPrimary },
+                        styles.fuelRadioText,
+                        {
+                          color: isSelected
+                            ? colors.textPrimary
+                            : colors.textSecondary,
+                        },
                       ]}
-                    />
-                  </View>
-                ) : (
-                  <Text
-                    style={[
-                      styles.paidHeroDisplay,
-                      { color: colors.textPrimary },
-                    ]}
-                    accessibilityLabel={`Valor total pago calculado: ${formatCurrencyBRL(
-                      referenceTotalDot ?? '0.00',
-                    )}`}
-                  >
-                    {formatCurrencyBRL(referenceTotalDot ?? '0.00')}
-                  </Text>
-                )}
-
-                <Text
-                  style={[styles.referenceText, { color: colors.textSecondary }]}
-                >
-                  {adjustmentInfo.adjustmentDot &&
-                  adjustmentInfo.diffCents !== 0n
-                    ? `Ref. ${formatCurrencyBRL(
-                        referenceTotalDot ?? '0.00',
-                      )} • Ajuste ${formatCurrencyBRL(
-                        adjustmentInfo.adjustmentDot,
-                      )}`
-                    : 'Calculado por litros × preço'}
-                </Text>
-              </View>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isManualPaidTotal
-                    ? 'Usar valor calculado automaticamente'
-                    : 'Editar valor total pago manualmente'
-                }
-                disabled={isLockedForUncertainRetry}
-                onPress={handleToggleManualPaid}
-                style={[
-                  styles.editPaidButton,
-                  {
-                    backgroundColor: colors.brandSoft,
-                  },
-                ]}
-              >
-                <PencilIcon
-                  size={18}
-                  color={isDark ? colors.borderFocus : colors.brandPrimary}
-                />
-              </Pressable>
+                    >
+                      {FUEL_TYPE_LABELS[fuel] ?? fuel}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-
-            {fieldErrors.paidTotal ? (
+            {fieldErrors.fuelType ? (
               <Text style={[styles.errorText, { color: colors.dangerText }]}>
-                {fieldErrors.paidTotal}
+                {fieldErrors.fuelType}
               </Text>
             ) : null}
           </View>
 
-          {/* 2-Column Inputs: Litros & Preço por litro */}
+          {/* 2-Column Inputs: Litros & Preço por litro (campos principais) */}
           <View style={styles.twoColRow}>
             <View style={styles.col}>
               <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
@@ -773,17 +764,21 @@ export function NewFuelEntryScreen({
                     backgroundColor: surfaceBg,
                     borderColor: fieldErrors.liters
                       ? colors.dangerBorder
-                      : surfaceBorder,
+                      : litersFocused
+                        ? focusBorderColor
+                        : surfaceBorder,
                   },
                 ]}
               >
-                <TextInput
+                <FixedScaleInput
                   accessibilityLabel="Litros abastecidos"
                   value={liters}
                   onChangeText={setLiters}
+                  onFocus={() => setLitersFocused(true)}
+                  onBlur={() => setLitersFocused(false)}
+                  scale={3}
                   editable={!isLockedForUncertainRetry}
-                  keyboardType="decimal-pad"
-                  placeholder="35,000"
+                  placeholder="0,000"
                   placeholderTextColor={colors.textMuted}
                   style={[styles.decimalInput, { color: colors.textPrimary }]}
                 />
@@ -817,7 +812,9 @@ export function NewFuelEntryScreen({
                     backgroundColor: surfaceBg,
                     borderColor: fieldErrors.unitPrice
                       ? colors.dangerBorder
-                      : surfaceBorder,
+                      : unitPriceFocused
+                        ? focusBorderColor
+                        : surfaceBorder,
                   },
                 ]}
               >
@@ -826,13 +823,15 @@ export function NewFuelEntryScreen({
                 >
                   R$
                 </Text>
-                <TextInput
+                <FixedScaleInput
                   accessibilityLabel="Preço por litro"
                   value={unitPrice}
                   onChangeText={setUnitPrice}
+                  onFocus={() => setUnitPriceFocused(true)}
+                  onBlur={() => setUnitPriceFocused(false)}
+                  scale={4}
                   editable={!isLockedForUncertainRetry}
-                  keyboardType="decimal-pad"
-                  placeholder="6,0900"
+                  placeholder="0,0000"
                   placeholderTextColor={colors.textMuted}
                   style={[styles.decimalInput, { color: colors.textPrimary }]}
                 />
@@ -843,6 +842,121 @@ export function NewFuelEntryScreen({
                 </Text>
               ) : null}
             </View>
+          </View>
+
+          {/* Valor pago logo abaixo menor e editável em caso de desconto */}
+          <View
+            style={[
+              styles.paidCompactCard,
+              {
+                backgroundColor: surfaceBg,
+                borderColor: fieldErrors.paidTotal
+                  ? colors.dangerBorder
+                  : manualPaidFocused
+                    ? focusBorderColor
+                    : surfaceBorder,
+              },
+              isDark ? shadows.darkCard : shadows.lightCard,
+            ]}
+          >
+            <View style={styles.paidCompactRow}>
+              <View style={styles.paidCompactLeft}>
+                <Text style={[styles.paidCompactLabel, { color: colors.textSecondary }]}>
+                  {isManualPaidTotal
+                    ? 'Valor pago (desconto / ajuste manual)'
+                    : 'Valor pago'}
+                </Text>
+
+                {isManualPaidTotal ? (
+                  <View style={styles.manualPaidInputRow}>
+                    <Text
+                      style={[
+                        styles.manualCurrencyPrefix,
+                        { color: colors.textPrimary },
+                      ]}
+                    >
+                      R$
+                    </Text>
+                    <FixedScaleInput
+                      accessibilityLabel="Valor total pago"
+                      value={manualPaidTotal}
+                      onChangeText={setManualPaidTotal}
+                      onFocus={() => setManualPaidFocused(true)}
+                      onBlur={() => setManualPaidFocused(false)}
+                      scale={2}
+                      editable={!isLockedForUncertainRetry}
+                      placeholder="0,00"
+                      placeholderTextColor={colors.textMuted}
+                      style={[
+                        styles.manualPaidInput,
+                        { color: colors.textPrimary },
+                      ]}
+                    />
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      styles.paidCompactDisplay,
+                      { color: colors.textPrimary },
+                    ]}
+                    accessibilityLabel={`Valor total pago calculado: ${formatCurrencyBRL(
+                      referenceTotalDot ?? '0.00',
+                    )}`}
+                  >
+                    {formatCurrencyBRL(referenceTotalDot ?? '0.00')}
+                  </Text>
+                )}
+
+                <Text
+                  style={[styles.referenceText, { color: colors.textSecondary }]}
+                >
+                  {adjustmentInfo.adjustmentDot &&
+                  adjustmentInfo.diffCents !== 0n
+                    ? `Ref. ${formatCurrencyBRL(
+                        referenceTotalDot ?? '0.00',
+                      )} • Ajuste ${formatCurrencyBRL(
+                        adjustmentInfo.adjustmentDot,
+                      )}`
+                    : 'Calculado por litros × preço'}
+                </Text>
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isManualPaidTotal
+                    ? 'Usar valor calculado automaticamente'
+                    : 'Editar valor total pago manualmente'
+                }
+                disabled={isLockedForUncertainRetry}
+                onPress={handleToggleManualPaid}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={[
+                  styles.editPaidCompactButton,
+                  {
+                    backgroundColor: colors.brandSoft,
+                  },
+                ]}
+              >
+                {isManualPaidTotal ? (
+                  <CheckIcon
+                    size={18}
+                    color={isDark ? colors.borderFocus : colors.brandPrimary}
+                  />
+                ) : (
+                  <PencilIcon
+                    size={16}
+                    color={isDark ? colors.borderFocus : colors.brandPrimary}
+                  />
+                )}
+              </Pressable>
+            </View>
+
+            {fieldErrors.paidTotal ? (
+              <Text style={[styles.errorText, { color: colors.dangerText }]}>
+                {fieldErrors.paidTotal}
+              </Text>
+            ) : null}
           </View>
 
           {/* Conditional Adjustment Reason when abs(paidTotal - referenceTotal) > 0.05 */}
@@ -856,9 +970,11 @@ export function NewFuelEntryScreen({
                     : surfaceBg,
                   borderColor: fieldErrors.adjustmentReason
                     ? colors.dangerBorder
-                    : adjustmentInfo.requiresReason
-                      ? colors.warningBorder
-                      : surfaceBorder,
+                    : adjustmentFocused
+                      ? focusBorderColor
+                      : adjustmentInfo.requiresReason
+                        ? colors.warningBorder
+                        : surfaceBorder,
                 },
               ]}
             >
@@ -880,6 +996,8 @@ export function NewFuelEntryScreen({
                 accessibilityLabel="Justificativa do ajuste"
                 value={adjustmentReason}
                 onChangeText={setAdjustmentReason}
+                onFocus={() => setAdjustmentFocused(true)}
+                onBlur={() => setAdjustmentFocused(false)}
                 editable={!isLockedForUncertainRetry}
                 placeholder="Ex: Desconto no app do posto ou arredondamento na bomba"
                 placeholderTextColor={colors.textMuted}
@@ -901,23 +1019,23 @@ export function NewFuelEntryScreen({
             </View>
           ) : null}
 
-          {/* Grouped 3-Row Card: Quilometragem, Data, Combustível */}
+          {/* Grouped Card: Quilometragem e Data */}
           <View
             style={[
               styles.groupedCard,
               {
                 backgroundColor: surfaceBg,
                 borderColor:
-                  fieldErrors.odometerKm ||
-                  fieldErrors.occurredAt ||
-                  fieldErrors.fuelType
+                  fieldErrors.odometerKm || fieldErrors.occurredAt
                     ? colors.dangerBorder
-                    : surfaceBorder,
+                    : odometerFocused
+                      ? focusBorderColor
+                      : surfaceBorder,
               },
               isDark ? shadows.darkCard : shadows.lightCard,
             ]}
           >
-            {/* Row 1: Quilometragem (inline editable odometer) */}
+            {/* Row 1: Quilometragem (escala 0 inteira) */}
             <View
               style={[
                 styles.groupedRow,
@@ -939,12 +1057,14 @@ export function NewFuelEntryScreen({
                 Quilometragem
               </Text>
               <View style={styles.odometerInlineRight}>
-                <TextInput
+                <FixedScaleInput
                   accessibilityLabel="Hodômetro atual (km inteiro)"
                   value={odometerKm}
-                  onChangeText={(val) => setOdometerKm(val.replace(/[^\d]/g, ''))}
+                  onChangeText={setOdometerKm}
+                  onFocus={() => setOdometerFocused(true)}
+                  onBlur={() => setOdometerFocused(false)}
+                  scale={0}
                   editable={!isLockedForUncertainRetry}
-                  keyboardType="number-pad"
                   placeholder="58420"
                   placeholderTextColor={colors.textMuted}
                   style={[
@@ -960,7 +1080,6 @@ export function NewFuelEntryScreen({
                 >
                   km
                 </Text>
-                <ChevronRightIcon size={15} color={colors.accentPrimary} />
               </View>
             </View>
 
@@ -972,11 +1091,7 @@ export function NewFuelEntryScreen({
               )}`}
               disabled={isLockedForUncertainRetry}
               onPress={() => setDateTimeSheetOpen(true)}
-              style={[
-                styles.groupedRow,
-                styles.groupedRowBorder,
-                { borderBottomColor: surfaceBorder },
-              ]}
+              style={styles.groupedRow}
             >
               <View
                 style={[
@@ -1000,49 +1115,11 @@ export function NewFuelEntryScreen({
                 <ChevronRightIcon size={15} color={colors.accentPrimary} />
               </View>
             </Pressable>
-
-            {/* Row 3: Combustível */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Combustível: ${
-                fuelType ? FUEL_TYPE_LABELS[fuelType] : 'Selecionar'
-              }`}
-              disabled={isLockedForUncertainRetry}
-              onPress={() => setFuelSheetOpen(true)}
-              style={styles.groupedRow}
-            >
-              <View
-                style={[
-                  styles.rowIconBadge,
-                  { backgroundColor: badgeSquareBg },
-                ]}
-              >
-                <DropletIcon size={16} color={colors.textPrimary} />
-              </View>
-              <Text
-                style={[styles.groupedRowLabel, { color: colors.textSecondary }]}
-              >
-                Combustível
-              </Text>
-              <View style={styles.groupedRowRight}>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.groupedRowValue, { color: colors.textPrimary }]}
-                >
-                  {fuelType ? FUEL_TYPE_LABELS[fuelType] : 'Selecionar'}
-                </Text>
-                <ChevronRightIcon size={15} color={colors.accentPrimary} />
-              </View>
-            </Pressable>
           </View>
 
-          {fieldErrors.odometerKm ||
-          fieldErrors.occurredAt ||
-          fieldErrors.fuelType ? (
+          {fieldErrors.odometerKm || fieldErrors.occurredAt ? (
             <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {fieldErrors.odometerKm ||
-                fieldErrors.occurredAt ||
-                fieldErrors.fuelType}
+              {fieldErrors.odometerKm || fieldErrors.occurredAt}
             </Text>
           ) : null}
 
@@ -1254,53 +1331,6 @@ export function NewFuelEntryScreen({
         })}
       </AppSheet>
 
-      {/* Sheet: Seletor de combustível permitido pelo veículo */}
-      <AppSheet
-        visible={fuelSheetOpen}
-        title="Combustível utilizado"
-        subtitle={
-          activeVehicle
-            ? `Opções aceitas por ${activeVehicle.nickname}`
-            : undefined
-        }
-        onClose={() => setFuelSheetOpen(false)}
-      >
-        {(activeVehicle?.allowedFuels ?? []).map((allowed) => {
-          const isSelected = fuelType === allowed;
-          return (
-            <Pressable
-              key={allowed}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: isSelected }}
-              aria-checked={isSelected}
-              accessibilityLabel={FUEL_TYPE_LABELS[allowed]}
-              onPress={() => {
-                setFuelType(allowed);
-                setFuelSheetOpen(false);
-              }}
-              style={[
-                styles.sheetRow,
-                {
-                  backgroundColor: isSelected
-                    ? colors.accentSoft
-                    : colors.bgSecondary,
-                  borderColor: isSelected
-                    ? colors.accentPrimary
-                    : colors.borderDefault,
-                },
-              ]}
-            >
-              <Text style={[styles.sheetRowTitle, { color: colors.textPrimary }]}>
-                {FUEL_TYPE_LABELS[allowed]}
-              </Text>
-              {isSelected ? (
-                <CheckIcon size={18} color={colors.accentPrimary} />
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </AppSheet>
-
       {/* Sheet: Edição de Data, Hora e Timezone */}
       <AppSheet
         visible={dateTimeSheetOpen}
@@ -1460,71 +1490,127 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 16,
     paddingBottom: 6,
+    width: '100%',
+    minWidth: 0,
   },
   formTopGroup: {
     gap: 12,
+    width: '100%',
+    minWidth: 0,
   },
-  formBottomGroup: {
-    gap: 10,
-  },
-  paidHeroCard: {
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+  fuelRadioSection: {
     gap: 6,
   },
-  paidHeroRow: {
+  fuelRadioGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  fuelRadioItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  radioCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  fuelRadioText: {
+    ...typography.bodyStrong,
+    fontSize: 14,
+  },
+  paidCompactCard: {
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  paidCompactRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
-  paidHeroLeft: {
+  paidCompactLeft: {
     flex: 1,
-    gap: 4,
+    minWidth: 0,
+    gap: 2,
   },
-  paidLabel: {
-    ...typography.body,
-    fontSize: 14,
+  paidCompactLabel: {
+    ...typography.caption,
+    fontSize: 13,
   },
-  paidHeroDisplay: {
+  paidCompactDisplay: {
     ...typography.heroValue,
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  manualCurrencyPrefix: {
+    ...typography.bodyStrong,
+    fontSize: 18,
+    flexShrink: 0,
+  },
+  editPaidCompactButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+
+  formBottomGroup: {
+    gap: 10,
   },
   manualPaidInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  currencyPrefix: {
-    ...typography.heroValue,
-    fontSize: 28,
+    minWidth: 0,
+    flex: 1,
   },
   manualPaidInput: {
     flex: 1,
+    minWidth: 0,
+    width: '100%',
     ...typography.heroValue,
-    fontSize: 32,
+    fontSize: 22,
     paddingVertical: 2,
+    textAlign: 'right',
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
   },
   referenceText: {
     ...typography.caption,
     fontSize: 13,
   },
-  editPaidButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   twoColRow: {
     flexDirection: 'row',
     gap: 10,
+    width: '100%',
+    minWidth: 0,
   },
   col: {
     flex: 1,
+    minWidth: 0,
     gap: 5,
   },
   inputLabel: {
@@ -1534,29 +1620,41 @@ const styles = StyleSheet.create({
   decimalBox: {
     minHeight: 48,
     borderRadius: radii.md,
-    borderWidth: 1,
-    paddingHorizontal: 12,
+    borderWidth: 1.5,
+    paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+    minWidth: 0,
   },
   decimalInput: {
     flex: 1,
+    minWidth: 0,
+    width: '100%',
     ...typography.numericInput,
     fontSize: 18,
     paddingVertical: 8,
+    textAlign: 'right',
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
   },
   affixDivider: {
     width: 1,
     height: 22,
+    flexShrink: 0,
   },
   affixText: {
     ...typography.bodyStrong,
     fontSize: 15,
+    flexShrink: 0,
   },
   adjustmentCard: {
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     padding: 12,
     gap: 6,
   },
@@ -1571,10 +1669,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     ...typography.body,
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
   },
   groupedCard: {
     borderRadius: radii.lg,
-    borderWidth: 1,
+    borderWidth: 1.5,
     paddingHorizontal: 14,
   },
   groupedRow: {
@@ -1593,10 +1697,12 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   groupedRowLabel: {
     ...typography.body,
     fontSize: 14,
+    flexShrink: 0,
   },
   groupedRowRight: {
     flex: 1,
@@ -1615,17 +1721,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 4,
+    minWidth: 0,
   },
   odometerInlineInput: {
-    minWidth: 76,
+    minWidth: 0,
+    flexShrink: 1,
     textAlign: 'right',
     ...typography.bodyStrong,
     fontSize: 15,
     paddingVertical: 4,
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
   },
   odometerUnitText: {
     ...typography.bodyStrong,
     fontSize: 15,
+    flexShrink: 0,
   },
   tankSection: {
     gap: 6,
@@ -1689,10 +1804,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     ...typography.body,
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
   },
   notesInput: {
     minHeight: 72,
     textAlignVertical: 'top',
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
   },
   brandFooterRow: {
     flexDirection: 'row',
