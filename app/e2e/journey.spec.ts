@@ -21,11 +21,16 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
   await page.getByRole('tab', { name: 'Veículos', exact: true }).click();
   await expect(page).toHaveURL(/\/vehicles$/);
   await page.getByRole('button', { name: /^(Novo|Cadastrar) veículo$/ }).filter({ visible: true }).click();
-  await page.getByLabel('Apelido do veículo', { exact: true }).fill(vehicle);
+  for (const label of ['Apelido do veículo', 'Marca', 'Ano', 'Placa']) {
+    await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
+  }
+  await page.getByLabel('Modelo', { exact: true }).fill(vehicle);
+  await expect(page.getByLabel('Capacidade do tanque (opcional)', { exact: true })).toBeVisible();
+  await page.getByLabel('Capacidade do tanque (opcional)', { exact: true }).fill('50,125');
   await page.getByLabel('Quilometragem atual (opcional)', { exact: true }).fill('900');
   const createdVehicle = page.waitForResponse(response => response.request().method() === 'POST' && /\/vehicles$/.test(response.url()));
   await page.getByRole('button', { name: 'Salvar veículo', exact: true }).click();
-  expect(await (await createdVehicle).json()).toMatchObject({ nickname: vehicle, currentOdometerKm: 900 });
+  expect(await (await createdVehicle).json()).toMatchObject({ nickname: vehicle, model: vehicle, currentOdometerKm: 900, tankCapacityLiters: '50.125' });
   await expect(page.getByLabel(`Trocar veículo ativo. Atual: ${vehicle}`, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
   await expect(page).toHaveURL(/\/fueling\/new$/);

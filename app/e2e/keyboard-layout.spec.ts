@@ -54,9 +54,8 @@ test('veículo, abastecimento e sheet de data preservam inputs em 390x480', asyn
   await expect(page).toHaveURL(/\/\/?$/);
   await page.goto('/vehicles');
   await page.getByRole('button', { name: /^(Novo|Cadastrar) veículo$/ }).click();
-  await fillVisible(page, 'Apelido do veículo', 'Layout veículo');
+  await fillVisible(page, 'Modelo', 'Layout veículo');
   await fillVisible(page, 'Quilometragem atual (opcional)', '1100');
-  await page.getByRole('button', { name: 'Ano, placa e capacidade do tanque', exact: true }).click();
   await fillVisible(page, 'Capacidade do tanque (opcional)', '50');
   const saveVehicle = page.getByRole('button', { name: 'Salvar veículo', exact: true });
   await reachable(page, saveVehicle);

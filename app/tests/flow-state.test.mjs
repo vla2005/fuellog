@@ -398,7 +398,7 @@ test('cadastro envia quilometragem opcional sem arredondar e preserva dados em f
       props: { visible: true, onClose() {}, onCreated() {} },
       endpoints: { createVehicle: async payload => { calls.push(payload); return vehicle('created'); } },
     });
-    h.snapshot.setNickname('Meu carro');
+    h.snapshot.setModel('Meu carro');
     h.snapshot.setCurrentOdometerKm(input);
     await h.settle();
     await h.snapshot.handleCreate();
@@ -417,14 +417,66 @@ test('cadastro envia quilometragem opcional sem arredondar e preserva dados em f
     props: { visible: true, onClose() {}, onCreated() {} },
     endpoints: { createVehicle: async () => { throw Error('Sem conexão'); } },
   });
-  h.snapshot.setNickname('Meu carro');
+  h.snapshot.setModel('Meu carro');
   h.snapshot.setCurrentOdometerKm('45000');
   await h.settle();
   await h.snapshot.handleCreate();
   await h.settle();
-  assert.equal(h.snapshot.nickname, 'Meu carro');
+  assert.equal(h.snapshot.model, 'Meu carro');
   assert.equal(h.snapshot.currentOdometerKm, '45000');
   assert.ok(h.snapshot.errorMessage);
+});
+
+test('cadastro usa modelo como identificação e valida modelo e capacidade sem perder dados', async () => {
+  for (const [model, capacity, invalidField] of [
+    ['  Captur  ', '50,125', null],
+    [' ', '50', 'model'],
+    ['a'.repeat(61), '50', 'model'],
+    ['Captur', '0', 'tankCapacityLiters'],
+    ['Captur', '-1', 'tankCapacityLiters'],
+    ['Captur', '50,1234', 'tankCapacityLiters'],
+  ]) {
+    const calls = [];
+    const h = mount('features/vehicles/VehicleFormSheet.tsx', 'VehicleFormSheet', {
+      props: { visible: true, onClose() {}, onCreated() {} },
+      endpoints: { createVehicle: async payload => { calls.push(payload); return vehicle('created'); } },
+    });
+    h.snapshot.setModel(model);
+    h.snapshot.setTankCapacity(capacity);
+    await h.settle();
+    await h.snapshot.handleCreate();
+    await h.settle();
+    if (invalidField) {
+      assert.equal(calls.length, 0);
+      assert.ok(h.snapshot.fieldErrors[invalidField]);
+      assert.equal(h.snapshot.model, model);
+      assert.equal(h.snapshot.tankCapacity, capacity);
+    } else {
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].nickname, 'Captur');
+      assert.equal(calls[0].model, 'Captur');
+      assert.equal(calls[0].tankCapacityLiters, '50.125');
+      for (const field of ['brand', 'modelYear', 'plate']) assert.ok(calls[0][field] == null);
+    }
+    h.unmount();
+  }
+  let closed = false;
+  const h = mount('features/vehicles/VehicleFormSheet.tsx', 'VehicleFormSheet', {
+    props: { visible: true, onClose() { closed = true; }, onCreated() {} },
+    endpoints: { createVehicle: async () => {
+      throw new h.ApiError({ message: 'Dados inválidos', problem: { fieldErrors: { nickname: 'Identificação inválida' } } });
+    } },
+  });
+  h.snapshot.setModel('Captur');
+  h.snapshot.setTankCapacity('50,125');
+  await h.settle();
+  await h.snapshot.handleCreate();
+  await h.settle();
+  assert.equal(h.snapshot.modelError, 'Identificação inválida');
+  assert.equal(h.snapshot.model, 'Captur');
+  assert.equal(h.snapshot.tankCapacity, '50,125');
+  assert.equal(closed, false);
+  h.unmount();
 });
 
 test('GPS negado, desligado ou indisponível bloqueia o handler real sem perder o formulário', async () => {

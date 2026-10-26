@@ -10,7 +10,7 @@ import {
 import { FUEL_TYPE_LABELS } from '@/api/endpoints';
 import { ApiError, CreateVehicleRequest, FuelType, Vehicle } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
-import { CheckIcon, ChevronDownIcon, SaveIcon } from '@/components/icons/AppIcons';
+import { CheckIcon, SaveIcon } from '@/components/icons/AppIcons';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { DecimalField } from '@/components/ui/DecimalField';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -33,21 +33,16 @@ export function VehicleFormSheet({
   const { colors } = useAppTheme();
   const { availableFuelTypes, createNewVehicle, showToast } = useSession();
 
-  const [nickname, setNickname] = useState('');
-  const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
-  const [modelYear, setModelYear] = useState('');
-  const [plate, setPlate] = useState('');
-  const [tankCapacity, setTankCapacity] = useState('');
-  const [currentOdometerKm, setCurrentOdometerKm] = useState('');
   const [selectedFuels, setSelectedFuels] = useState<FuelType[]>([
     'GASOLINE_REGULAR',
     'ETHANOL',
   ]);
+  const [currentOdometerKm, setCurrentOdometerKm] = useState('');
+  const [tankCapacity, setTankCapacity] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   const toggleFuel = (fuel: FuelType) => {
     setSelectedFuels((prev) =>
@@ -56,48 +51,29 @@ export function VehicleFormSheet({
   };
 
   const resetForm = () => {
-    setNickname('');
-    setBrand('');
     setModel('');
-    setModelYear('');
-    setPlate('');
-    setTankCapacity('');
-    setCurrentOdometerKm('');
     setSelectedFuels(['GASOLINE_REGULAR', 'ETHANOL']);
+    setCurrentOdometerKm('');
+    setTankCapacity('');
     setErrorMessage(null);
     setFieldErrors({});
-    setShowMoreDetails(false);
   };
 
   const handleCreate = async () => {
     setErrorMessage(null);
     setFieldErrors({});
 
-    const cleanNickname = nickname.trim();
+    const cleanModel = model.trim();
     const localErrors: Record<string, string> = {};
 
-    if (!cleanNickname) {
-      localErrors.nickname = 'Informe um apelido para identificar o veículo.';
-    } else if (cleanNickname.length > 60) {
-      localErrors.nickname = 'O apelido deve ter no máximo 60 caracteres.';
+    if (!cleanModel) {
+      localErrors.model = 'Informe o modelo do veículo.';
+    } else if (cleanModel.length > 60) {
+      localErrors.model = 'O modelo deve ter no máximo 60 caracteres.';
     }
 
     if (selectedFuels.length === 0) {
       localErrors.allowedFuels = 'Selecione ao menos um combustível compatível.';
-    }
-
-    let parsedYear: number | null = null;
-    if (modelYear.trim()) {
-      if (!/^\d{4}$/.test(modelYear.trim())) {
-        localErrors.modelYear = 'Informe o ano com 4 dígitos (ex: 2023).';
-      } else {
-        const y = Number(modelYear.trim());
-        if (y < 1886 || y > 2200) {
-          localErrors.modelYear = 'Ano fora do intervalo permitido (1886–2200).';
-        } else {
-          parsedYear = y;
-        }
-      }
     }
 
     let normalizedCapacity: string | null = null;
@@ -139,11 +115,11 @@ export function VehicleFormSheet({
     setSubmitting(true);
     try {
       const payload: CreateVehicleRequest = {
-        nickname: cleanNickname,
-        brand: brand.trim() || null,
-        model: model.trim() || null,
-        modelYear: parsedYear,
-        plate: plate.trim().toUpperCase() || null,
+        nickname: cleanModel,
+        model: cleanModel,
+        brand: null,
+        modelYear: null,
+        plate: null,
         tankCapacityLiters: normalizedCapacity,
         allowedFuels: selectedFuels,
       };
@@ -175,6 +151,8 @@ export function VehicleFormSheet({
     }
   };
 
+  const modelError = fieldErrors.model || fieldErrors.nickname;
+
   return (
     <AppSheet
       visible={visible}
@@ -184,61 +162,10 @@ export function VehicleFormSheet({
     >
       {errorMessage ? <InlineNotice tone="danger" message={errorMessage} /> : null}
 
-      {/* 1. Apelido */}
+      {/* 1. Modelo */}
       <View style={styles.fieldGroup}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>
-          Apelido do veículo *
-        </Text>
-        <TextInput
-          accessibilityLabel="Apelido do veículo"
-          value={nickname}
-          onChangeText={setNickname}
-          placeholder="Ex.: Meu carro"
-          placeholderTextColor={colors.textMuted}
-          style={[
-            styles.input,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderColor: fieldErrors.nickname
-                ? colors.dangerBorder
-                : colors.borderDefault,
-              color: colors.textPrimary,
-            },
-          ]}
-        />
-        {fieldErrors.nickname ? (
-          <Text style={[styles.errorText, { color: colors.dangerText }]}>
-            {fieldErrors.nickname}
-          </Text>
-        ) : null}
-      </View>
-
-      {/* 2. Marca (linha simples) */}
-      <View style={styles.fieldGroup}>
-        <Text style={[styles.label, { color: colors.textSecondary }]}>
-          Marca (opcional)
-        </Text>
-        <TextInput
-          accessibilityLabel="Marca"
-          value={brand}
-          onChangeText={setBrand}
-          placeholder="Ex.: Renault"
-          placeholderTextColor={colors.textMuted}
-          style={[
-            styles.input,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderColor: colors.borderDefault,
-              color: colors.textPrimary,
-            },
-          ]}
-        />
-      </View>
-
-      {/* 3. Modelo (linha simples) */}
-      <View style={styles.fieldGroup}>
-        <Text style={[styles.label, { color: colors.textSecondary }]}>
-          Modelo (opcional)
+          Modelo *
         </Text>
         <TextInput
           accessibilityLabel="Modelo"
@@ -250,14 +177,21 @@ export function VehicleFormSheet({
             styles.input,
             {
               backgroundColor: colors.bgSecondary,
-              borderColor: colors.borderDefault,
+              borderColor: modelError
+                ? colors.dangerBorder
+                : colors.borderDefault,
               color: colors.textPrimary,
             },
           ]}
         />
+        {modelError ? (
+          <Text style={[styles.errorText, { color: colors.dangerText }]}>
+            {modelError}
+          </Text>
+        ) : null}
       </View>
 
-      {/* 4. Combustíveis aceitos */}
+      {/* 2. Combustíveis aceitos */}
       <View style={styles.fieldGroup}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>
           Combustíveis aceitos *
@@ -323,7 +257,7 @@ export function VehicleFormSheet({
         ) : null}
       </View>
 
-      {/* 5. Quilometragem atual (opcional) */}
+      {/* 3. Quilometragem atual (opcional) */}
       <DecimalField
         label="Quilometragem atual (opcional)"
         value={currentOdometerKm}
@@ -336,88 +270,17 @@ export function VehicleFormSheet({
         testID="vehicle-current-odometer-input"
       />
 
-      {/* 6. Seção Opcional Recolhida */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Ano, placa e capacidade do tanque"
-        onPress={() => setShowMoreDetails((prev) => !prev)}
-        style={[styles.collapsibleHeaderRow, { borderTopColor: colors.borderSubtle }]}
-      >
-        <Text style={[styles.collapsibleTitle, { color: colors.textSecondary }]}>
-          Ano, placa e capacidade do tanque
-        </Text>
-        <View style={showMoreDetails ? { transform: [{ rotate: '180deg' }] } : undefined}>
-          <ChevronDownIcon size={18} color={colors.textSecondary} />
-        </View>
-      </Pressable>
+      {/* 4. Capacidade do tanque (opcional) */}
+      <DecimalField
+        label="Capacidade do tanque (opcional)"
+        value={tankCapacity}
+        onChangeText={setTankCapacity}
+        placeholder="50,0"
+        suffix="L"
+        errorText={fieldErrors.tankCapacityLiters}
+      />
 
-      {showMoreDetails ? (
-        <View style={styles.collapsibleBody}>
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              Ano (opcional)
-            </Text>
-            <TextInput
-              accessibilityLabel="Ano do modelo"
-              value={modelYear}
-              onChangeText={setModelYear}
-              placeholder="Ex.: 2023"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="number-pad"
-              maxLength={4}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: colors.bgSecondary,
-                  borderColor: fieldErrors.modelYear
-                    ? colors.dangerBorder
-                    : colors.borderDefault,
-                  color: colors.textPrimary,
-                },
-              ]}
-            />
-            {fieldErrors.modelYear ? (
-              <Text style={[styles.errorText, { color: colors.dangerText }]}>
-                {fieldErrors.modelYear}
-              </Text>
-            ) : null}
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              Placa (opcional)
-            </Text>
-            <TextInput
-              accessibilityLabel="Placa"
-              value={plate}
-              onChangeText={setPlate}
-              placeholder="Ex.: ABC1D23"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              maxLength={16}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: colors.bgSecondary,
-                  borderColor: colors.borderDefault,
-                  color: colors.textPrimary,
-                },
-              ]}
-            />
-          </View>
-
-          <DecimalField
-            label="Capacidade do tanque (opcional)"
-            value={tankCapacity}
-            onChangeText={setTankCapacity}
-            placeholder="50,0"
-            suffix="L"
-            errorText={fieldErrors.tankCapacityLiters}
-          />
-        </View>
-      ) : null}
-
-      {/* 7. Botão Salvar Escalonado */}
+      {/* 5. Botão Salvar */}
       <PrimaryButton
         label="Salvar veículo"
         leftIcon={<SaveIcon size={18} color="#FFFFFF" />}
@@ -471,22 +334,6 @@ const styles = StyleSheet.create({
   fuelChipLabel: {
     ...typography.bodyStrong,
     fontSize: 13,
-  },
-  collapsibleHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    marginTop: 4,
-  },
-  collapsibleTitle: {
-    ...typography.bodyStrong,
-    fontSize: 14,
-  },
-  collapsibleBody: {
-    gap: 12,
-    paddingBottom: 6,
   },
   submitBtn: {
     marginTop: 12,
