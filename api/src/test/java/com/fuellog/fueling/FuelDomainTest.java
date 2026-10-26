@@ -17,7 +17,7 @@ class FuelDomainTest {
     private final Instant now=Instant.parse("2026-10-24T12:00:00Z");
     private FuelEntryDtos.Create command(String liters,String price,String paid,String reason) {
         return new FuelEntryDtos.Create(entryId,now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,
-            FuelType.GASOLINE_REGULAR,liters,price,paid,TankState.PARTIAL,false,reason," Posto ",null);
+            FuelType.GASOLINE_REGULAR,liters,price,paid,TankState.PARTIAL,false,reason," Posto ",null,new BigDecimal("-23.5505200"),new BigDecimal("-46.6333080"));
     }
     @Test void keepsActualPaymentAndRequiresAdjustmentReason() {
         var error=assertThrows(ApiException.class,()->FuelCommand.normalize(vehicleId,command("40","6","230",null)));
@@ -48,7 +48,7 @@ class FuelDomainTest {
         assertEquals(a.hash(),b.hash());
         assertNotEquals(a.hash(),FuelCommand.normalize(vehicleId,command("40","6","231","desconto")).hash());
         var offset=new FuelEntryDtos.Create(entryId,now.atOffset(ZoneOffset.ofHours(-3)),"America/Sao_Paulo",1000L,
-            FuelType.GASOLINE_REGULAR,"40","6","230",TankState.PARTIAL,false,"desconto","Posto",null);
+            FuelType.GASOLINE_REGULAR,"40","6","230",TankState.PARTIAL,false,"desconto","Posto",null,new BigDecimal("-23.55052"),new BigDecimal("-46.633308"));
         assertEquals(a.hash(),FuelCommand.normalize(vehicleId,offset).hash());
     }
     @Test void jacksonRejectsNumericDecimalTokensForBothRequests() {
@@ -97,6 +97,57 @@ class FuelDomainTest {
         when(repository.findById(entryId)).thenReturn(Optional.of(existing));
         var error=assertThrows(ApiException.class,()->service.create(vehicleId,command("41","6","246",null)));
         assertEquals(409,error.status());
+    }
+    private FuelEntryDtos.Create location(FuelEntryDtos.Create c, BigDecimal latitude, BigDecimal longitude) {
+        return new FuelEntryDtos.Create(c.id(),c.occurredAt(),c.timezone(),c.odometerKm(),c.fuelType(),
+            c.liters(),c.unitPrice(),c.paidTotal(),c.tankState(),c.historyGapBefore(),c.adjustmentReason(),c.stationName(),c.notes(),latitude,longitude);
+    }
+    @Test void locationDefaultsAndFingerprintKeepTheOriginalSnapshot() {
+        var input=command("40","6","240",null);
+        var minimal=new FuelEntryDtos.Create(input.id(),input.occurredAt(),input.timezone(),input.odometerKm(),input.fuelType(),
+            input.liters(),input.unitPrice(),input.paidTotal(),null,null,null,null,null,BigDecimal.ZERO,BigDecimal.ZERO);
+        var saved=service.create(vehicleId,minimal);
+        assertEquals(TankState.UNKNOWN,saved.tankState()); assertFalse(saved.historyGapBefore());
+        assertEquals(BigDecimal.ZERO,saved.latitude()); assertEquals(BigDecimal.ZERO,saved.longitude());
+        assertEquals(FuelCommand.normalize(vehicleId,location(input,BigDecimal.ZERO,new BigDecimal("1.0"))).hash(),
+            FuelCommand.normalize(vehicleId,location(input,new BigDecimal("-0.000"),new BigDecimal("1.000"))).hash());
+        var existing=new FuelEntry(FuelCommand.normalize(vehicleId,input),false);
+        when(repository.findById(entryId)).thenReturn(Optional.of(existing));
+        var equivalent=location(input,new BigDecimal("-23.550520"),new BigDecimal("-46.6333080"));
+        assertTrue(service.create(vehicleId,equivalent).idempotentReplay());
+        var changed=location(input,new BigDecimal("-23.5505201"),input.longitude());
+        assertEquals(409,assertThrows(ApiException.class,()->service.create(vehicleId,changed)).status());
+        assertEquals(409,assertThrows(ApiException.class,()->service.create(vehicleId,location(input,null,null))).status());
+        assertEquals(input.latitude().stripTrailingZeros(),existing.latitude);
+    }
+    @Test void newEntryCannotOmitLocationButPreGpsFingerprintStillReplays() {
+        var input=location(command("40","6","240",null),null,null);
+        assertEquals(422,assertThrows(ApiException.class,()->service.create(vehicleId,input)).status());
+        verify(repository,never()).saveAndFlush(any());
+        var fixed=new FuelEntryDtos.Create(UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,FuelType.GASOLINE_REGULAR,"40","6","240",
+            TankState.FULL,false,null,"Posto",null,null,null);
+        var legacyCommand=FuelCommand.normalize(UUID.fromString("22222222-2222-2222-2222-222222222222"),fixed);
+        assertEquals("8f1a53b85535c16797b7950e4fa87947eec2e35738c5c5fa51d176bfcd11d46c",legacyCommand.hash());
+        var legacy=new FuelEntry(FuelCommand.normalize(vehicleId,input),false);
+        when(repository.findById(entryId)).thenReturn(Optional.of(legacy));
+        when(vehicle.archivedAt()).thenReturn(now);
+        var replay=service.create(vehicleId,input);
+        assertTrue(replay.idempotentReplay()); assertNull(replay.latitude()); assertNull(replay.longitude());
+        assertEquals(409,assertThrows(ApiException.class,()->service.create(vehicleId,command("40","6","240",null))).status());
+    }
+    @Test void locationPairRangeAndPrecisionAreValidatedWithoutRounding() {
+        var input=command("40","6","240",null);
+        for (String[] pair:List.of(new String[]{"90","180"},new String[]{"-90","-180"},new String[]{"0","0"})) {
+            assertDoesNotThrow(()->service.create(vehicleId,location(input,new BigDecimal(pair[0]),new BigDecimal(pair[1]))));
+        }
+        for (String[] pair:List.of(new String[]{"90.0000001","0"},new String[]{"-90.0000001","0"},
+                new String[]{"0","180.0000001"},new String[]{"0","-180.0000001"},new String[]{"0.00000001","0"})) {
+            assertEquals(422,assertThrows(ApiException.class,()->service.create(vehicleId,
+                location(input,new BigDecimal(pair[0]),new BigDecimal(pair[1])))).status());
+        }
+        assertEquals(422,assertThrows(ApiException.class,()->service.create(vehicleId,location(input,null,BigDecimal.ZERO))).status());
+        assertEquals(422,assertThrows(ApiException.class,()->service.create(vehicleId,location(input,BigDecimal.ZERO,null))).status());
     }
     @Test void retroactiveOdometerMustFitBothNeighbors() {
         var previous=new FuelEntry();previous.odometerKm=900;

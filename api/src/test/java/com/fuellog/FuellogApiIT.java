@@ -32,10 +32,85 @@ class FuellogApiIT {
     @LocalServerPort int port;
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
+    @Autowired javax.sql.DataSource dataSource;
     @Autowired org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
     @Autowired
     @org.springframework.beans.factory.annotation.Qualifier("requestMappingHandlerMapping")
     org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping mappings;
+
+    @Test
+    void vehicleOdometerIsOptionalPersistsAndStaysOwnerScoped() throws Exception {
+        var owner = account();
+        var stranger = account();
+        for (Long reading : new Long[]{null, 0L, 57980L, Long.MAX_VALUE}) {
+            var input = new LinkedHashMap<String, Object>();
+            input.put("nickname", "Odometer");
+            input.put("allowedFuels", List.of("GASOLINE_REGULAR"));
+            if (reading != null) input.put("currentOdometerKm", reading);
+            var created = request("POST", "/vehicles", owner.access(), input);
+            assertThat(created.status()).as("%s", created.body()).isEqualTo(201);
+            String id = created.body().path("id").asString();
+            var detail = request("GET", "/vehicles/" + id, owner.access(), null);
+            assertThat(detail.status()).isEqualTo(200);
+            assertThat(detail.body().path("currentOdometerKm")).isEqualTo(created.body().path("currentOdometerKm"));
+            assertThat(jdbc.queryForObject("select current_odometer_km from vehicles where id=?", Long.class,
+                    UUID.fromString(id))).isEqualTo(reading);
+            if (reading == null) assertThat(detail.body().path("currentOdometerKm").isNull()).isTrue();
+            else assertThat(detail.body().path("currentOdometerKm").asLong()).isEqualTo(reading);
+            var owned = request("GET", "/vehicles", owner.access(), null);
+            assertThat(owned.body().valueStream().anyMatch(v -> v.path("id").asString().equals(id)
+                    && v.path("currentOdometerKm").equals(detail.body().path("currentOdometerKm")))).isTrue();
+            if (Long.valueOf(57980L).equals(reading)) {
+                assertThat(request("POST", path(id), owner.access(),
+                        entry("2026-10-01T12:00:00Z", 10000, "40", "6", "240")).status()).isEqualTo(201);
+                assertThat(request("GET", "/vehicles/" + id, owner.access(), null)
+                        .body().path("currentOdometerKm").asLong()).isEqualTo(reading);
+                assertThat(request("GET", "/vehicles/" + id + "/summary", owner.access(), null)
+                        .body().path("validCycleCount").asInt()).isZero();
+            }
+            assertThat(request("GET", "/vehicles/" + id, stranger.access(), null).status()).isEqualTo(404);
+            assertThat(request("GET", "/vehicles", stranger.access(), null).body().isEmpty()).isTrue();
+        }
+        var explicitNull = new LinkedHashMap<String, Object>();
+        explicitNull.put("nickname", "Unknown");
+        explicitNull.put("allowedFuels", List.of("GASOLINE_REGULAR"));
+        explicitNull.put("currentOdometerKm", null);
+        var unknown = request("POST", "/vehicles", owner.access(), explicitNull);
+        assertThat(unknown.status()).isEqualTo(201);
+        assertThat(unknown.body().path("currentOdometerKm").isNull()).isTrue();
+        int count = jdbc.queryForObject("select count(*) from vehicles", Integer.class);
+        for (Object invalid : List.of(-1L, Long.MIN_VALUE, 1.5, 1.0, "12", true, new java.math.BigInteger("9223372036854775808"))) {
+            var rejected = request("POST", "/vehicles", owner.access(), Map.of("nickname", "Invalid",
+                    "allowedFuels", List.of("GASOLINE_REGULAR"), "currentOdometerKm", invalid));
+            assertThat(rejected.status()).as("%s: %s", invalid, rejected.body()).isEqualTo(
+                    invalid instanceof Long ? 422 : 400);
+            if (invalid instanceof Long) assertThat(rejected.body().path("fieldErrors").has("currentOdometerKm")).isTrue();
+        }
+        assertThat(jdbc.queryForObject("select count(*) from vehicles", Integer.class)).isEqualTo(count);
+    }
+
+    @Test
+    void vehicleOdometerMigrationPreservesUnknownLegacyReadings() throws Exception {
+        String schema = "odometer_" + UUID.randomUUID().toString().replace("-", "");
+        var dataSource = jdbc.getDataSource();
+        try {
+            org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+                    .target("1").load().migrate();
+            jdbc.update("insert into " + schema + ".users(id,name,email,password_hash) values (?, 'Legacy', ?, 'test')",
+                    UUID.fromString("00000000-0000-0000-0000-000000000001"), schema + "@example.test");
+            jdbc.update("insert into " + schema + ".vehicles(id,user_id,nickname) values (?, ?, 'Legacy vehicle')",
+                    UUID.fromString("00000000-0000-0000-0000-000000000002"),
+                    UUID.fromString("00000000-0000-0000-0000-000000000001"));
+            var flyway = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("2").load();
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+            assertThat(jdbc.queryForObject("select current_odometer_km from " + schema + ".vehicles", Long.class)).isNull();
+            assertThat(flyway.migrate().migrationsExecuted).isZero();
+            org.junit.jupiter.api.Assertions.assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+                    () -> jdbc.update("update " + schema + ".vehicles set current_odometer_km=-1"));
+        } finally {
+            jdbc.execute("drop schema if exists " + schema + " cascade");
+        }
+    }
 
     @Test
     void registrationAcceptsSixCharactersAndPreservesPasswordBoundaries() throws Exception {
@@ -124,6 +199,148 @@ class FuellogApiIT {
             }
         }));
         assertThat(documented).containsExactlyInAnyOrderElementsOf(implemented);
+    }
+
+    @Test
+    void coordinatesMigrationPreservesExistingRowsAndDatabaseRejectsInvalidPairs() throws Exception {
+        String schema="gps_upgrade_"+UUID.randomUUID().toString().replace("-","");
+        org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+            .target("1").load().migrate();
+        try (var connection=dataSource.getConnection()) {
+            String originalSchema=connection.getSchema();
+            try {
+                connection.setSchema(schema);
+                var isolated=new JdbcTemplate(new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection,true));
+                UUID user=UUID.randomUUID(), vehicle=UUID.randomUUID(), entry=UUID.randomUUID();
+                isolated.update("insert into users(id,email,name,password_hash) values (?,?,'Legacy','hash')",user,user+"@example.test");
+                isolated.update("insert into vehicles(id,user_id,nickname) values (?,?,'Legacy')",vehicle,user);
+                isolated.update("insert into vehicle_allowed_fuels(vehicle_id,fuel_type) values (?,'GASOLINE_REGULAR')",vehicle);
+                isolated.update("""
+                    insert into fuel_entries(id,vehicle_id,occurred_at,timezone,odometer_km,fuel_type,liters,unit_price,paid_total,
+                        tank_state,history_gap_before,station_name,notes,create_request_hash)
+                    values (?,?,'2026-10-12T12:00:00Z','America/Sao_Paulo',100,'GASOLINE_REGULAR',10,6,60,'FULL',true,'Posto','Legado',?)
+                    """,entry,vehicle,"a".repeat(64));
+                var before=isolated.queryForMap("select * from fuel_entries where id=?",entry);
+                org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load().migrate();
+                var after=isolated.queryForMap("select * from fuel_entries where id=?",entry);
+                assertThat(after.remove("latitude")).isNull(); assertThat(after.remove("longitude")).isNull();
+                assertThat(after).isEqualTo(before);
+                for (String assignment:List.of("latitude=0","longitude=0","latitude=91,longitude=0",
+                        "latitude=0,longitude=181","latitude='NaN',longitude=0")) {
+                    org.junit.jupiter.api.Assertions.assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+                        ()->isolated.update("update fuel_entries set "+assignment+" where id=?",entry));
+                }
+                assertThat(isolated.update("update fuel_entries set latitude=-90,longitude=180 where id=?",entry)).isEqualTo(1);
+                assertThat(isolated.queryForObject("select latitude from fuel_entries where id=?",java.math.BigDecimal.class,entry))
+                    .isEqualByComparingTo("-90");
+                assertThat(isolated.queryForObject("select count(*) from flyway_schema_history where version='3' and success",Integer.class))
+                    .isEqualTo(1);
+            } finally {
+                connection.setSchema(originalSchema);
+            }
+        }
+    }
+
+    @Test
+    void gpsIsRequiredForNewEntriesAndReturnedInDetailHistoryAndReplay() throws Exception {
+        var owner=account();
+        String vehicle=vehicle(owner.access());
+        var input=entry("2026-10-12T12:00:00Z",100,"10","6","60");
+        input.remove("tankState"); input.remove("historyGapBefore");
+        for (String nonFinite:List.of("NaN","Infinity","-Infinity")) {
+            String raw=json.writeValueAsString(input).replace("-23.55052",nonFinite);
+            var response=client.send(HttpRequest.newBuilder(URI.create(base()+"/api/v1"+path(vehicle)))
+                .header("Authorization","Bearer "+owner.access()).header("Content-Type","application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(raw)).build(),HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(400);
+        }
+        var noGps=new LinkedHashMap<>(input); noGps.remove("latitude"); noGps.remove("longitude");
+        assertThat(request("POST",path(vehicle),owner.access(),noGps).status()).isEqualTo(422);
+        noGps.put("latitude",null); noGps.put("longitude",null);
+        assertThat(request("POST",path(vehicle),owner.access(),noGps).status()).isEqualTo(422);
+        for (String field:List.of("latitude","longitude")) {
+            var incomplete=new LinkedHashMap<>(input); incomplete.remove(field);
+            assertThat(request("POST",path(vehicle),owner.access(),incomplete).status()).isEqualTo(422);
+            incomplete.put(field,null);
+            assertThat(request("POST",path(vehicle),owner.access(),incomplete).status()).isEqualTo(422);
+            for (Object invalid:List.of("Infinity","NaN","-23.5",true)) {
+                var malformed=new LinkedHashMap<>(input); malformed.put(field,invalid);
+                assertThat(request("POST",path(vehicle),owner.access(),malformed).status()).isEqualTo(400);
+            }
+        }
+        for (String[] pair:List.of(new String[]{"90.0000001","0"},new String[]{"-90.0000001","0"},
+                new String[]{"0","180.0000001"},new String[]{"0","-180.0000001"},new String[]{"0.00000001","0"})) {
+            var invalid=new LinkedHashMap<>(input);
+            invalid.put("latitude",new java.math.BigDecimal(pair[0])); invalid.put("longitude",new java.math.BigDecimal(pair[1]));
+            assertThat(request("POST",path(vehicle),owner.access(),invalid).status()).isEqualTo(422);
+        }
+        assertThat(request("GET",path(vehicle),owner.access(),null).body().path("totalElements").asInt()).isZero();
+        var saved=request("POST",path(vehicle),owner.access(),input);
+        assertThat(saved.status()).isEqualTo(201);
+        assertThat(saved.body().path("tankState").asString()).isEqualTo("UNKNOWN");
+        assertThat(saved.body().path("historyGapBefore").asBoolean()).isFalse();
+        for (var body:List.of(saved.body(),request("GET",path(vehicle)+"/"+input.get("id"),owner.access(),null).body(),
+                request("GET",path(vehicle),owner.access(),null).body().path("items").get(0))) {
+            assertThat(body.path("latitude").isNumber()).isTrue();
+            assertThat(body.path("latitude").decimalValue()).isEqualByComparingTo("-23.55052");
+            assertThat(body.path("longitude").decimalValue()).isEqualByComparingTo("-46.633308");
+        }
+        input.put("latitude",new java.math.BigDecimal("-23.5505200"));
+        assertThat(request("POST",path(vehicle),owner.access(),input).status()).isEqualTo(200);
+        input.put("latitude",new java.math.BigDecimal("-23.5505201"));
+        assertThat(request("POST",path(vehicle),owner.access(),input).status()).isEqualTo(409);
+        assertThat(request("GET",path(vehicle)+"/"+input.get("id"),owner.access(),null).body()
+            .path("latitude").decimalValue()).isEqualByComparingTo("-23.55052");
+        var summary=request("GET","/vehicles/"+vehicle+"/summary",owner.access(),null).body();
+        assertThat(summary.path("lastValidCycle").isNull()).isTrue();
+        assertThat(summary.path("periodConsumptionKmPerLiter").isNull()).isTrue();
+        assertThat(summary.path("purchaseCount").asInt()).isEqualTo(1);
+        assertThat(summary.path("paidTotal").asString()).isEqualTo("60.00");
+        for (String[] pair:List.of(new String[]{"90","180"},new String[]{"-90","-180"},new String[]{"0","0"})) {
+            input.put("id",UUID.randomUUID().toString());
+            input.put("latitude",new java.math.BigDecimal(pair[0])); input.put("longitude",new java.math.BigDecimal(pair[1]));
+            assertThat(request("POST",path(vehicle),owner.access(),input).status()).isEqualTo(201);
+        }
+    }
+
+    @Test
+    void preGpsRowsRemainReadableAndExactOriginalCommandsReplayWithoutLocation() throws Exception {
+        var owner=account();
+        String vehicle=vehicle(owner.access());
+        var input=entry("2026-10-12T12:00:00Z",100,"10","6","60");
+        input.remove("latitude"); input.remove("longitude");
+        String originalHash=legacyFingerprint(vehicle,input);
+        jdbc.update("""
+            insert into fuel_entries (id,vehicle_id,occurred_at,timezone,odometer_km,fuel_type,liters,unit_price,paid_total,
+                tank_state,history_gap_before,create_request_hash)
+            values (?, ?, '2026-10-12T12:00:00Z', 'America/Sao_Paulo', 100, 'GASOLINE_REGULAR',10,6,60,'FULL',false,?)
+            """,UUID.fromString(input.get("id").toString()),UUID.fromString(vehicle),originalHash);
+        var replay=request("POST",path(vehicle),owner.access(),input);
+        assertThat(replay.status()).isEqualTo(200);
+        assertThat(replay.body().path("idempotentReplay").asBoolean()).isTrue();
+        assertThat(replay.body().path("latitude").isNull()).isTrue();
+        assertThat(replay.body().path("longitude").isNull()).isTrue();
+        assertThat(replay.body().path("tankState").asString()).isEqualTo("FULL");
+        assertThat(request("GET",path(vehicle),owner.access(),null).body().path("items").get(0).path("latitude").isNull()).isTrue();
+        assertThat(request("GET",path(vehicle)+"/"+input.get("id"),owner.access(),null).body().path("longitude").isNull()).isTrue();
+        input.put("latitude",0); input.put("longitude",0);
+        assertThat(request("POST",path(vehicle),owner.access(),input).status()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("select create_request_hash from fuel_entries where id=?",String.class,
+            UUID.fromString(input.get("id").toString()))).isEqualTo(originalHash);
+        var stranger=account();
+        assertThat(request("POST",path(vehicle),stranger.access(),input).status()).isEqualTo(404);
+    }
+
+    private String legacyFingerprint(String vehicle, Map<String,Object> input) throws Exception {
+        var bytes=new java.io.ByteArrayOutputStream();
+        var out=new java.io.DataOutputStream(bytes);
+        Object[] values={input.get("id"),vehicle,Instant.parse(input.get("occurredAt").toString()),input.get("timezone"),
+            input.get("odometerKm"),input.get("fuelType"),"10","6","60",input.get("tankState"),false,null,null,null};
+        for (Object value:values) {
+            if (value==null) out.writeInt(-1);
+            else { byte[] data=value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8); out.writeInt(data.length); out.write(data); }
+        }
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
     }
 
     @Test
@@ -506,6 +723,8 @@ class FuellogApiIT {
         value.put("paidTotal", paid);
         value.put("tankState", "FULL");
         value.put("historyGapBefore", false);
+        value.put("latitude", new java.math.BigDecimal("-23.55052"));
+        value.put("longitude", new java.math.BigDecimal("-46.633308"));
         return value;
     }
 

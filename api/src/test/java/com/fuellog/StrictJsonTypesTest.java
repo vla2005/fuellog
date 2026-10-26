@@ -40,6 +40,14 @@ class StrictJsonTypesTest {
     }
 
     @Test
+    void vehicleOdometerRequiresAnIntegerTokenWithinLongRange() {
+        for (String value : List.of("1.5", "1.0", "\"12\"", "true", "9223372036854775808")) {
+            assertThatThrownBy(() -> mapper.readValue("{\"currentOdometerKm\":" + value + "}", VehicleDtos.Create.class))
+                    .isInstanceOf(JacksonException.class);
+        }
+    }
+
+    @Test
     void enumNamesCannotBeReplacedByTheirJavaOrdinal() {
         assertThatThrownBy(() -> mapper.readValue("{\"allowedFuels\":[0]}", VehicleDtos.Create.class))
                 .isInstanceOf(JacksonException.class);
@@ -57,6 +65,19 @@ class StrictJsonTypesTest {
             assertThatThrownBy(() -> mapper.readValue("{\"historyGapBefore\":" + value + "}", FuelEntryDtos.Create.class))
                     .isInstanceOf(JacksonException.class);
         }
+    }
+
+    @Test
+    void coordinatesRequireFiniteJsonNumbers() {
+        for (String field : List.of("latitude", "longitude")) {
+            for (String value : List.of("\"-23.5\"", "\"NaN\"", "\"Infinity\"", "NaN", "Infinity", "-Infinity", "true", "[]", "{}")) {
+                assertThatThrownBy(() -> mapper.readValue("{\"" + field + "\":" + value + "}", FuelEntryDtos.Create.class))
+                        .isInstanceOf(JacksonException.class);
+            }
+        }
+        var entry=mapper.readValue("{\"latitude\":-23.5505200,\"longitude\":0}",FuelEntryDtos.Create.class);
+        assertThat(entry.latitude()).isEqualByComparingTo("-23.55052");
+        assertThat(entry.longitude()).isEqualByComparingTo("0");
     }
 
     @Test

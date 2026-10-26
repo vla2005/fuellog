@@ -1078,7 +1078,8 @@
               }
             }
           }
-        }
+        },
+        "description": "New entries require both GPS coordinates. Omitted tankState/historyGapBefore default to UNKNOWN/false. GPS participates in the canonical command fingerprint: reuse the original UUID and GPS snapshot on retries; changed coordinates conflict (409). Exact pre-GPS retries still return the existing entry (200), without adding coordinates. Missing GPS for a new UUID is 422; malformed numeric types/non-finite JSON values are 400; range/precision or incomplete pairs are 422. Consumption uses only valid FULL-to-FULL cycles; UNKNOWN does not create a full-tank baseline."
       }
     },
     "/vehicles/{vehicleId}/fuel-entries/{entryId}": {
@@ -1465,7 +1466,7 @@
           },
           "password": {
             "type": "string",
-          "minLength": 6,
+            "minLength": 6,
             "maxLength": 128,
             "writeOnly": true
           }
@@ -1663,6 +1664,13 @@
               }
             ]
           },
+          "currentOdometerKm": {
+            "anyOf": [
+              { "type": "integer", "format": "int64", "minimum": 0, "maximum": 9223372036854775807 },
+              { "type": "null" }
+            ],
+            "description": "Optional odometer reading in whole km reported at vehicle creation; omitted/null means unknown, including existing vehicles. Returned unchanged by POST /vehicles and GET /vehicles or /vehicles/{vehicleId}. This is a registration snapshot, not a computed latest fuel-entry reading; fuel entries do not update it. It neither creates a consumption cycle nor constrains retroactive fuel entries. Negative values return 422; fractional, string, boolean and out-of-int64 inputs return 400."
+          },
           "allowedFuels": {
             "type": "array",
             "items": {
@@ -1746,6 +1754,13 @@
               }
             ]
           },
+          "currentOdometerKm": {
+            "anyOf": [
+              { "type": "integer", "format": "int64", "minimum": 0, "maximum": 9223372036854775807 },
+              { "type": "null" }
+            ],
+            "description": "Optional odometer reading in whole km reported at vehicle creation; omitted/null means unknown, including existing vehicles. Returned unchanged by POST /vehicles and GET /vehicles or /vehicles/{vehicleId}. This is a registration snapshot, not a computed latest fuel-entry reading; fuel entries do not update it. It neither creates a consumption cycle nor constrains retroactive fuel entries. Negative values return 422; fractional, string, boolean and out-of-int64 inputs return 400."
+          },
           "allowedFuels": {
             "type": "array",
             "items": {
@@ -1824,10 +1839,24 @@
             "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
           },
           "tankState": {
-            "$ref": "#/components/schemas/TankState"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TankState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "UNKNOWN",
+            "description": "Omitted or null defaults to UNKNOWN; never inferred as FULL. Legacy explicit values remain supported."
           },
           "historyGapBefore": {
-            "type": "boolean"
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": false,
+            "description": "Omitted or null defaults to false; a server-side pending history gap can still apply."
           },
           "adjustmentReason": {
             "anyOf": [
@@ -1861,6 +1890,20 @@
                 "type": "null"
               }
             ]
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "multipleOf": 1e-07,
+            "description": "WGS84 degrees as a finite JSON number, at most seven meaningful decimal places; no silent rounding. Required for new IDs. The client must retain the captured snapshot across retries."
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "multipleOf": 1e-07,
+            "description": "WGS84 degrees as a finite JSON number, at most seven meaningful decimal places; no silent rounding. Required for new IDs. The client must retain the captured snapshot across retries."
           }
         },
         "required": [
@@ -1872,9 +1915,10 @@
           "liters",
           "unitPrice",
           "paidTotal",
-          "tankState",
-          "historyGapBefore"
-        ]
+          "latitude",
+          "longitude"
+        ],
+        "description": "New UUIDs require latitude and longitude. Exact retries of pre-GPS commands may omit both only when matching their existing original fingerprint. Old clients cannot create new entries without GPS. stationName and notes remain optional for legacy compatibility."
       },
       "FuelEntry": {
         "type": "object",
@@ -1973,6 +2017,26 @@
           },
           "idempotentReplay": {
             "type": "boolean"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -90,
+            "maximum": 90,
+            "multipleOf": 1e-07,
+            "description": "WGS84 degrees; null only for records created before GPS support. Both coordinates are null together."
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -180,
+            "maximum": 180,
+            "multipleOf": 1e-07,
+            "description": "WGS84 degrees; null only for records created before GPS support. Both coordinates are null together."
           }
         },
         "required": [
@@ -1993,7 +2057,9 @@
           "referenceTotal",
           "adjustmentAmount",
           "version",
-          "idempotentReplay"
+          "idempotentReplay",
+          "latitude",
+          "longitude"
         ]
       },
       "FuelEntryPage": {

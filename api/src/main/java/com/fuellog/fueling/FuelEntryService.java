@@ -31,6 +31,7 @@ public class FuelEntryService {
                 throw new ApiException(409,"IDEMPOTENCY_CONFLICT","UUID j\u00e1 utilizado com outro comando.");
             return entry.view(true);
         }
+        command.requireLocation();
         if (vehicle.archivedAt() != null) throw new ApiException(409,"VEHICLE_ARCHIVED","Ve\u00edculo arquivado.");
         if (!vehicle.allowedFuels().contains(command.fuelType())) throw DomainValues.invalid("fuelType","Combust\u00edvel n\u00e3o permitido pelo ve\u00edculo.");
         if (command.occurredAt().isAfter(clock.instant().plusSeconds(300))) throw DomainValues.invalid("occurredAt","Data excede toler\u00e2ncia futura de cinco minutos.");
