@@ -84,6 +84,23 @@ export interface Vehicle {
   currentOdometerKm?: number | null;
 }
 
+export interface UpdateFuelEntryRequest {
+  occurredAt: string;
+  timezone: string;
+  odometerKm: number;
+  fuelType: FuelType;
+  liters: string;
+  unitPrice: string;
+  paidTotal: string;
+  tankState?: TankState | null;
+  historyGapBefore?: boolean | null;
+  adjustmentReason?: string | null;
+  stationName?: string | null;
+  notes?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
 export interface CreateFuelEntryRequest {
   id: string;
   occurredAt: string;

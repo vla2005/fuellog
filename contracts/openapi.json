@@ -1163,9 +1163,11 @@
             },
             "headers": {
               "ETag": {
-                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "description": "Strong quoted numeric entity version. Supply this ETag as If-Match when editing.",
                 "schema": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^\"(?:0|[1-9][0-9]*)\"$",
+                  "example": "\"0\""
                 }
               }
             }
@@ -1181,9 +1183,11 @@
             },
             "headers": {
               "ETag": {
-                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "description": "Strong quoted numeric entity version. Supply this ETag as If-Match when editing.",
                 "schema": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^\"(?:0|[1-9][0-9]*)\"$",
+                  "example": "\"0\""
                 }
               }
             }
@@ -1297,9 +1301,11 @@
             },
             "headers": {
               "ETag": {
-                "description": "Quoted entity version. Future mutations will require If-Match.",
+                "description": "Strong quoted numeric entity version. Supply this ETag as If-Match when editing.",
                 "schema": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^\"(?:0|[1-9][0-9]*)\"$",
+                  "example": "\"0\""
                 }
               }
             }
@@ -1346,6 +1352,125 @@
           },
           "422": {
             "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update an owned fuel entry in place",
+        "description": "Preserves entry UUID, vehicle, owner and original creation fingerprint. Requires one strong numeric If-Match ETag from GET. Each accepted PUT advances the version, including unchanged values. Retrying with the old ETag returns 412: refetch and resolve before retrying. Original POST retries return the current edited entry without overwriting it or creating another entry. Archived vehicles may have their historical entries corrected. New fuel selections must be allowed by the vehicle; the entry current historical fuel may remain unchanged. Odometer chronology excludes this entry and validates its new date and ties. Does not modify other entries or consume a pending vehicle history gap.",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "Exactly one strong numeric ETag from GET; weak tags, lists, wildcards, signs and values outside int64 are invalid.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\"(?:0|[1-9][0-9]*)\"$",
+              "example": "\"0\""
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFuelEntry"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated entry with a new version and ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuelEntry"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Strong quoted numeric entity version. Supply this ETag as If-Match when editing.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"(?:0|[1-9][0-9]*)\"$",
+                  "example": "\"0\""
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format or INVALID_IF_MATCH; no update.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent, not owned, or entry does not belong to this vehicle; no ownership disclosure.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "PRECONDITION_FAILED: stale version or concurrent edit; no overwrite. Refetch and resolve.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "PRECONDITION_REQUIRED: missing If-Match.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed; no update.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1846,8 +1971,15 @@
           },
           "currentOdometerKm": {
             "anyOf": [
-              { "type": "integer", "format": "int64", "minimum": 0, "maximum": 9223372036854775807 },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "Optional odometer reading in whole km reported at vehicle creation; omitted/null means unknown, including existing vehicles. Returned unchanged by POST /vehicles and GET /vehicles or /vehicles/{vehicleId}. This is a registration snapshot, not a computed latest fuel-entry reading; fuel entries do not update it. It neither creates a consumption cycle nor constrains retroactive fuel entries. Negative values return 422; fractional, string, boolean and out-of-int64 inputs return 400."
           },
@@ -1862,57 +1994,6 @@
         },
         "required": [
           "nickname",
-          "allowedFuels"
-        ]
-      },
-      "UpdateVehicle": {
-        "type": "object",
-        "description": "Only these four fields are editable. model also sets nickname; legacy fields are not part of this command.",
-        "properties": {
-          "model": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 60,
-            "description": "Required nonblank model after Unicode whitespace trimming."
-          },
-          "allowedFuels": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FuelType"
-            },
-            "minItems": 1,
-            "uniqueItems": true,
-            "description": "Required nonempty selection; null members are invalid. Changes apply to new fuel entries only."
-          },
-          "currentOdometerKm": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional safe JSON integer in whole km; omitted/null clears the snapshot. Negative/unsafe integers return 422; fractional, string, boolean or out-of-int64 JSON values return 400. Independent of historical fuel readings."
-          },
-          "tankCapacityLiters": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional positive decimal string with a dot, greater than 0 and less than 100000, at most three decimal places (NUMERIC(8,3)); no rounding. Omitted/null clears capacity. Invalid values return 422; JSON numbers/booleans return 400."
-          }
-        },
-        "required": [
-          "model",
           "allowedFuels"
         ]
       },
@@ -1987,8 +2068,15 @@
           },
           "currentOdometerKm": {
             "anyOf": [
-              { "type": "integer", "format": "int64", "minimum": 0, "maximum": 9223372036854775807 },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "Optional odometer snapshot reported at creation or replaced by PUT /vehicles/{vehicleId}; omitted/null on PUT clears it. GET and list return the persisted reading. Fuel entries do not update it; it neither creates consumption cycles nor constrains retroactive entries. Legacy creation accepts int64; edits accept safe integers 0..9007199254740991."
           },
@@ -2669,6 +2757,177 @@
           "lastValidCycle",
           "lastConsumptionUnavailableReason"
         ]
+      },
+      "UpdateVehicle": {
+        "type": "object",
+        "description": "Only these four fields are editable. model also sets nickname; legacy fields are not part of this command.",
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "Required nonblank model after Unicode whitespace trimming."
+          },
+          "allowedFuels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FuelType"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Required nonempty selection; null members are invalid. Changes apply to new fuel entries only."
+          },
+          "currentOdometerKm": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional safe JSON integer in whole km; omitted/null clears the snapshot. Negative/unsafe integers return 422; fractional, string, boolean or out-of-int64 JSON values return 400. Independent of historical fuel readings."
+          },
+          "tankCapacityLiters": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional positive decimal string with a dot, greater than 0 and less than 100000, at most three decimal places (NUMERIC(8,3)); no rounding. Omitted/null clears capacity. Invalid values return 422; JSON numbers/booleans return 400."
+          }
+        },
+        "required": [
+          "model",
+          "allowedFuels"
+        ]
+      },
+      "UpdateFuelEntry": {
+        "type": "object",
+        "properties": {
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, for example America/Sao_Paulo.",
+            "maxLength": 64
+          },
+          "odometerKm": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fuelType": {
+            "$ref": "#/components/schemas/FuelType"
+          },
+          "liters": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "tankState": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TankState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "UNKNOWN",
+            "description": "Omitted or null defaults to UNKNOWN; never inferred as FULL. Legacy explicit values remain supported."
+          },
+          "historyGapBefore": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": false,
+            "description": "Omitted or null defaults to false. Editing does not consume a pending vehicle history gap or rewrite other records."
+          },
+          "adjustmentReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stationName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -90,
+            "maximum": 90,
+            "multipleOf": 1e-07,
+            "description": "Omitted or null pair preserves stored historical coordinates. Supply both non-null numbers to replace; WGS84, at most seven meaningful decimals, no rounding."
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -180,
+            "maximum": 180,
+            "multipleOf": 1e-07,
+            "description": "Omitted or null pair preserves stored historical coordinates. Supply both non-null numbers to replace; WGS84, at most seven meaningful decimals, no rounding."
+          }
+        },
+        "required": [
+          "occurredAt",
+          "timezone",
+          "odometerKm",
+          "fuelType",
+          "liters",
+          "unitPrice",
+          "paidTotal"
+        ],
+        "description": "Editable purchase fields without a client UUID. Same creation validation and 3/4/2 decimal scales apply. Omitted or null tankState defaults to UNKNOWN and historyGapBefore to false; optional text may be cleared. Omitted or null coordinate pair preserves the historical snapshot, including null for pre-GPS entries; a supplied non-null pair replaces it after the same range and precision validation. Never requires recapturing current location."
       }
     }
   }

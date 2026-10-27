@@ -17,6 +17,7 @@ import {
   TokenResponse,
   UnavailableReason,
   UpdateVehicleRequest,
+  UpdateFuelEntryRequest,
   Vehicle,
 } from './types';
 
@@ -154,6 +155,28 @@ export async function getFuelEntry(vehicleId: string, entryId: string): Promise<
   return apiRequest<FuelEntry>({
     method: 'GET',
     path: `/vehicles/${encodeURIComponent(vehicleId)}/fuel-entries/${encodeURIComponent(entryId)}`,
+  });
+}
+
+export async function updateFuelEntry(
+  vehicleId: string,
+  entryId: string,
+  versionOrETag: number | string,
+  payload: UpdateFuelEntryRequest,
+): Promise<FuelEntry> {
+  const etag =
+    typeof versionOrETag === 'number'
+      ? `"${versionOrETag}"`
+      : versionOrETag.startsWith('"')
+        ? versionOrETag
+        : `"${versionOrETag}"`;
+  return apiRequest<FuelEntry>({
+    method: 'PUT',
+    path: `/vehicles/${encodeURIComponent(vehicleId)}/fuel-entries/${encodeURIComponent(entryId)}`,
+    headers: {
+      'If-Match': etag,
+    },
+    body: payload,
   });
 }
 

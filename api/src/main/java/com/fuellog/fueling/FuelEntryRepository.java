@@ -10,4 +10,7 @@ interface FuelEntryRepository extends JpaRepository<FuelEntry,UUID>, JpaSpecific
     Optional<FuelEntry> findFirstByVehicleIdAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(UUID vehicleId, Instant at);
     Optional<FuelEntry> findFirstByVehicleIdAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(UUID vehicleId, Instant at);
     List<FuelEntry> findByVehicleIdAndOccurredAt(UUID vehicleId, Instant at);
+    Optional<FuelEntry> findFirstByVehicleIdAndIdNotAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(UUID vehicleId, UUID excludedId, Instant at);
+    Optional<FuelEntry> findFirstByVehicleIdAndIdNotAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(UUID vehicleId, UUID excludedId, Instant at);
+    List<FuelEntry> findByVehicleIdAndIdNotAndOccurredAt(UUID vehicleId, UUID excludedId, Instant at);
 }

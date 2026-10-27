@@ -12,6 +12,11 @@ record FuelCommand(UUID id, UUID vehicleId, Instant occurredAt, String timezone,
     FuelType fuelType, BigDecimal liters, BigDecimal unitPrice, BigDecimal paidTotal, TankState tankState,
     boolean historyGapBefore, String adjustmentReason, String stationName, String notes,
     BigDecimal latitude, BigDecimal longitude) {
+    static FuelCommand normalize(UUID vehicleId, UUID entryId, FuelEntryDtos.Update input) {
+        return normalize(vehicleId,new FuelEntryDtos.Create(entryId,input.occurredAt(),input.timezone(),input.odometerKm(),
+            input.fuelType(),input.liters(),input.unitPrice(),input.paidTotal(),input.tankState(),input.historyGapBefore(),
+            input.adjustmentReason(),input.stationName(),input.notes(),input.latitude(),input.longitude()));
+    }
     static FuelCommand normalize(UUID vehicleId, FuelEntryDtos.Create input) {
         if (input.id() == null) throw DomainValues.invalid("id","UUID do cliente obrigat\u00f3rio.");
         if (input.occurredAt() == null) throw DomainValues.invalid("occurredAt","Data com offset obrigat\u00f3ria.");

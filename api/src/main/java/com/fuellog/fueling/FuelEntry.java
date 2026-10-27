@@ -36,6 +36,14 @@ class FuelEntry {
         historyGapBefore=c.historyGapBefore() || pendingGap; adjustmentReason=c.adjustmentReason(); stationName=c.stationName();
         notes=c.notes(); latitude=c.latitude(); longitude=c.longitude(); createRequestHash=c.hash();
     }
+    void update(FuelCommand c) {
+        occurredAt=c.occurredAt(); timezone=c.timezone(); odometerKm=c.odometerKm(); fuelType=c.fuelType();
+        liters=c.liters(); unitPrice=c.unitPrice(); paidTotal=c.paidTotal(); tankState=c.tankState();
+        historyGapBefore=c.historyGapBefore(); adjustmentReason=c.adjustmentReason(); stationName=c.stationName(); notes=c.notes();
+        if (c.latitude() != null) { latitude=c.latitude(); longitude=c.longitude(); }
+        // Accepted PUTs advance the version even when the submitted values are unchanged.
+        updatedAt=Instant.now();
+    }
     @PrePersist void createTime() { createdAt=updatedAt=Instant.now(); }
     @PreUpdate void updateTime() { updatedAt=Instant.now(); }
     FuelEntryDtos.View view(boolean replay) {

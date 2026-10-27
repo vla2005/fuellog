@@ -39,6 +39,7 @@ class OpenApiContractTest {
                 Map.entry("CreateVehicle", "vehicles.VehicleDtos$Create"),
                 Map.entry("Vehicle", "vehicles.VehicleDtos$View"),
                 Map.entry("CreateFuelEntry", "fueling.FuelEntryDtos$Create"),
+                Map.entry("UpdateFuelEntry", "fueling.FuelEntryDtos$Update"),
                 Map.entry("FuelEntry", "fueling.FuelEntryDtos$View"),
                 Map.entry("FuelEntryPage", "fueling.FuelEntryDtos$Page"),
                 Map.entry("Cycle", "metrics.MetricsDtos$Cycle"),
@@ -52,5 +53,24 @@ class OpenApiContractTest {
                     .map(java.lang.reflect.RecordComponent::getName).toList();
             assertThat(documented).as(entry.getKey()).containsExactlyInAnyOrderElementsOf(actual);
         }
+    }
+
+    @Test
+    void fuelEntryUpdateRequiresStrongVersionAndKeepsDecimalPrecision() throws Exception {
+        var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
+        var put = spec.path("paths").path("/vehicles/{vehicleId}/fuel-entries/{entryId}").path("put");
+        var header = put.path("parameters").get(0);
+        assertThat(header.path("name").asString()).isEqualTo("If-Match");
+        assertThat(header.path("required").asBoolean()).isTrue();
+        assertThat(put.path("responses").has("428")).isTrue();
+        assertThat(put.path("responses").has("412")).isTrue();
+        assertThat(put.path("responses").path("200").path("headers").has("ETag")).isTrue();
+        var update = spec.path("components").path("schemas").path("UpdateFuelEntry");
+        var create = spec.path("components").path("schemas").path("CreateFuelEntry");
+        assertThat(update.path("properties").has("id")).isFalse();
+        for (String field : Set.of("liters", "unitPrice", "paidTotal"))
+            assertThat(update.path("properties").path(field)).isEqualTo(create.path("properties").path(field));
+        assertThat(update.path("required").valueStream().map(v -> v.asString()).toList())
+                .doesNotContain("id", "latitude", "longitude");
     }
 }

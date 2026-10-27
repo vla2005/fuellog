@@ -4,6 +4,7 @@ import com.fuellog.vehicles.*;
 import com.fuellog.platform.ApiException;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import java.sql.SQLException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.*;
@@ -37,13 +38,7 @@ public class FuelEntryService {
         if (command.occurredAt().isAfter(clock.instant().plusSeconds(300))) throw DomainValues.invalid("occurredAt","Data excede toler\u00e2ncia futura de cinco minutos.");
         var previous=entries.findFirstByVehicleIdAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(vehicleId,command.occurredAt());
         var next=entries.findFirstByVehicleIdAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(vehicleId,command.occurredAt());
-        if (previous.isPresent() && previous.get().odometerKm > command.odometerKm() || next.isPresent() && next.get().odometerKm < command.odometerKm())
-            throw DomainValues.invalid("odometerKm","Hod\u00f4metro deve ficar entre os vizinhos cronol\u00f3gicos.");
-        for (FuelEntry same:entries.findByVehicleIdAndOccurredAt(vehicleId,command.occurredAt())) {
-            if (same.odometerKm != command.odometerKm() || same.tankState == TankState.FULL || command.tankState() == TankState.FULL
-                || same.historyGapBefore || command.historyGapBefore())
-                throw DomainValues.invalid("occurredAt","Ordem amb\u00edgua no mesmo instante; corrija a hora.");
-        }
+        validateHistory(command,previous,next,entries.findByVehicleIdAndOccurredAt(vehicleId,command.occurredAt()));
         boolean pendingGap=vehicle.pendingHistoryGapAfter() != null && !command.occurredAt().isBefore(vehicle.pendingHistoryGapAfter());
         if (pendingGap) vehicle.consumePendingGap();
         try {
@@ -55,6 +50,43 @@ public class FuelEntryService {
                     throw new ApiException(409,"IDEMPOTENCY_CONFLICT","UUID j\u00e1 utilizado com outro comando.");
             }
             throw error;
+        }
+    }
+    @Transactional
+    public FuelEntryDtos.View update(UUID vehicleId, UUID entryId, String ifMatch, FuelEntryDtos.Update input) {
+        Vehicle vehicle=vehicles.lockOwned(vehicleId);
+        FuelEntry entry=entries.findByIdAndVehicleId(entryId,vehicleId).orElseThrow(VehicleService::notFound);
+        long expected=expectedVersion(ifMatch);
+        if (!Objects.equals(entry.version,expected)) throw staleVersion();
+        FuelCommand command=FuelCommand.normalize(vehicleId,entryId,input);
+        if (command.fuelType() != entry.fuelType && !vehicle.allowedFuels().contains(command.fuelType()))
+            throw DomainValues.invalid("fuelType","Combust\u00edvel n\u00e3o permitido pelo ve\u00edculo.");
+        if (command.occurredAt().isAfter(clock.instant().plusSeconds(300)))
+            throw DomainValues.invalid("occurredAt","Data excede toler\u00e2ncia futura de cinco minutos.");
+        var previous=entries.findFirstByVehicleIdAndIdNotAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(vehicleId,entryId,command.occurredAt());
+        var next=entries.findFirstByVehicleIdAndIdNotAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(vehicleId,entryId,command.occurredAt());
+        validateHistory(command,previous,next,entries.findByVehicleIdAndIdNotAndOccurredAt(vehicleId,entryId,command.occurredAt()));
+        entry.update(command);
+        try { return entries.saveAndFlush(entry).view(false); }
+        catch (ObjectOptimisticLockingFailureException error) { throw staleVersion(); }
+    }
+    private static long expectedVersion(String ifMatch) {
+        if (ifMatch == null) throw new ApiException(428,"PRECONDITION_REQUIRED","Informe If-Match com o ETag do abastecimento.");
+        if (!ifMatch.matches("\"(?:0|[1-9][0-9]*)\""))
+            throw new ApiException(400,"INVALID_IF_MATCH","If-Match deve conter um ETag forte num\u00e9rico.");
+        try { return Long.parseLong(ifMatch.substring(1,ifMatch.length()-1)); }
+        catch (NumberFormatException error) { throw new ApiException(400,"INVALID_IF_MATCH","Vers\u00e3o fora do intervalo suportado."); }
+    }
+    private static ApiException staleVersion() {
+        return new ApiException(412,"PRECONDITION_FAILED","Abastecimento alterado; consulte novamente antes de editar.");
+    }
+    private static void validateHistory(FuelCommand command, Optional<FuelEntry> previous, Optional<FuelEntry> next, List<FuelEntry> ties) {
+        if (previous.isPresent() && previous.get().odometerKm > command.odometerKm() || next.isPresent() && next.get().odometerKm < command.odometerKm())
+            throw DomainValues.invalid("odometerKm","Hod\u00f4metro deve ficar entre os vizinhos cronol\u00f3gicos.");
+        for (FuelEntry same:ties) {
+            if (same.odometerKm != command.odometerKm() || same.tankState == TankState.FULL || command.tankState() == TankState.FULL
+                || same.historyGapBefore || command.historyGapBefore())
+                throw DomainValues.invalid("occurredAt","Ordem amb\u00edgua no mesmo instante; corrija a hora.");
         }
     }
     @Transactional(readOnly=true)

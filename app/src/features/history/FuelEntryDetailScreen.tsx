@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -24,6 +24,7 @@ import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { ChevronLeftIcon, PencilIcon } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { LocationMap } from '@/components/location/LocationMap';
+import { EditFuelEntryScreen } from '@/features/fueling/EditFuelEntryScreen';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { IconButton } from '@/components/ui/IconButton';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -47,7 +48,10 @@ export function FuelEntryDetailScreen({
   entryIdOverride?: string;
 } = {}) {
   const router = useRouter();
-  const { entryId } = useLocalSearchParams<{ entryId: string }>();
+  const { entryId, edit } = useLocalSearchParams<{ entryId: string; edit?: string }>();
+  const pathname = usePathname();
+  const isEditFromUrl = edit === 'true' || edit === '1' || (typeof pathname === 'string' && pathname.endsWith('/edit'));
+  const [isEditing, setIsEditing] = useState(isEditFromUrl);
   const resolvedEntryId =
     entryIdOverride !== undefined ? entryIdOverride : entryId;
   const { colors, isDark } = useAppTheme();
@@ -171,13 +175,31 @@ export function FuelEntryDetailScreen({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Opções do abastecimento"
-        onPress={() => setMenuOpen(true)}
+        onPress={() => setIsEditing(true)}
         style={styles.menuDotsBtn}
       >
         <Text style={[styles.menuDotsText, { color: colors.brandPrimary }]}>•••</Text>
       </Pressable>
     </View>
   );
+
+  if (isEditing && resolvedEntryId) {
+    return (
+      <EditFuelEntryScreen
+        entryId={resolvedEntryId}
+        initialEntry={entry}
+        embeddedInShell={embeddedInShell}
+        onSaved={(updated) => {
+          setEntry(updated);
+          setIsEditing(false);
+          void loadDetail();
+        }}
+        onCancel={() => {
+          setIsEditing(false);
+        }}
+      />
+    );
+  }
 
   return (
     <ScreenShell
@@ -336,7 +358,7 @@ export function FuelEntryDetailScreen({
           <PrimaryButton
             label="Editar abastecimento"
             leftIcon={<PencilIcon size={18} color="#FFFFFF" />}
-            onPress={() => setLimitationNotice('A versão atual da API do FuelLog suporta apenas visualização e criação. Edição e exclusão serão disponibilizadas em versão futura.')}
+            onPress={() => setIsEditing(true)}
             stepped
             style={{ marginTop: 12, marginBottom: 24 }}
           />

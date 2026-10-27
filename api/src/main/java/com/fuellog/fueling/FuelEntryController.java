@@ -21,6 +21,11 @@ public class FuelEntryController {
     @GetMapping("/{entryId}") public ResponseEntity<FuelEntryDtos.View> get(@PathVariable UUID vehicleId, @PathVariable UUID entryId) {
         var view=entries.get(vehicleId,entryId); return ResponseEntity.ok().eTag("\""+view.version()+"\"").body(view);
     }
+    @PutMapping("/{entryId}") public ResponseEntity<FuelEntryDtos.View> update(@PathVariable UUID vehicleId, @PathVariable UUID entryId,
+        @RequestHeader(value="If-Match",required=false) String ifMatch, @RequestBody FuelEntryDtos.Update command) {
+        var view=entries.update(vehicleId,entryId,ifMatch,command);
+        return ResponseEntity.ok().eTag("\""+view.version()+"\"").body(view);
+    }
     @GetMapping public FuelEntryDtos.Page list(@PathVariable UUID vehicleId,
         @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to,
         @RequestParam(defaultValue="America/Sao_Paulo") String timezone,
