@@ -63,6 +63,13 @@ export interface CreateVehicleRequest {
   currentOdometerKm?: number | null;
 }
 
+export interface UpdateVehicleRequest {
+  model: string;
+  allowedFuels: FuelType[];
+  currentOdometerKm?: number | null;
+  tankCapacityLiters?: string | null;
+}
+
 export interface Vehicle {
   id: string;
   nickname: string;

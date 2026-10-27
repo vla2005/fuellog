@@ -19,4 +19,9 @@ public class VehicleController {
         var view=vehicles.create(command);
         return ResponseEntity.created(URI.create("/api/v1/vehicles/"+view.id())).eTag("\""+view.version()+"\"").body(view);
     }
+    @PutMapping("/vehicles/{vehicleId}") public ResponseEntity<VehicleDtos.View> update(@PathVariable UUID vehicleId,
+        @RequestHeader(name="If-Match",required=false) String ifMatch, @RequestBody VehicleDtos.Update command) {
+        var view=vehicles.update(vehicleId,ifMatch,command);
+        return ResponseEntity.ok().eTag("\""+view.version()+"\"").body(view);
+    }
 }

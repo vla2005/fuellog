@@ -2,6 +2,7 @@ package com.fuellog.vehicles;
 
 import com.fuellog.fueling.DomainValues;
 import com.fuellog.fueling.StrictDecimalString;
+import com.fuellog.fueling.StrictOdometer;
 import tools.jackson.databind.annotation.JsonDeserialize;
 import java.time.Instant;
 import java.util.Set;
@@ -19,6 +20,19 @@ public final class VehicleDtos {
             return new Create(DomainValues.text(nickname,"nickname",60,true),DomainValues.text(brand,"brand",80,false),
                 DomainValues.text(model,"model",80,false),modelYear,DomainValues.text(plate,"plate",16,false),
                 capacity == null ? null : capacity.toPlainString(),Set.copyOf(allowedFuels),currentOdometerKm);
+        }
+    }
+    public record Update(String model, Set<FuelType> allowedFuels,
+        @JsonDeserialize(using=StrictOdometer.class) Long currentOdometerKm,
+        @JsonDeserialize(using=StrictDecimalString.class) String tankCapacityLiters) {
+        Update normalized() {
+            if (currentOdometerKm != null && (currentOdometerKm < 0 || currentOdometerKm > 9007199254740991L))
+                throw DomainValues.invalid("currentOdometerKm", "Informe inteiro entre 0 e 9007199254740991.");
+            if (allowedFuels == null || allowedFuels.isEmpty() || allowedFuels.stream().anyMatch(java.util.Objects::isNull))
+                throw DomainValues.invalid("allowedFuels", "Selecione combust\u00edveis v\u00e1lidos.");
+            var capacity=DomainValues.decimal(tankCapacityLiters,"tankCapacityLiters",8,3,false);
+            return new Update(DomainValues.text(model,"model",60,true),Set.copyOf(allowedFuels),currentOdometerKm,
+                capacity == null ? null : capacity.toPlainString());
         }
     }
     public record View(UUID id, String nickname, String brand, String model, Integer modelYear, String plate,

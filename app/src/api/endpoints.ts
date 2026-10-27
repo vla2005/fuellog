@@ -16,6 +16,7 @@ import {
   TankState,
   TokenResponse,
   UnavailableReason,
+  UpdateVehicleRequest,
   Vehicle,
 } from './types';
 
@@ -93,6 +94,21 @@ export async function getVehicle(vehicleId: string): Promise<Vehicle> {
   return apiRequest<Vehicle>({
     method: 'GET',
     path: `/vehicles/${encodeURIComponent(vehicleId)}`,
+  });
+}
+
+export async function updateVehicle(
+  vehicleId: string,
+  version: number,
+  payload: UpdateVehicleRequest,
+): Promise<Vehicle> {
+  return apiRequest<Vehicle>({
+    method: 'PUT',
+    path: `/vehicles/${encodeURIComponent(vehicleId)}`,
+    headers: {
+      'If-Match': `"${version}"`,
+    },
+    body: payload,
   });
 }
 

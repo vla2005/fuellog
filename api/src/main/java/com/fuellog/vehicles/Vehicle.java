@@ -44,6 +44,14 @@ public class Vehicle {
     public Set<FuelType> allowedFuels() { return Collections.unmodifiableSet(allowedFuels); }
     public Instant pendingHistoryGapAfter() { return pendingHistoryGapAfter; }
     public void consumePendingGap() { pendingHistoryGapAfter=null; }
+    void update(VehicleDtos.Update command) {
+        model=nickname=command.model();
+        allowedFuels.clear(); allowedFuels.addAll(command.allowedFuels());
+        currentOdometerKm=command.currentOdometerKm();
+        tankCapacityLiters=command.tankCapacityLiters() == null ? null : new BigDecimal(command.tankCapacityLiters());
+        // Every accepted edit consumes its precondition, including an unchanged form.
+        updatedAt=Instant.now();
+    }
     VehicleDtos.View view() {
         return new VehicleDtos.View(id,nickname,brand,model,modelYear == null ? null : modelYear.intValue(),plate,
             tankCapacityLiters == null ? null : tankCapacityLiters.toPlainString(),Set.copyOf(allowedFuels),archivedAt,version,currentOdometerKm);

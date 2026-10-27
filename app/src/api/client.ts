@@ -209,6 +209,7 @@ export interface ApiRequestOptions {
   path: string;
   query?: Record<string, string | number | boolean | undefined | null>;
   body?: unknown;
+  headers?: Record<string, string>;
   authenticated?: boolean;
   retryOn401?: boolean;
 }
@@ -219,6 +220,7 @@ export async function apiRequest<T = void>(options: ApiRequestOptions): Promise<
     path,
     query,
     body,
+    headers: extraHeaders,
     authenticated = true,
     retryOn401 = true,
   } = options;
@@ -253,6 +255,19 @@ export async function apiRequest<T = void>(options: ApiRequestOptions): Promise<
     };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
+    }
+    if (extraHeaders) {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        const lower = key.toLowerCase();
+        if (
+          lower === 'authorization' ||
+          lower === 'accept' ||
+          lower === 'content-type'
+        ) {
+          continue;
+        }
+        headers[key] = value;
+      }
     }
     if (authenticated && tokenToUse) {
       headers.Authorization = `Bearer ${tokenToUse}`;

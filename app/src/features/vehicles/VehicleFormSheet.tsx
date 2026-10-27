@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -7,8 +7,14 @@ import {
   View,
 } from 'react-native';
 
-import { FUEL_TYPE_LABELS } from '@/api/endpoints';
-import { ApiError, CreateVehicleRequest, FuelType, Vehicle } from '@/api/types';
+import { FUEL_TYPE_LABELS, getVehicle } from '@/api/endpoints';
+import {
+  ApiError,
+  CreateVehicleRequest,
+  FuelType,
+  UpdateVehicleRequest,
+  Vehicle,
+} from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { CheckIcon, SaveIcon } from '@/components/icons/AppIcons';
 import { AppSheet } from '@/components/overlays/AppSheet';
@@ -22,16 +28,29 @@ import { parsePositiveDecimalInput } from '@/utils/decimal';
 export interface VehicleFormSheetProps {
   visible: boolean;
   onClose: () => void;
+  mode?: 'create' | 'edit';
+  vehicle?: Vehicle | null;
   onCreated?: (vehicle: Vehicle) => void;
+  onUpdated?: (vehicle: Vehicle) => void;
 }
 
 export function VehicleFormSheet({
   visible,
   onClose,
+  mode = 'create',
+  vehicle = null,
   onCreated,
+  onUpdated,
 }: VehicleFormSheetProps) {
+  const isEdit = mode === 'edit';
   const { colors } = useAppTheme();
-  const { availableFuelTypes, createNewVehicle, showToast } = useSession();
+  const {
+    availableFuelTypes,
+    createNewVehicle,
+    updateExistingVehicle,
+    refreshVehicles,
+    showToast,
+  } = useSession();
 
   const [model, setModel] = useState('');
   const [selectedFuels, setSelectedFuels] = useState<FuelType[]>([
@@ -40,9 +59,53 @@ export function VehicleFormSheet({
   ]);
   const [currentOdometerKm, setCurrentOdometerKm] = useState('');
   const [tankCapacity, setTankCapacity] = useState('');
+  const [formVersion, setFormVersion] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
+  const [reloadingConflict, setReloadingConflict] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [conflictDetected, setConflictDetected] = useState(false);
+
+  const prevVisibleRef = useRef(false);
+
+  const resetForm = () => {
+    setModel('');
+    setSelectedFuels(['GASOLINE_REGULAR', 'ETHANOL']);
+    setCurrentOdometerKm('');
+    setTankCapacity('');
+    setFormVersion(0);
+    setErrorMessage(null);
+    setFieldErrors({});
+    setConflictDetected(false);
+  };
+
+  useEffect(() => {
+    const wasVisible = prevVisibleRef.current;
+    prevVisibleRef.current = visible;
+
+    if (!wasVisible && visible) {
+      if (isEdit && vehicle) {
+        setModel(vehicle.model ?? vehicle.nickname ?? '');
+        setSelectedFuels(
+          vehicle.allowedFuels && vehicle.allowedFuels.length > 0
+            ? [...vehicle.allowedFuels]
+            : ['GASOLINE_REGULAR', 'ETHANOL'],
+        );
+        setCurrentOdometerKm(
+          vehicle.currentOdometerKm != null ? String(vehicle.currentOdometerKm) : '',
+        );
+        setTankCapacity(
+          vehicle.tankCapacityLiters != null ? vehicle.tankCapacityLiters.replace('.', ',') : '',
+        );
+        setFormVersion(vehicle.version);
+        setErrorMessage(null);
+        setFieldErrors({});
+        setConflictDetected(false);
+      } else if (!isEdit) {
+        resetForm();
+      }
+    }
+  }, [visible, isEdit, vehicle]);
 
   const toggleFuel = (fuel: FuelType) => {
     setSelectedFuels((prev) =>
@@ -50,16 +113,45 @@ export function VehicleFormSheet({
     );
   };
 
-  const resetForm = () => {
-    setModel('');
-    setSelectedFuels(['GASOLINE_REGULAR', 'ETHANOL']);
-    setCurrentOdometerKm('');
-    setTankCapacity('');
-    setErrorMessage(null);
-    setFieldErrors({});
+  const handleReloadLatest = async () => {
+    if (!vehicle?.id) return;
+    setReloadingConflict(true);
+    try {
+      const fresh = await getVehicle(vehicle.id);
+      setFormVersion(fresh.version);
+      setModel(fresh.model ?? fresh.nickname ?? '');
+      setSelectedFuels(
+        fresh.allowedFuels && fresh.allowedFuels.length > 0
+          ? [...fresh.allowedFuels]
+          : ['GASOLINE_REGULAR', 'ETHANOL'],
+      );
+      setCurrentOdometerKm(
+        fresh.currentOdometerKm != null ? String(fresh.currentOdometerKm) : '',
+      );
+      setTankCapacity(
+        fresh.tankCapacityLiters != null ? fresh.tankCapacityLiters.replace('.', ',') : '',
+      );
+      setConflictDetected(false);
+      setErrorMessage(null);
+      setFieldErrors({});
+      await refreshVehicles();
+      showToast({
+        tone: 'info',
+        title: 'Versão atualizada',
+        subtitle: 'Dados mais recentes carregados.',
+      });
+    } catch {
+      showToast({
+        tone: 'danger',
+        title: 'Falha ao recarregar',
+        subtitle: 'Não foi possível obter a versão mais recente do veículo.',
+      });
+    } finally {
+      setReloadingConflict(false);
+    }
   };
 
-  const handleCreate = async () => {
+  const handleSubmit = async () => {
     setErrorMessage(null);
     setFieldErrors({});
 
@@ -89,7 +181,7 @@ export function VehicleFormSheet({
       }
     }
 
-    let parsedOdometer: number | undefined = undefined;
+    let parsedOdometer: number | null = null;
     const cleanOdometer = currentOdometerKm.trim();
     if (cleanOdometer) {
       if (!/^-?\d+$/.test(cleanOdometer)) {
@@ -99,7 +191,7 @@ export function VehicleFormSheet({
       } else {
         const normalizedDigits = cleanOdometer.replace(/^0+(?=\d)/, '');
         const n = Number(normalizedDigits);
-        if (!Number.isSafeInteger(n) || String(n) !== normalizedDigits) {
+        if (!Number.isSafeInteger(n) || String(n) !== normalizedDigits || n > 9007199254740991) {
           localErrors.currentOdometerKm = 'Valor de quilometragem excede o limite suportado.';
         } else {
           parsedOdometer = n;
@@ -114,53 +206,117 @@ export function VehicleFormSheet({
 
     setSubmitting(true);
     try {
-      const payload: CreateVehicleRequest = {
-        nickname: cleanModel,
-        model: cleanModel,
-        brand: null,
-        modelYear: null,
-        plate: null,
-        tankCapacityLiters: normalizedCapacity,
-        allowedFuels: selectedFuels,
-      };
-      if (parsedOdometer !== undefined) {
-        payload.currentOdometerKm = parsedOdometer;
+      if (isEdit) {
+        if (!vehicle?.id) {
+          setErrorMessage('Veículo não encontrado para edição.');
+          return;
+        }
+
+        const updatePayload: UpdateVehicleRequest = {
+          model: cleanModel,
+          allowedFuels: selectedFuels,
+          currentOdometerKm: parsedOdometer,
+          tankCapacityLiters: normalizedCapacity,
+        };
+
+        const updated = await updateExistingVehicle(
+          vehicle.id,
+          formVersion,
+          updatePayload,
+        );
+
+        showToast({
+          tone: 'success',
+          title: 'Veículo atualizado',
+          subtitle: `${updated.nickname} atualizado com sucesso.`,
+        });
+        onUpdated?.(updated);
+        onClose();
+      } else {
+        const createPayload: CreateVehicleRequest = {
+          nickname: cleanModel,
+          model: cleanModel,
+          brand: null,
+          modelYear: null,
+          plate: null,
+          tankCapacityLiters: normalizedCapacity,
+          allowedFuels: selectedFuels,
+        };
+        if (parsedOdometer !== null) {
+          createPayload.currentOdometerKm = parsedOdometer;
+        }
+
+        const created = await createNewVehicle(createPayload);
+
+        resetForm();
+        showToast({
+          tone: 'success',
+          title: 'Veículo cadastrado',
+          subtitle: `${created.nickname} selecionado como veículo ativo.`,
+        });
+        onCreated?.(created);
+        onClose();
       }
-
-      const created = await createNewVehicle(payload);
-
-      resetForm();
-      showToast({
-        tone: 'success',
-        title: 'Veículo cadastrado',
-        subtitle: `${created.nickname} selecionado como veículo ativo.`,
-      });
-      onCreated?.(created);
-      onClose();
     } catch (err: unknown) {
       if (err instanceof ApiError) {
-        setErrorMessage(err.message);
-        if (err.problem?.fieldErrors) {
-          setFieldErrors(err.problem.fieldErrors);
+        if (err.status === 412 || err.problem?.code === 'PRECONDITION_FAILED') {
+          setConflictDetected(true);
+          setErrorMessage(
+            'Este veículo foi alterado no servidor. Seus dados digitados foram mantidos. Carregue a versão mais recente para atualizar.',
+          );
+        } else {
+          setErrorMessage(err.message);
+          if (err.problem?.fieldErrors) {
+            setFieldErrors(err.problem.fieldErrors);
+          }
         }
       } else {
-        setErrorMessage('Não foi possível cadastrar o veículo.');
+        setErrorMessage(
+          isEdit
+            ? 'Não foi possível atualizar o veículo.'
+            : 'Não foi possível cadastrar o veículo.',
+        );
       }
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handleCreate = handleSubmit;
   const modelError = fieldErrors.model || fieldErrors.nickname;
 
   return (
     <AppSheet
       visible={visible}
-      title="Novo veículo"
-      subtitle="Cadastre o veículo e os combustíveis aceitos"
+      title={isEdit ? 'Editar veículo' : 'Novo veículo'}
+      subtitle={
+        isEdit
+          ? 'Atualize os dados e combustíveis aceitos'
+          : 'Cadastre o veículo e os combustíveis aceitos'
+      }
       onClose={onClose}
     >
-      {errorMessage ? <InlineNotice tone="danger" message={errorMessage} /> : null}
+      {conflictDetected ? (
+        <View style={styles.conflictWrap} testID="vehicle-conflict-container">
+          <InlineNotice
+            tone="warning"
+            title="Veículo alterado em outra sessão"
+            message="Este veículo foi modificado em outra sessão. Seus dados digitados foram preservados. Clique abaixo para carregar a versão mais recente do servidor."
+            action={
+              <PrimaryButton
+                label="Carregar versão atual"
+                variant="secondary"
+                onPress={handleReloadLatest}
+                loading={reloadingConflict}
+                testID="vehicle-conflict-reload-button"
+                style={styles.conflictReloadBtn}
+              />
+            }
+          />
+        </View>
+      ) : errorMessage ? (
+        <InlineNotice tone="danger" message={errorMessage} />
+      ) : null}
 
       {/* 1. Modelo */}
       <View style={styles.fieldGroup}>
@@ -169,6 +325,7 @@ export function VehicleFormSheet({
         </Text>
         <TextInput
           accessibilityLabel="Modelo"
+          testID="vehicle-model-input"
           value={model}
           onChangeText={setModel}
           placeholder="Ex.: Captur"
@@ -265,7 +422,7 @@ export function VehicleFormSheet({
         placeholder="Ex.: 45000"
         suffix="km"
         keyboardType="number-pad"
-        helperText="Leitura informada no cadastro. Não é atualizada automaticamente por abastecimentos."
+        helperText="Leitura informada no cadastro ou edição. Não é recalculada pelo histórico."
         errorText={fieldErrors.currentOdometerKm}
         testID="vehicle-current-odometer-input"
       />
@@ -278,15 +435,17 @@ export function VehicleFormSheet({
         placeholder="50,0"
         suffix="L"
         errorText={fieldErrors.tankCapacityLiters}
+        testID="vehicle-tank-capacity-input"
       />
 
       {/* 5. Botão Salvar */}
       <PrimaryButton
-        label="Salvar veículo"
+        label={isEdit ? 'Salvar alterações' : 'Salvar veículo'}
         leftIcon={<SaveIcon size={18} color="#FFFFFF" />}
-        onPress={handleCreate}
+        onPress={handleSubmit}
         loading={submitting}
         stepped
+        testID="vehicle-form-submit-button"
         style={styles.submitBtn}
       />
     </AppSheet>
@@ -338,6 +497,12 @@ const styles = StyleSheet.create({
   submitBtn: {
     marginTop: 12,
     marginBottom: 6,
+  },
+  conflictWrap: {
+    gap: 8,
+  },
+  conflictReloadBtn: {
+    marginTop: 8,
   },
   errorText: {
     ...typography.caption,

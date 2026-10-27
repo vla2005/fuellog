@@ -12,6 +12,7 @@ import React, {
 import { setOnUnauthorizedListener } from '@/api/client';
 import {
   createVehicle as apiCreateVehicle,
+  updateVehicle as apiUpdateVehicle,
   getFuelTypes,
   getMe,
   listVehicles,
@@ -31,6 +32,7 @@ import {
 import {
   ApiError,
   CreateVehicleRequest,
+  UpdateVehicleRequest,
   FuelType,
   LoginRequest,
   MeResponse,
@@ -70,6 +72,11 @@ interface SessionContextValue {
   selectVehicle: (vehicleId: string) => Promise<void>;
   refreshVehicles: () => Promise<Vehicle[]>;
   createNewVehicle: (payload: CreateVehicleRequest) => Promise<Vehicle>;
+  updateExistingVehicle: (
+    vehicleId: string,
+    version: number,
+    payload: UpdateVehicleRequest,
+  ) => Promise<Vehicle>;
   signIn: (payload: LoginRequest) => Promise<void>;
   signUpAndSignIn: (
     payload: RegisterRequest,
@@ -387,6 +394,26 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [user],
   );
 
+  const updateExistingVehicle = useCallback(
+    async (
+      vehicleId: string,
+      version: number,
+      payload: UpdateVehicleRequest,
+    ): Promise<Vehicle> => {
+      const epoch = getSessionEpoch();
+      const updated = await apiUpdateVehicle(vehicleId, version, payload);
+      if (getSessionEpoch() !== epoch) {
+        return updated;
+      }
+      setVehicles((prev) =>
+        prev.map((v) => (v.id === updated.id ? updated : v)),
+      );
+      setDataVersion((v) => v + 1);
+      return updated;
+    },
+    [],
+  );
+
   const invalidateFuelData = useCallback(() => {
     setDataVersion((v) => v + 1);
   }, []);
@@ -415,6 +442,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       selectVehicle,
       refreshVehicles,
       createNewVehicle,
+      updateExistingVehicle,
       signIn,
       signUpAndSignIn,
       signOut,
@@ -437,6 +465,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       selectVehicle,
       refreshVehicles,
       createNewVehicle,
+      updateExistingVehicle,
       signIn,
       signUpAndSignIn,
       signOut,

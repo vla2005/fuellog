@@ -6,7 +6,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
-@Order(-1)
+@Order(-2)
 @RestControllerAdvice(assignableTypes = IdentityController.class)
 class IdentityExceptionHandler {
     @ExceptionHandler({org.springframework.transaction.TransactionException.class, jakarta.persistence.PersistenceException.class})

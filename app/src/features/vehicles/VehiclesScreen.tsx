@@ -30,8 +30,8 @@ export function VehiclesScreen({
   const { colors } = useAppTheme();
   const { vehicles, activeVehicle, selectVehicle, showToast } = useSession();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [editNotice, setEditNotice] = useState<string | null>(null);
 
   const activeFuelsLabel = activeVehicle?.allowedFuels
     ? activeVehicle.allowedFuels.map((f) => FUEL_TYPE_SHORT_LABELS[f] ?? f).join(' e ')
@@ -114,21 +114,14 @@ export function VehiclesScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Editar veículo"
-            onPress={() => setEditNotice('A versão atual da API do FuelLog suporta apenas criação de veículos. Edição estará disponível em versão futura.')}
+            testID="edit-vehicle-button"
+            onPress={() => setEditOpen(true)}
             style={styles.editLinkBtn}
           >
             <Text style={[styles.editLinkText, { color: colors.brandPrimary }]}>
               Editar veículo &gt;
             </Text>
           </Pressable>
-
-          {editNotice ? (
-            <InlineNotice
-              tone="warning"
-              title="Recurso indisponível na API"
-              message={editNotice}
-            />
-          ) : null}
 
           {/* Big Stepped CTA: + Novo veículo */}
           <PrimaryButton
@@ -185,6 +178,7 @@ export function VehiclesScreen({
       <VehicleFormSheet
         visible={createOpen}
         onClose={() => setCreateOpen(false)}
+        mode="create"
         onCreated={async (saved) => {
           await selectVehicle(saved.id);
           setCreateOpen(false);
@@ -194,6 +188,14 @@ export function VehiclesScreen({
             subtitle: `${saved.nickname} foi adicionado com sucesso.`,
           });
         }}
+      />
+
+      {/* Vehicle Edit Sheet */}
+      <VehicleFormSheet
+        visible={editOpen}
+        onClose={() => setEditOpen(false)}
+        mode="edit"
+        vehicle={activeVehicle}
       />
     </ScreenShell>
   );
