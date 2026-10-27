@@ -1,12 +1,13 @@
 package com.fuellog;
 
+import com.fuellog.fueling.dtos.FuelEntryDtos;
+import com.fuellog.fueling.enums.TankState;
+import com.fuellog.vehicles.dtos.VehicleDtos;
+import com.fuellog.vehicles.enums.FuelType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fuellog.fueling.FuelEntryDtos;
-import com.fuellog.fueling.TankState;
-import com.fuellog.vehicles.FuelType;
-import com.fuellog.vehicles.VehicleDtos;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;

@@ -16,7 +16,7 @@ class OpenApiContractTest {
     void registrationPasswordBoundsMatchTheHttpValidation() throws Exception {
         var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
         var password = spec.path("components").path("schemas").path("Register").path("properties").path("password");
-        var component = Arrays.stream(Class.forName("com.fuellog.identity.IdentityController$Register").getRecordComponents())
+        var component = Arrays.stream(Class.forName("com.fuellog.identity.dtos.IdentityDtos$Register").getRecordComponents())
                 .filter(field -> field.getName().equals("password")).findFirst().orElseThrow();
         var size = component.getAccessor().getAnnotation(jakarta.validation.constraints.Size.class);
         assertThat(size.min()).isEqualTo(6);
@@ -30,21 +30,21 @@ class OpenApiContractTest {
         var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
         assertThat(spec.path("openapi").asString()).isEqualTo("3.1.0");
         Map<String, String> types = Map.ofEntries(
-                Map.entry("Register", "identity.IdentityController$Register"),
-                Map.entry("Login", "identity.IdentityController$Login"),
-                Map.entry("Refresh", "identity.IdentityController$Refresh"),
-                Map.entry("RegisteredUser", "identity.IdentityService$RegisteredUser"),
-                Map.entry("TokenResponse", "identity.IdentityService$TokenResponse"),
-                Map.entry("Me", "identity.IdentityService$Me"),
-                Map.entry("CreateVehicle", "vehicles.VehicleDtos$Create"),
-                Map.entry("Vehicle", "vehicles.VehicleDtos$View"),
-                Map.entry("CreateFuelEntry", "fueling.FuelEntryDtos$Create"),
-                Map.entry("UpdateFuelEntry", "fueling.FuelEntryDtos$Update"),
-                Map.entry("FuelEntry", "fueling.FuelEntryDtos$View"),
-                Map.entry("FuelEntryPage", "fueling.FuelEntryDtos$Page"),
-                Map.entry("Cycle", "metrics.MetricsDtos$Cycle"),
-                Map.entry("Cycles", "metrics.MetricsDtos$Cycles"),
-                Map.entry("Summary", "metrics.MetricsDtos$Summary"));
+                Map.entry("Register", "identity.dtos.IdentityDtos$Register"),
+                Map.entry("Login", "identity.dtos.IdentityDtos$Login"),
+                Map.entry("Refresh", "identity.dtos.IdentityDtos$Refresh"),
+                Map.entry("RegisteredUser", "identity.dtos.IdentityDtos$RegisteredUser"),
+                Map.entry("TokenResponse", "identity.dtos.IdentityDtos$TokenResponse"),
+                Map.entry("Me", "identity.dtos.IdentityDtos$Me"),
+                Map.entry("CreateVehicle", "vehicles.dtos.VehicleDtos$Create"),
+                Map.entry("Vehicle", "vehicles.dtos.VehicleDtos$View"),
+                Map.entry("CreateFuelEntry", "fueling.dtos.FuelEntryDtos$Create"),
+                Map.entry("UpdateFuelEntry", "fueling.dtos.FuelEntryDtos$Update"),
+                Map.entry("FuelEntry", "fueling.dtos.FuelEntryDtos$View"),
+                Map.entry("FuelEntryPage", "fueling.dtos.FuelEntryDtos$Page"),
+                Map.entry("Cycle", "metrics.dtos.MetricsDtos$Cycle"),
+                Map.entry("Cycles", "metrics.dtos.MetricsDtos$Cycles"),
+                Map.entry("Summary", "metrics.dtos.MetricsDtos$Summary"));
         for (var entry : types.entrySet()) {
             Set<String> documented = new LinkedHashSet<>();
             spec.path("components").path("schemas").path(entry.getKey()).path("properties")
