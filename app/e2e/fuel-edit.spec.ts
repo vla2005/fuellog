@@ -50,6 +50,8 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
     headers: Record<string, string>;
     body: any;
   } | null = null;
+  const posts: any[] = [];
+  const puts: any[] = [];
   let putStatusCode = 200;
   let putErrorBody: any = null;
 
@@ -58,7 +60,7 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
     const url = request.url();
     const method = request.method();
 
-    if (url.includes('/auth/login')) {
+    if (url.includes('/auth/login') || url.includes('/auth/refresh')) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -66,9 +68,9 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
           access_token: 'mock-access-token',
           token_type: 'Bearer',
           expires_in: 3600,
-          access_expires_at: '2026-10-27T18:00:00Z',
+          access_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
           refresh_token: 'mock-refresh-token',
-          refresh_expires_at: '2026-11-27T18:00:00Z',
+          refresh_expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
           session_id: 'mock-sess-1',
         }),
       });
@@ -121,6 +123,7 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
           body: JSON.parse(request.postData() || '{}'),
         };
 
+        puts.push(capturedPutRequest);
         if (putStatusCode !== 200) {
           return route.fulfill({
             status: putStatusCode,
@@ -144,6 +147,12 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
       }
     }
 
+    if (url.includes('/fuel-entries') && method === 'POST') {
+      const body = request.postDataJSON();
+      posts.push(body);
+      return route.fulfill({ status: 201, contentType: 'application/json',
+        body: JSON.stringify({ ...currentEntry, ...body, idempotentReplay: false, version: 0 }) });
+    }
     if (url.includes('/fuel-entries')) {
       return route.fulfill({
         status: 200,
@@ -188,6 +197,7 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
 
   return {
     getCapturedPut: () => capturedPutRequest,
+    posts, puts,
     setPutResponse: (status: number, body?: any) => {
       putStatusCode = status;
       putErrorBody = body;
@@ -218,6 +228,170 @@ async function loginAndGoToDetail(page: Page) {
   await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled({ timeout: 10_000 });
 }
 
+async function openEditor(page: Page) {
+  await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+  await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
+  await expect(page.getByText('Editar abastecimento', { exact: true })).toBeVisible();
+}
+
+async function trackGpsRequests(page: Page) {
+  await page.addInitScript(() => {
+    (window as any).__gpsRequests = 0;
+    const original = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
+    navigator.geolocation.getCurrentPosition = (...args) => {
+      (window as any).__gpsRequests += 1;
+      return original(...args);
+    };
+  });
+}
+
+test('API mock: cancelar descarta edição; erro 422 preserva texto e permite tentar novamente sem POST ou GPS novo', async ({ page }) => {
+  await trackGpsRequests(page);
+  const initial = createMockEntry();
+  const api = await setupMockApi(page, initial);
+  await loginAndGoToDetail(page);
+  await openEditor(page);
+  const paid = page.getByLabel('Valor pago', { exact: true });
+  await paid.fill('200,00');
+  await page.getByRole('button', { name: 'Cancelar edição', exact: true }).click();
+  expect(api.puts).toHaveLength(0);
+  expect(api.posts).toHaveLength(0);
+  await openEditor(page);
+  await expect(paid).toHaveValue('265,05');
+  const odometer = page.getByLabel('Hodômetro atual (km inteiro)');
+  await odometer.fill('120999');
+  api.setPutResponse(422, { status: 422, title: 'Validation error', detail: 'Verifique os campos.', code: 'VALIDATION_ERROR',
+    fieldErrors: { odometerKm: 'Hodômetro deve ficar entre os vizinhos cronológicos.' } });
+  await page.getByRole('button', { name: 'Salvar alterações' }).click();
+  await expect(page.getByText('Hodômetro deve ficar entre os vizinhos cronológicos.')).toBeVisible();
+  await expect(odometer).toHaveValue('120999');
+  await expect(paid).toHaveValue('265,05');
+  api.setPutResponse(200);
+  await page.getByRole('button', { name: 'Salvar alterações' }).click();
+  await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled();
+  expect(api.puts).toHaveLength(2);
+  expect(api.posts).toHaveLength(0);
+  expect(await page.evaluate(() => (window as any).__gpsRequests)).toBe(0);
+});
+
+for (const paidTotal of ['60.00', '63.00']) {
+  test(`API mock: salvar legado divergente sem editar preserva total ${paidTotal}, precisão, desconto, data e campos ocultos`, async ({ page }) => {
+    await trackGpsRequests(page);
+    const initial = createMockEntry({ liters: '10.123', unitPrice: '6.1234', paidTotal, referenceTotal: '61.99',
+      occurredAt: '2026-10-24T15:30:45.789Z', timezone: 'America/Manaus',
+      adjustmentReason: paidTotal === '60.00' ? 'Cupom especial' : 'Ajuste histórico',
+      historyGapBefore: true, latitude: -23.55052123, longitude: -46.63330876 });
+    const api = await setupMockApi(page, initial);
+    await loginAndGoToDetail(page);
+    await openEditor(page);
+    await expect(page.getByLabel('Valor pago', { exact: true })).toHaveValue(paidTotal.replace('.', ','));
+    const checkbox = page.getByRole('checkbox', { name: 'Houve desconto no abastecimento' });
+    if (paidTotal === '60.00') {
+      await expect(checkbox).toBeChecked();
+      await expect(page.getByLabel('Motivo do desconto')).toHaveValue('Cupom especial');
+    } else {
+      await expect(checkbox).not.toBeChecked();
+      await expect(page.getByText(/Valores históricos preservados/)).toBeVisible();
+    }
+    await page.getByRole('button', { name: /^Data e hora do abastecimento:/ }).click();
+    await expect(page.getByLabel('Data do abastecimento')).toHaveValue('2026-10-24');
+    await expect(page.getByLabel('Hora do abastecimento', { exact: true })).toHaveValue('11:30');
+    await expect(page.getByLabel('Fuso horário IANA')).toHaveValue('America/Manaus');
+    await expect(page.getByLabel('Fuso horário IANA')).not.toBeEditable();
+    await page.getByRole('button', { name: 'Confirmar data e hora' }).click();
+    await page.getByRole('button', { name: 'Salvar alterações' }).click();
+    await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled();
+    const { id, vehicleId, version, idempotentReplay, referenceTotal, adjustmentAmount, ...expected } = initial;
+    expect(api.getCapturedPut()!.body).toEqual(expected);
+    expect(api.posts).toHaveLength(0);
+    expect(await page.evaluate(() => (window as any).__gpsRequests)).toBe(0);
+  });
+}
+
+test('API mock: novo e editar compartilham ordem, geometria, estilos, máscaras e temas; criação mantém POST e GPS', async ({ page }) => {
+  test.setTimeout(90_000);
+  await trackGpsRequests(page);
+  const api = await setupMockApi(page, createMockEntry());
+  await loginAndGoToDetail(page);
+  const resultsDir = path.resolve(__dirname, '../test-results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+
+  const formMetrics = async () => {
+    const selectors = [
+      page.getByRole('radiogroup', { name: 'Combustível', exact: true }),
+      page.getByLabel('Valor pago', { exact: true }),
+      page.getByLabel('Preço por litro', { exact: true }),
+      page.getByRole('checkbox', { name: 'Houve desconto no abastecimento' }),
+      page.getByRole('button', { name: /^Litros calculados:/ }),
+      page.getByLabel('Hodômetro atual (km inteiro)'),
+      page.getByRole('button', { name: /^Data e hora do abastecimento:/ }),
+    ];
+    return Promise.all(selectors.map(locator => locator.filter({ visible: true }).evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const surface = getComputedStyle(element.parentElement!);
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+        color: style.color, fontSize: style.fontSize, fontFamily: style.fontFamily,
+        padding: style.padding, borderRadius: style.borderRadius,
+        background: surface.backgroundColor, border: surface.borderColor };
+    })));
+  };
+
+  for (const [scheme, width, height] of [['light', 390, 844], ['dark', 320, 640]] as const) {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto('/fueling/new', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Novo abastecimento', { exact: true })).toBeVisible();
+    await page.getByLabel('Valor pago', { exact: true }).fill('265,05');
+    await page.getByLabel('Preço por litro', { exact: true }).fill('5,89');
+    await page.getByLabel('Hodômetro atual (km inteiro)').fill('120500');
+    await page.getByText('Novo abastecimento', { exact: true }).click();
+    await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toContainText('45,000');
+    await expect(page.getByRole('button', { name: 'Salvar abastecimento', exact: true })).toBeEnabled();
+    await expect(page.getByRole('tab')).toHaveCount(0);
+    const fresh = await formMetrics();
+    expect(fresh[0].y).toBeLessThan(fresh[1].y);
+    expect(fresh[1].y).toBe(fresh[2].y);
+    expect(fresh[1].x).toBeLessThan(fresh[2].x);
+    expect(fresh[2].y).toBeLessThan(fresh[3].y);
+    expect(fresh[3].y).toBeLessThan(fresh[4].y);
+    expect(fresh[4].y).toBeLessThan(fresh[5].y);
+    for (const metric of fresh) expect(metric.x + metric.width).toBeLessThanOrEqual(width + 1);
+    await page.screenshot({ path: path.join(resultsDir, `fuel-form-new-${width}-${scheme}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Salvar abastecimento', exact: true }).click();
+    await expect(page).toHaveURL(/\/\/?$/);
+    await page.getByRole('tab', { name: 'Histórico', exact: true }).click();
+    await page.getByRole('button', { name: /^Abastecimento de R\$/ }).first().click();
+    await openEditor(page);
+    await expect(page.getByRole('tab')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Veículo:/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Recapturar localização atual' })).toHaveCount(0);
+    const edited = await formMetrics();
+    expect(edited).toEqual(fresh);
+    await page.screenshot({ path: path.join(resultsDir, `fuel-form-edit-${width}-${scheme}.png`), fullPage: true });
+    await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+    const liters = page.getByLabel('Litros calculados', { exact: true });
+    await liters.fill('');
+    await liters.pressSequentially('35000');
+    await expect(liters).toHaveValue('35,000');
+    await liters.press('Backspace');
+    await expect(liters).toHaveValue('3,500');
+    await page.getByRole('button', { name: 'Cancelar edição', exact: true }).click();
+  }
+  expect(api.posts).toHaveLength(2);
+  expect(api.puts).toHaveLength(0);
+  for (const body of api.posts) {
+    expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.paidTotal).toBe('265.05');
+    expect(body.unitPrice).toBe('5.89');
+    expect(body.liters).toBe('45.000');
+    expect(body.latitude).toBe(-23.55052);
+    expect(body.longitude).toBe(-46.633308);
+  }
+  expect(api.posts[0].id).not.toBe(api.posts[1].id);
+  expect(await page.evaluate(() => (window as any).__gpsRequests)).toBeGreaterThan(0);
+});
+
 test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match preservando occurredAt com segundos/ms de outro fuso, dados ocultos/GPS e atualiza detalhe', async ({
   page,
 }) => {
@@ -243,17 +417,19 @@ test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match pr
   // Valida que o UUID técnico foi removido do subtítulo e o rodapé técnico não está presente
   await expect(page.getByText(/ID [0-9a-fA-F]{8}/)).not.toBeVisible();
   await expect(page.getByText('Preserva dados e versão do abastecimento')).not.toBeVisible();
-  const litersInput = page.getByLabel('Litros abastecidos');
+  await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+  const litersInput = page.getByLabel('Litros calculados', { exact: true });
   const priceInput = page.getByLabel('Preço por litro');
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)');
 
-  await expect(litersInput).toHaveValue('45,0');
+  await expect(litersInput).toHaveValue('45,000');
   await expect(priceInput).toHaveValue('5,89');
   await expect(odoInput).toHaveValue('120500');
 
   // Altera os valores
   await litersInput.fill('40,0'); // 40,0 L
   await priceInput.fill('6,00'); // 6,00 R$
+  await page.getByLabel('Valor pago', { exact: true }).fill('240,00');
   await odoInput.fill('120520'); // 120520 km
 
   // Salva as alterações
@@ -268,13 +444,14 @@ test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match pr
   const put = mockApi.getCapturedPut();
   expect(put).not.toBeNull();
   expect(put!.method).toBe('PUT');
+  expect(mockApi.posts).toHaveLength(0);
   expect(put!.headers['if-match']).toBe('"3"');
   expect(put!.body.id).toBeUndefined();
   // Conserva exatamente o ISO original com segundos e milissegundos sem recalculá-lo
   expect(put!.body.occurredAt).toBe('2026-10-24T15:30:45.789Z');
   expect(put!.body.occurredAt.endsWith('.789Z')).toBe(true);
   expect(put!.body.timezone).toBe('America/Manaus');
-  expect(put!.body.liters).toBe('40.0');
+  expect(put!.body.liters).toBe('40.000');
   expect(put!.body.unitPrice).toBe('6.00');
   expect(put!.body.paidTotal).toBe('240.00');
   expect(put!.body.odometerKm).toBe(120520);
@@ -315,19 +492,20 @@ test('Edição de abastecimento: preserva alta precisão legada (3 casas litros,
   await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
 
   // Verifica precisão preservada nos inputs
-  const litersInput = page.getByLabel('Litros abastecidos');
+  await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+  const litersInput = page.getByLabel('Litros calculados', { exact: true });
   const priceInput = page.getByLabel('Preço por litro');
   await expect(litersInput).toHaveValue('10,123');
   await expect(priceInput).toHaveValue('6,1234');
 
   // Verifica que combustível legado fora de allowedFuels está disponível e selecionado
-  const dieselRadio = page.getByRole('radio', { name: /Diesel S10/ });
+  const dieselRadio = page.getByRole('radio', { name: /Diesel S-?10/ });
   await expect(dieselRadio).toBeVisible();
   await expect(dieselRadio).toHaveAttribute('aria-checked', 'true');
 
   // Sem GPS: exibe aviso de coordenadas indisponíveis sem forçar captura
   await expect(
-    page.getByText('Localização indisponível para este registro'),
+    page.getByText(/Localização indisponível para este registro/),
   ).toBeVisible();
 
   // Salva mantendo os valores
@@ -362,7 +540,7 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
   await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
 
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)');
-  const litersInput = page.getByLabel('Litros abastecidos');
+  const litersInput = page.getByLabel('Litros calculados', { exact: true });
   const priceInput = page.getByLabel('Preço por litro');
 
   await odoInput.fill('120999');
@@ -370,9 +548,9 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
   await page.getByRole('button', { name: 'Salvar alterações' }).click();
 
   // Aviso de 412 visível explicando que a recarga substituirá os dados do formulário
-  await expect(page.getByText('Abastecimento alterado')).toBeVisible();
+  await expect(page.getByText(/Abastecimento alterado/).first()).toBeVisible();
   await expect(
-    page.getByText('Ao recarregar a versão mais recente, os dados deste formulário serão substituídos'),
+    page.getByText(/Ao recarregar a versão mais recente/),
   ).toBeVisible();
 
   // Valores digitados pelo usuário foram retidos antes da ação de recarga
@@ -401,7 +579,8 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
 
   // Todos os campos visíveis foram atualizados com o GET concorrente
   await expect(odoInput).toHaveValue('121000');
-  await expect(litersInput).toHaveValue('50,0');
+  await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+  await expect(litersInput).toHaveValue('50,000');
   await expect(priceInput).toHaveValue('6,15');
 
   // Submete novo PUT
@@ -418,43 +597,4 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
   expect(put!.body.notes).toBe('Nota sincronizada externamente');
   expect(put!.body.latitude).toBe(-23.56789);
   expect(put!.body.longitude).toBe(-46.65432);
-});
-
-test('Revisão visual e capturas de tela: 320px Dark e 390px Light', async ({
-  page,
-}) => {
-  const initial = createMockEntry();
-  await setupMockApi(page, initial);
-
-  const resultsDir = path.resolve(__dirname, '../test-results');
-  if (!fs.existsSync(resultsDir)) {
-    fs.mkdirSync(resultsDir, { recursive: true });
-  }
-
-  // 1. Captura 320px Dark Mode
-  await page.setViewportSize({ width: 320, height: 640 });
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await loginAndGoToDetail(page);
-  // Fecha toast de sessão se ainda estiver visível
-  const toast = page.getByRole('alert');
-  if (await toast.isVisible()) {
-    await toast.click();
-    await page.waitForTimeout(300);
-  }
-  await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
-  await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
-  await expect(page.getByText('Editar abastecimento')).toBeVisible();
-
-  await page.screenshot({
-    path: path.join(resultsDir, 'fuel-edit-320-dark.png'),
-    fullPage: true,
-  });
-
-  // 2. Captura 390px Light Mode
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ colorScheme: 'light' });
-  await page.screenshot({
-    path: path.join(resultsDir, 'fuel-edit-390-light.png'),
-    fullPage: true,
-  });
 });

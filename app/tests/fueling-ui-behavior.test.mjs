@@ -65,7 +65,7 @@ const location = loadUtility('location');
 const numericMask = loadUtility('numericMask');
 const vehicle = id => ({ id, nickname: id, allowedFuels: ['ETHANOL', 'GASOLINE_REGULAR'], brand: null, model: null, plate: null });
 
-function mountNewFuelEntry({ store = new Map(), endpoints = {}, observableReturn = true } = {}) {
+function mountNewFuelEntry({ store = new Map(), endpoints = {}, observableReturn = true, edit, uuid = randomUUID } = {}) {
   let index = 0;
   let dirty = false;
   let pendingEffects = [];
@@ -145,31 +145,33 @@ function mountNewFuelEntry({ store = new Map(), endpoints = {}, observableReturn
     '@/utils/date': date,
     '@/utils/decimal': decimal,
     '@/utils/location': location,
-    '@/utils/uuid': { generateUuidV4: randomUUID },
+    '@/utils/uuid': { generateUuidV4: uuid },
     '@/utils/numericMask': numericMask,
     '../../utils/numericMask': numericMask,
     './useForegroundLocation': {
       useForegroundLocation: () => stableLocationObj,
     },
   };
+  dependencies['./fuelEditDateHelper'] = loadFeatureModule('features/fueling/fuelEditDateHelper.ts', dependencies);
   dependencies['./fuelingCalculations'] = loadFeatureModule('features/fueling/fuelingCalculations.ts', dependencies);
   dependencies['@/features/fueling/fuelingCalculations'] = dependencies['./fuelingCalculations'];
 
   dependencies['@/components/ui/FixedScaleInput'] = {
     FixedScaleInput: loadScreen('components/ui/FixedScaleInput.tsx', 'FixedScaleInput', dependencies, false),
   };
-  const screen = loadScreen('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', dependencies, observableReturn);
+  const screen = loadScreen('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', dependencies, observableReturn);
   const harness = {
     session,
     store,
     writes,
     navigation,
+    ApiError,
     snapshot: null,
     render() {
       index = 0;
       dirty = false;
       pendingEffects = [];
-      harness.snapshot = screen();
+      harness.snapshot = screen({ edit });
       const effects = pendingEffects;
       effects.forEach(effect => effect());
     },
@@ -193,6 +195,110 @@ function findInput(node, label) {
   }
   return null;
 }
+
+const savedEntry = (overrides = {}) => ({
+  id: 'entry-1', vehicleId: 'veh-1', version: 7,
+  liters: '10.123', unitPrice: '6.1234', paidTotal: '61.99', referenceTotal: '61.99',
+  occurredAt: '2026-10-24T15:30:45.789Z', timezone: 'America/Manaus',
+  odometerKm: 120500, fuelType: 'GASOLINE_REGULAR', tankState: 'FULL', historyGapBefore: true,
+  stationName: 'Posto original', notes: 'Nota original', adjustmentReason: null,
+  latitude: -23.55052123, longitude: -46.63330876, ...overrides,
+});
+
+for (const overrides of [
+  {},
+  { paidTotal: '63.00', adjustmentReason: 'Ajuste histórico', latitude: null, longitude: null },
+  { paidTotal: '60.00', adjustmentReason: 'Cupom do posto' },
+]) {
+  test(`edição: salvar sem alterar preserva valores reais e metadados (${overrides.paidTotal ?? '61.99'})`, async () => {
+    const entry = savedEntry(overrides);
+    const calls = [];
+    const store = new Map([['fuellog.draft.fuel_entry.v1.user-1.veh-1', '{"liters":"99,999"}']]);
+    const h = mountNewFuelEntry({
+      store,
+      uuid: () => assert.fail('Edição não gera UUID'),
+      endpoints: { createFuelEntry: () => assert.fail('Edição não faz POST') },
+      edit: { entry, save: async payload => calls.push(payload), reload: async () => {} },
+    });
+    await h.settle();
+    assert.equal(h.snapshot.paidTotal, entry.paidTotal.replace('.', ','));
+    assert.equal(h.snapshot.displayLiters, '10,123');
+    assert.equal(h.snapshot.unitPrice, '6,1234');
+    assert.equal(h.snapshot.dateStr, '2026-10-24');
+    assert.equal(h.snapshot.timeStr, '11:30');
+    assert.equal(h.snapshot.isDiscountActive, overrides.paidTotal === '60.00');
+    assert.equal(h.snapshot.coordinates?.latitude ?? null, entry.latitude);
+    await h.snapshot.handleSubmit();
+    await h.settle();
+    const { id, vehicleId, version, referenceTotal, ...expected } = entry;
+    assert.deepEqual(calls, [expected]);
+    assert.equal(h.writes.length, 0, 'Edição não grava rascunho de novo');
+    assert.equal(store.get('fuellog.draft.fuel_entry.v1.user-1.veh-1'), '{"liters":"99,999"}');
+  });
+}
+
+test('edição: valores consistentes recalculam litros somente após alterar pago/preço; override e desconto usam mesmas regras de novo', async () => {
+  const calls = [];
+  const entry = savedEntry({ liters: '20.000', unitPrice: '5.0000', paidTotal: '100.00', referenceTotal: '100.00' });
+  const h = mountNewFuelEntry({ edit: { entry, save: async payload => calls.push(payload), reload: async () => {} } });
+  await h.settle();
+  h.snapshot.handlePaidTotalChange('150,00');
+  await h.settle();
+  assert.equal(h.snapshot.liters, '30,000');
+  h.snapshot.handleLitersChange('35,000');
+  h.snapshot.handlePaidTotalChange('155,00');
+  await h.settle();
+  await h.snapshot.handleSubmit();
+  await h.settle();
+  assert.equal(calls.length, 0);
+  assert.match(h.snapshot.fieldErrors.liters, /inconsistentes/);
+  h.snapshot.handleToggleDiscount();
+  await h.settle();
+  await h.snapshot.handleSubmit();
+  await h.settle();
+  assert.equal(calls[0].liters, '35.000');
+  assert.equal(calls[0].paidTotal, '155.00');
+  assert.equal(calls[0].unitPrice, '5.0000');
+  assert.equal(calls[0].adjustmentReason, 'Desconto');
+});
+
+test('edição: erro/412 retém todos os campos, bloqueia reenvio com versão antiga e cancelar não persiste', async () => {
+  const calls = [];
+  let cancelled = 0;
+  const edit = { entry: savedEntry(), reload: async () => {}, cancel: () => { cancelled += 1; } };
+  const h = mountNewFuelEntry({ edit });
+  edit.save = async payload => { calls.push(payload); throw new h.ApiError({ status: 422, message: 'Hodômetro inválido', problem: { fieldErrors: { odometerKm: 'Entre vizinhos' } } }); };
+  await h.settle();
+  h.snapshot.setOdometerKm('121000');
+  await h.settle();
+  await h.snapshot.handleSubmit();
+  await h.settle();
+  assert.equal(h.snapshot.odometerKm, '121000');
+  assert.equal(h.snapshot.fieldErrors.odometerKm, 'Entre vizinhos');
+  edit.save = async payload => { calls.push(payload); throw new h.ApiError({ status: 412, message: 'Versão alterada' }); };
+  await h.snapshot.handleSubmit();
+  await h.settle();
+  assert.equal(h.snapshot.staleConflict, true);
+  assert.equal(h.snapshot.odometerKm, '121000');
+  await h.snapshot.handleSubmit();
+  assert.equal(calls.length, 2, 'Versão antiga bloqueada após 412');
+  h.snapshot.handleClose();
+  assert.equal(cancelled, 1);
+  assert.equal(calls.length, 2, 'Cancelar não envia requisição');
+  assert.equal(h.writes.length, 0);
+});
+
+test('edição: data/hora alterada usa fuso original, sem perder campos ocultos', async () => {
+  const calls = [];
+  const h = mountNewFuelEntry({ edit: { entry: savedEntry(), save: async payload => calls.push(payload), reload: async () => {} } });
+  await h.settle();
+  h.snapshot.setTimeStr('12:45');
+  await h.settle();
+  await h.snapshot.handleSubmit();
+  assert.equal(calls[0].occurredAt, '2026-10-24T16:45:00.000Z');
+  assert.equal(calls[0].timezone, 'America/Manaus');
+  assert.equal(calls[0].historyGapBefore, true);
+});
 
 test('NewFuelEntryScreen: preço digita centavos como valor pago, apaga, limpa e cola sem mudar magnitude', async () => {
   const h = mountNewFuelEntry({ observableReturn: false });

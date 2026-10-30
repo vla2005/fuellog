@@ -119,6 +119,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   react.default = react;
   class ApiError extends Error { constructor(options) { super(options.message); Object.assign(this, options); } }
   const dependencies = {
+    'react-native-gesture-handler': { Pressable: 'Pressable' },
     react, 'react-native': { StyleSheet: { create: styles => styles, absoluteFill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } },
       useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
       Platform: { OS: platform, select: map => map?.[platform] ?? map?.default }, Linking: { openURL: async url => { openedUrls.push(url); } }, View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator', Image: 'NativeImage' },
@@ -153,12 +154,16 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/location': location, '@/utils/uuid': { generateUuidV4: randomUUID },
     '@/utils/numericMask': numericMask, '../../utils/numericMask': numericMask,
   };
+  dependencies['./fuelEditDateHelper'] = loadFeatureModule('features/fueling/fuelEditDateHelper.ts', dependencies);
   dependencies['./fuelingCalculations'] = loadFeatureModule('features/fueling/fuelingCalculations.ts', dependencies, clock);
   dependencies['@/features/fueling/fuelingCalculations'] = dependencies['./fuelingCalculations'];
   dependencies['./useForegroundLocation'] = {
     useForegroundLocation: loadScreen('features/fueling/useForegroundLocation.ts', 'useForegroundLocation', dependencies, false, clock),
   };
   dependencies['./components/HistoryFilterSheet'] = { HistoryFilterSheet: () => null };
+  dependencies['./components/DeleteFuelEntrySheet'] = { DeleteFuelEntrySheet: () => null };
+  dependencies['./components/HistorySwipeRow'] = { HistorySwipeRow: () => null };
+  dependencies['./FuelEntryForm'] = { FuelEntryForm: () => null };
   dependencies['./helpers/calendarHelper'] = calendarHelper;
   const screen = loadScreen(relativePath, exportName, dependencies, observableReturn, clock);
   const harness = { session, store, writes, activity, navigation, openedUrls, ApiError, snapshot: null,
@@ -183,6 +188,47 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   harness.render();
   return harness;
 }
+
+test('edição: PUT confirmado após desmontar invalida cache sem toast ou navegação da tela antiga', async () => {
+  const gate = deferred();
+  const calls = [];
+  let saved = 0;
+  let invalidated = 0;
+  let toasts = 0;
+  const entry = { id: 'entry-1', vehicleId: 'A', version: 3, paidTotal: '100.00' };
+  const h = mount('features/fueling/EditFuelEntryScreen.tsx', 'EditFuelEntryScreen', {
+    props: { entryId: entry.id, initialEntry: entry, onSaved: () => { saved += 1; } },
+    endpoints: { updateFuelEntry: (...args) => { calls.push(args); return gate.promise; } },
+  });
+  await h.settle();
+  h.session.invalidateFuelData = () => { invalidated += 1; };
+  h.session.showToast = () => { toasts += 1; };
+  h.render();
+  const payload = { paidTotal: '110.00' };
+  const pending = h.snapshot.save(payload);
+  h.unmount();
+  gate.resolve({ ...entry, paidTotal: '110.00', version: 4 });
+  await pending;
+  assert.deepEqual(calls, [['A', 'entry-1', 3, payload]]);
+  assert.equal(invalidated, 1);
+  assert.equal(saved, 0);
+  assert.equal(toasts, 0);
+});
+
+test('edição: GET atrasado de outro veículo não hidrata registro do escopo atual', async () => {
+  const gates = { A: deferred(), B: deferred() };
+  const h = mount('features/fueling/EditFuelEntryScreen.tsx', 'EditFuelEntryScreen', {
+    props: { entryId: 'entry-1' },
+    endpoints: { getFuelEntry: vehicleId => gates[vehicleId].promise },
+  });
+  await h.switchVehicle('B');
+  gates.B.resolve({ id: 'entry-1', vehicleId: 'B', version: 4 });
+  await h.settle();
+  assert.equal(h.snapshot.entry.vehicleId, 'B');
+  gates.A.resolve({ id: 'entry-1', vehicleId: 'A', version: 3 });
+  await h.settle();
+  assert.equal(h.snapshot.entry.vehicleId, 'B');
+});
 
 function findElement(node, matches) {
   if (!node || typeof node !== 'object') return null;
@@ -521,7 +567,7 @@ test('GPS negado, desligado ou indisponível bloqueia o handler real sem perder 
     { hasServicesEnabledAsync: async () => { throw Error('Módulo indisponível'); } },
   ]) {
     const calls = [];
-    const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
       store: new Map([[draftKey('A'), JSON.stringify(draft(randomUUID()))]]), gps,
       endpoints: { createFuelEntry: async (...args) => { calls.push(args); } },
     });
@@ -541,7 +587,7 @@ test('GPS negado, desligado ou indisponível bloqueia o handler real sem perder 
 test('GPS com permissão concedida não reabre o pedido nativo nem reinicia captura', async context => {
   let prompts = 0;
   let captures = 0;
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     gps: {
       getForegroundPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
       requestForegroundPermissionsAsync: async () => {
@@ -566,7 +612,7 @@ test('primeira concessão GPS retoma uma única captura após voltar do pedido n
   let granted = false;
   let prompts = 0;
   let captures = 0;
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     gps: {
       getForegroundPermissionsAsync: async () => ({ granted, canAskAgain: true }),
       requestForegroundPermissionsAsync: async () => {
@@ -620,7 +666,7 @@ test('resposta antiga de GPS não remove o timeout da recaptura atual', async ()
   let enabled = false;
   let pending = false;
   const positions = [];
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     clock,
     gps: {
       hasServicesEnabledAsync: async () => enabled,
@@ -656,7 +702,7 @@ for (const inactiveKey of ['tabActive', 'appActive']) {
   test(`captura GPS ignora resposta tardia e pausa com ${inactiveKey} inativo`, async () => {
     const pending = deferred();
     let captures = 0;
-    const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
       gps: { getCurrentPositionAsync: () => {
         captures++;
         return captures === 1 ? pending.promise : Promise.resolve({ coords: { latitude: 3, longitude: 4 } });
@@ -680,7 +726,7 @@ for (const inactiveKey of ['tabActive', 'appActive']) {
 test('salvamento confirmado envia GPS normalizado e só recaptura ao voltar ao formulário', async () => {
   let captures = 0;
   const calls = [];
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     props: { embeddedInShell: true },
     store: new Map([[draftKey('A'), JSON.stringify(draft(randomUUID()))]]),
     gps: { getCurrentPositionAsync: async () => {
@@ -716,7 +762,7 @@ for (const existingB of [false, true]) {
     const b = draft(randomUUID(), '12');
     const store = new Map([[draftKey('A'), JSON.stringify(a)]]);
     if (existingB) store.set(draftKey('B'), JSON.stringify(b));
-    const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', { store });
+    const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', { store });
     await h.settle();
     assert.equal(h.snapshot.entryId, a.id);
     h.writes.length = 0;
@@ -735,7 +781,7 @@ test('resposta incerta preserva UUID e comando idênticos no reenvio', async () 
   const original = draft(randomUUID());
   const calls = [];
   let h;
-  h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     store: new Map([[draftKey('A'), JSON.stringify(original)]]),
     endpoints: { createFuelEntry: async (id, payload) => {
       calls.push({ id, payload: structuredClone(payload) });
@@ -784,7 +830,7 @@ for (const [file, name] of [['home/HomeScreen', 'HomeScreen'], ['history/History
 
 test('combustível em Radio no topo exibe apenas allowedFuels e acessibilidade correta', async () => {
   const customVehicle = { id: 'flex-car', nickname: 'Flex', allowedFuels: ['GASOLINE_REGULAR', 'ETHANOL'] };
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     observableReturn: false,
     sessionVehicles: [customVehicle],
   });
@@ -806,7 +852,7 @@ test('combustível incompatível é sanitizado no estado e no envio ao trocar de
   const vehicleDiesel = { id: 'diesel-truck', nickname: 'Diesel Truck', allowedFuels: ['DIESEL_S10'] };
 
   const calls = [];
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     gps: { getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55, longitude: -46.63 } }) },
     endpoints: { createFuelEntry: async (id, payload) => { calls.push({ id, payload }); return { ...payload, idempotentReplay: false }; } },
   });
@@ -846,7 +892,7 @@ test('combustível incompatível é sanitizado no estado e no envio ao trocar de
 
 test('cálculo com desconto manual e payload exato sem separador de milhar', async () => {
   const calls = [];
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     gps: { getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55052, longitude: -46.633308 } }) },
     endpoints: { createFuelEntry: async (id, payload) => { calls.push(payload); return { ...payload, idempotentReplay: false }; } },
   });
@@ -906,7 +952,7 @@ test('rascunho inválido com excesso de escala ou negativo não é mascarado com
   };
 
   const calls = [];
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     store: new Map([[draftKey('A'), JSON.stringify(invalidDraft)]]),
     gps: { getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55, longitude: -46.63 } }) },
     endpoints: { createFuelEntry: async (id, payload) => { calls.push(payload); } },
@@ -927,7 +973,7 @@ test('rascunho inválido com excesso de escala ou negativo não é mascarado com
 
 test('fechar no X do topo reseta o estado do formulário e limpa o rascunho', async () => {
   const store = new Map([[draftKey('A'), JSON.stringify({ id: randomUUID(), liters: '35,0', unitPrice: '5,00', odometerKm: '1000' })]]);
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     store,
   });
   await h.settle();
@@ -948,7 +994,7 @@ test('fechar no X do topo reseta o estado do formulário e limpa o rascunho', as
 
 test('sair por navegacao em NewFuelEntryScreen descarta rascunho e reseta o formulario', async () => {
   const store = new Map([[draftKey('A'), JSON.stringify({ id: randomUUID(), liters: '35,0', unitPrice: '5,00', odometerKm: '1000' })]]);
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     store,
   });
   await h.settle();
@@ -975,7 +1021,7 @@ test('sair por navegacao em NewFuelEntryScreen descarta rascunho e reseta o form
 
 test('minimizar app em NewFuelEntryScreen preserva rascunho', async () => {
   const store = new Map([[draftKey('A'), JSON.stringify({ id: randomUUID(), liters: '35,0', unitPrice: '5,00', odometerKm: '1000' })]]);
-  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+  const h = mount('features/fueling/FuelEntryForm.tsx', 'FuelEntryForm', {
     store,
   });
   await h.settle();
