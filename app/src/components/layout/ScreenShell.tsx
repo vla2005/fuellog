@@ -30,6 +30,7 @@ export interface ScreenShellProps {
   contentContainerStyle?: StyleProp<ViewStyle>;
   header?: React.ReactNode;
   footer?: React.ReactNode;
+  fullBleedHero?: React.ReactNode;
 }
 
 export function ScreenShell({
@@ -40,6 +41,7 @@ export function ScreenShell({
   contentContainerStyle,
   header,
   footer,
+  fullBleedHero,
 }: ScreenShellProps) {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -98,6 +100,7 @@ export function ScreenShell({
               style={styles.flex}
               contentContainerStyle={[
                 styles.scrollContent,
+                fullBleedHero ? styles.fullBleedScrollContent : null,
                 contentContainerStyle,
                 { paddingBottom: baseBottomPadding },
               ]}
@@ -105,13 +108,22 @@ export function ScreenShell({
               keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.maxWidthContainer}>{children}</View>
+              {fullBleedHero}
+              <View
+                style={[
+                  styles.maxWidthContainer,
+                  fullBleedHero ? styles.maxWidthWithPadding : null,
+                ]}
+              >
+                {children}
+              </View>
             </ScrollView>
           ) : (
             <View
               style={[
                 styles.flex,
                 styles.nonScrollContent,
+                fullBleedHero ? styles.fullBleedScrollContent : null,
                 contentContainerStyle,
                 {
                   paddingBottom: withDockClearance
@@ -120,7 +132,14 @@ export function ScreenShell({
                 },
               ]}
             >
-              <View style={[styles.flex, styles.maxWidthContainer]}>
+              {fullBleedHero}
+              <View
+                style={[
+                  styles.flex,
+                  styles.maxWidthContainer,
+                  fullBleedHero ? styles.maxWidthWithPadding : null,
+                ]}
+              >
                 {children}
               </View>
             </View>
@@ -155,6 +174,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.horizontalPadding,
     paddingTop: 8,
     paddingBottom: 28,
+  },
+  fullBleedScrollContent: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
+  maxWidthWithPadding: {
+    paddingHorizontal: layout.horizontalPadding,
   },
   nonScrollContent: {
     paddingHorizontal: layout.horizontalPadding,

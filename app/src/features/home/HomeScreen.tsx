@@ -6,8 +6,11 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import {
   FUEL_TYPE_SHORT_LABELS,
@@ -38,7 +41,7 @@ import { MonthlySummaryModal } from '@/features/home/MonthlySummaryModal';
 import { VehicleFormSheet } from '@/features/vehicles/VehicleFormSheet';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { radii, shadows, typography } from '@/theme/tokens';
+import { layout, radii, shadows, typography } from '@/theme/tokens';
 import {
   formatDateTimeRowBR,
   listRecentMonthPeriods,
@@ -183,10 +186,113 @@ export function HomeScreen({
 
   const latestEntry = recentEntries.length > 0 ? recentEntries[0] : null;
 
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const headerHeight = insets.top + 56;
+  const totalImageHeight = Math.round(windowWidth * (1355 / 1161));
+  const heroHeight = Math.max(totalImageHeight - headerHeight, 260);
+  const isIntegratedMode = !isDark && vehicles.length > 0;
+
+  const fullBleedHero = isIntegratedMode ? (
+    <View style={[styles.integratedHeroContainer, { minHeight: heroHeight }]}>
+      <Image
+        source={require('@/assets/brand/scene_day_road_integrated.png')}
+        style={[
+          styles.integratedHeroImage,
+          {
+            width: windowWidth,
+            height: totalImageHeight,
+            top: -headerHeight,
+          },
+        ]}
+        resizeMode="cover"
+        pointerEvents="none"
+        accessibilityLabel="Cena diurna integrada com Renault azul e mascote na estrada"
+      />
+
+      {/* SVG Gradient over empty tail at bottom */}
+      <Svg
+        height={72}
+        width="100%"
+        style={[
+          styles.heroTailGradient,
+          { top: totalImageHeight - headerHeight - 72 },
+        ]}
+        pointerEvents="none"
+      >
+        <Defs>
+          <LinearGradient id="roadTailGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity="0" />
+            <Stop offset="0.65" stopColor={colors.bgPrimary} stopOpacity="0.6" />
+            <Stop offset="1" stopColor={colors.bgPrimary} stopOpacity="1" />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height={72} fill="url(#roadTailGrad)" />
+      </Svg>
+
+      {/* Content inside the hero: top dropdown and month/spent section in normal flow */}
+      <View style={styles.integratedHeroContent} pointerEvents="box-none">
+        <View style={styles.heroInnerContainer}>
+          <View style={styles.topSelectorRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Veículo selecionado: ${
+                activeVehicle?.nickname ?? 'Selecionar veículo'
+              }`}
+              onPress={() => setVehiclePickerOpen(true)}
+              style={styles.vehicleDropdown}
+            >
+              <Text style={[styles.vehicleDropdownText, { color: colors.textPrimary }]}>
+                {activeVehicle?.nickname ?? 'Selecionar veículo'}
+              </Text>
+              <ChevronDownIcon size={20} color={colors.brandPrimary} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Month & Spent section in normal flow */}
+        <View style={styles.heroInnerContainer}>
+          <View
+            style={[
+              styles.spentSection,
+              {
+                paddingTop: Math.max(
+                  Math.round(windowWidth * 0.82) - headerHeight,
+                  16,
+                ),
+              },
+            ]}
+          >
+            <Text style={[styles.periodText, { color: colors.textSecondary }]}>
+              {selectedPeriod.label}
+            </Text>
+            <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
+              Gasto no mês
+            </Text>
+            <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
+              {formatCurrencyBRL(summary?.paidTotal ?? '0')}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Ver resumo do mês"
+              onPress={() => setMonthlySummaryOpen(true)}
+              style={styles.linkRow}
+            >
+              <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
+                Ver resumo &gt;
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </View>
+  ) : undefined;
+
   return (
     <ScreenShell
       withDockClearance
       omitTopSafeArea={embeddedInShell}
+      fullBleedHero={fullBleedHero}
       footer={embeddedInShell ? undefined : <FloatingDock activeTab="home" />}
     >
       {/* Fallback Standalone Header if not embedded in shell */}
@@ -203,22 +309,24 @@ export function HomeScreen({
         </View>
       ) : null}
 
-      {/* Vehicle Selector Dropdown: Besourão ⌄ */}
-      <View style={styles.topSelectorRow}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Veículo selecionado: ${
-            activeVehicle?.nickname ?? 'Selecionar veículo'
-          }`}
-          onPress={() => setVehiclePickerOpen(true)}
-          style={styles.vehicleDropdown}
-        >
-          <Text style={[styles.vehicleDropdownText, { color: colors.textPrimary }]}>
-            {activeVehicle?.nickname ?? 'Selecionar veículo'}
-          </Text>
-          <ChevronDownIcon size={20} color={colors.brandPrimary} />
-        </Pressable>
-      </View>
+      {/* Vehicle Selector Dropdown: Besourão ⌄ (Only in non-integrated mode) */}
+      {!isIntegratedMode ? (
+        <View style={styles.topSelectorRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Veículo selecionado: ${
+              activeVehicle?.nickname ?? 'Selecionar veículo'
+            }`}
+            onPress={() => setVehiclePickerOpen(true)}
+            style={styles.vehicleDropdown}
+          >
+            <Text style={[styles.vehicleDropdownText, { color: colors.textPrimary }]}>
+              {activeVehicle?.nickname ?? 'Selecionar veículo'}
+            </Text>
+            <ChevronDownIcon size={20} color={colors.brandPrimary} />
+          </Pressable>
+        </View>
+      ) : null}
 
       {vehicles.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -251,38 +359,45 @@ export function HomeScreen({
             />
           ) : null}
 
-          {/* Pixel Art Scene: Night road with car and mascot */}
-          <View style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}>
-            <Image
-              source={require('@/assets/brand/scene_night_road.png')}
-              style={styles.sceneImage}
-              resizeMode="cover"
-              accessibilityLabel="Cena noturna com Renault azul e mascote na estrada"
-            />
-          </View>
+          {/* Pixel Art Scene: Night road with car and mascot (Only in non-integrated mode) */}
+          {!isIntegratedMode ? (
+            <>
+              <View
+                style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}
+                pointerEvents="none"
+              >
+                <Image
+                  source={require('@/assets/brand/scene_night_road.png')}
+                  style={styles.sceneImage}
+                  resizeMode="cover"
+                  accessibilityLabel="Cena noturna com Renault azul e mascote na estrada"
+                />
+              </View>
 
-          {/* Month & Spent Section */}
-          <View style={styles.spentSection}>
-            <Text style={[styles.periodText, { color: colors.textSecondary }]}>
-              {selectedPeriod.label}
-            </Text>
-            <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
-              Gasto no mês
-            </Text>
-            <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
-              {formatCurrencyBRL(summary?.paidTotal ?? '0')}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Ver resumo do mês"
-              onPress={() => setMonthlySummaryOpen(true)}
-              style={styles.linkRow}
-            >
-              <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
-                Ver resumo &gt;
-              </Text>
-            </Pressable>
-          </View>
+              {/* Month & Spent Section */}
+              <View style={styles.spentSection}>
+                <Text style={[styles.periodText, { color: colors.textSecondary }]}>
+                  {selectedPeriod.label}
+                </Text>
+                <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
+                  Gasto no mês
+                </Text>
+                <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
+                  {formatCurrencyBRL(summary?.paidTotal ?? '0')}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver resumo do mês"
+                  onPress={() => setMonthlySummaryOpen(true)}
+                  style={styles.linkRow}
+                >
+                  <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
+                    Ver resumo &gt;
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
 
           {/* Section: Último abastecimento */}
           <View style={[styles.latestCard, { borderTopColor: colors.borderSubtle }]}>
@@ -537,6 +652,31 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontSize: 14,
     paddingVertical: 4,
+  },
+  integratedHeroContainer: {
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  integratedHeroImage: {
+    position: 'absolute',
+    left: 0,
+  },
+  heroTailGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  integratedHeroContent: {
+    width: '100%',
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  heroInnerContainer: {
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
+    paddingHorizontal: layout.horizontalPadding,
   },
   sheetList: {
     gap: 10,

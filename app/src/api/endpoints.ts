@@ -9,16 +9,28 @@ import {
   FuelEntryPage,
   FuelType,
   LoginRequest,
+  LoginResult,
   MeResponse,
+  PasswordChangeRequest,
   RegisterRequest,
   RegisteredUser,
   SummaryResponse,
   TankState,
   TokenResponse,
+  TwoFactorDisableRequest,
+  TwoFactorEnableRequest,
+  TwoFactorRecoveryCodes,
+  TwoFactorSetupRequest,
+  TwoFactorSetupResponse,
+  TwoFactorStatus,
+  TwoFactorVerifyRequest,
   UnavailableReason,
+
+  UpdateMeRequest,
   UpdateVehicleRequest,
   UpdateFuelEntryRequest,
   Vehicle,
+  isTwoFactorChallenge,
 } from './types';
 
 export async function registerUser(payload: RegisterRequest): Promise<RegisteredUser> {
@@ -30,9 +42,9 @@ export async function registerUser(payload: RegisterRequest): Promise<Registered
   });
 }
 
-export async function loginUser(payload: LoginRequest): Promise<TokenResponse> {
+export async function loginUser(payload: LoginRequest): Promise<LoginResult> {
   const epochBeforeLogin = getSessionEpoch();
-  const tokens = await apiRequest<TokenResponse>({
+  const result = await apiRequest<LoginResult>({
     method: 'POST',
     path: '/auth/login',
     body: payload,
@@ -45,8 +57,85 @@ export async function loginUser(payload: LoginRequest): Promise<TokenResponse> {
       status: 401,
     });
   }
-  await saveTokenPairAtomically(tokens.access_token, tokens.refresh_token, epochBeforeLogin);
+  if (isTwoFactorChallenge(result)) {
+    return result;
+  }
+  await saveTokenPairAtomically(result.access_token, result.refresh_token, epochBeforeLogin);
+  return result;
+}
+
+export async function verifyTwoFactor(
+  payload: TwoFactorVerifyRequest,
+): Promise<TokenResponse> {
+  const epochBeforeVerify = getSessionEpoch();
+  const tokens = await apiRequest<TokenResponse>({
+    method: 'POST',
+    path: '/auth/2fa/verify',
+    body: payload,
+    authenticated: false,
+    retryOn401: false,
+  });
+  if (getSessionEpoch() !== epochBeforeVerify) {
+    throw new ApiError({
+      message: 'Sessão alterada ou encerrada antes da conclusão do login.',
+      kind: 'unauthorized',
+      status: 401,
+    });
+  }
+  await saveTokenPairAtomically(tokens.access_token, tokens.refresh_token, epochBeforeVerify);
   return tokens;
+}
+
+export async function changePassword(
+  payload: PasswordChangeRequest,
+): Promise<void> {
+  await apiRequest<void>({
+    method: 'POST',
+    path: '/me/password',
+    body: payload,
+    authenticated: true,
+  });
+}
+
+export async function getTwoFactorStatus(): Promise<TwoFactorStatus> {
+  return apiRequest<TwoFactorStatus>({
+    method: 'GET',
+    path: '/me/2fa',
+    authenticated: true,
+  });
+}
+
+export async function setupTwoFactor(
+  payload: TwoFactorSetupRequest,
+): Promise<TwoFactorSetupResponse> {
+  return apiRequest<TwoFactorSetupResponse>({
+    method: 'POST',
+    path: '/me/2fa/setup',
+    body: payload,
+    authenticated: true,
+  });
+}
+
+export async function enableTwoFactor(
+  payload: TwoFactorEnableRequest,
+): Promise<TwoFactorRecoveryCodes> {
+  return apiRequest<TwoFactorRecoveryCodes>({
+    method: 'POST',
+    path: '/me/2fa/enable',
+    body: payload,
+    authenticated: true,
+  });
+}
+
+export async function disableTwoFactor(
+  payload: TwoFactorDisableRequest,
+): Promise<void> {
+  await apiRequest<void>({
+    method: 'POST',
+    path: '/me/2fa/disable',
+    body: payload,
+    authenticated: true,
+  });
 }
 
 export async function refreshSession(): Promise<TokenResponse> {
@@ -66,6 +155,15 @@ export async function getMe(): Promise<MeResponse> {
   return apiRequest<MeResponse>({
     method: 'GET',
     path: '/me',
+  });
+}
+
+export async function updateMe(payload: UpdateMeRequest): Promise<MeResponse> {
+  return apiRequest<MeResponse>({
+    method: 'PATCH',
+    path: '/me',
+    body: payload,
+    authenticated: true,
   });
 }
 
@@ -238,6 +336,7 @@ export const TANK_STATE_SHORT_LABELS: Record<TankState, string> = {
 
 export const UNAVAILABLE_REASON_EXPLANATIONS: Record<
   UnavailableReason,
+
   { badge: string; title: string; description: string }
 > = {
   NEEDS_FULL_TANK_BASELINE: {

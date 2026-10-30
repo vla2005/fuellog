@@ -1,6 +1,5 @@
-import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -8,25 +7,26 @@ import {
   View,
 } from 'react-native';
 
+import { getTwoFactorStatus } from '@/api/endpoints';
+import { TwoFactorStatus } from '@/api/types';
 import { BrandLockup } from '@/components/brand/BrandLockup';
 import { PixelMascot } from '@/components/brand/PixelMascot';
-import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
+  ChevronLeftIcon,
   ChevronRightIcon,
   LockIcon,
   LogOutIcon,
-  ReceiptLogIcon,
-  SettingsIcon,
   SunIcon,
-  UserIcon,
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
-import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
-import { ThemePreference, useAppTheme } from '@/theme/ThemeProvider';
+import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
+
+import { ChangePasswordSheet } from './ChangePasswordSheet';
+import { TwoFactorSheet } from './TwoFactorSheet';
 
 export function SettingsScreen({
   embeddedInShell = false,
@@ -34,13 +34,93 @@ export function SettingsScreen({
   embeddedInShell?: boolean;
 } = {}) {
   const router = useRouter();
-  const { colors, isDark, preference, setPreference } = useAppTheme();
-  const { user, signOut, showToast } = useSession();
+  const { colors, preference, setPreference } = useAppTheme();
+  const { user, signOut, showToast, getCurrentSessionEpoch, isBiometricActive, biometricDeviceInfo, disableBiometricsOnCurrentSession } = useSession();
+  const [disablingBiometrics, setDisablingBiometrics] = useState(false);
+
+  const [activeSection, setActiveSection] = useState<'main' | 'security'>('main');
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [twoFactorOpen, setTwoFactorOpen] = useState(false);
+
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [twoFactorStatus, setTwoFactorStatus] = useState<TwoFactorStatus | null>(null);
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const statusGenRef = useRef(0);
 
   const [signingOut, setSigningOut] = useState(false);
   const [themeSheetOpen, setThemeSheetOpen] = useState(false);
-  const [limitationNotice, setLimitationNotice] = useState<string | null>(null);
-  const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
+
+  const handleTwoFactorStatusChanged = useCallback((enabled: boolean) => {
+    setTwoFactorStatus((curr) =>
+      curr
+        ? { ...curr, enabled }
+        : { enabled, recoveryCodesRemaining: enabled ? 10 : 0 },
+    );
+  }, []);
+
+  const check2FaStatus = useCallback(async (): Promise<TwoFactorStatus | null> => {
+    const epoch = getCurrentSessionEpoch();
+    const reqGen = ++statusGenRef.current;
+    setTwoFactorLoading(true);
+    setTwoFactorError(null);
+    try {
+      const res = await getTwoFactorStatus();
+      if (getCurrentSessionEpoch() === epoch && reqGen === statusGenRef.current) {
+        setTwoFactorStatus(res);
+        setTwoFactorLoading(false);
+      }
+      return res;
+    } catch {
+      if (getCurrentSessionEpoch() === epoch && reqGen === statusGenRef.current) {
+        setTwoFactorError('Não foi possível verificar o status de segurança.');
+        setTwoFactorLoading(false);
+      }
+      return null;
+    }
+  }, [getCurrentSessionEpoch]);
+
+  useEffect(() => {
+    void check2FaStatus();
+  }, [check2FaStatus]);
+
+  const handleOpenChangePassword = async () => {
+    if (twoFactorStatus !== null) {
+      setChangePasswordOpen(true);
+      return;
+    }
+    setTwoFactorLoading(true);
+    const res = await check2FaStatus();
+    if (res !== null) {
+      setChangePasswordOpen(true);
+    } else {
+      showToast({
+        tone: 'danger',
+        title: 'Verificação necessária',
+        subtitle:
+          'Não foi possível verificar status de segurança. Tente novamente antes de trocar a senha.',
+      });
+    }
+  };
+
+  const handleDisableBiometrics = async () => {
+    setDisablingBiometrics(true);
+    try {
+      await disableBiometricsOnCurrentSession();
+      showToast({
+        tone: 'info',
+        title: 'Biometria desativada',
+        subtitle: 'Você pode reativá-la ao fazer login com e-mail e senha.',
+      });
+    } catch {
+      showToast({
+        tone: 'danger',
+        title: 'Erro ao desativar',
+        subtitle: 'Não foi possível desativar a biometria. Tente novamente.',
+      });
+    } finally {
+      setDisablingBiometrics(false);
+    }
+  };
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -78,143 +158,251 @@ export function SettingsScreen({
         </View>
       ) : null}
 
-      <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-        Ajustes
-      </Text>
-
-      {limitationNotice ? (
-        <InlineNotice
-          tone="info"
-          title="Aviso do sistema"
-          message={limitationNotice}
-        />
-      ) : null}
-
-      {/* Account Profile Row (Print 4) */}
-      <View style={styles.profileRow}>
-        <PixelMascot variant="avatar" size={44} withFrame />
-        <View style={styles.profileTextCol}>
-          <Text style={[styles.profileName, { color: colors.textPrimary }]}>
-            {user?.name ?? 'Motorista FuelLog'}
-          </Text>
+      {activeSection === 'security' ? (
+        /* Seção Real de Segurança */
+        <View style={styles.subSectionWrap}>
           <Pressable
-            onPress={() => setLimitationNotice(`Conta vinculada ao e-mail ${user?.email ?? 'do usuário'}. Alteração de dados cadastrais disponível em atualização futura.`)}
-            style={styles.minhaContaBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Voltar para Ajustes"
+            onPress={() => setActiveSection('main')}
+            style={styles.backButtonRow}
           >
-            <Text style={[styles.minhaContaText, { color: colors.brandPrimary }]}>
-              Minha conta &gt;
+            <ChevronLeftIcon size={18} color={colors.brandPrimary} />
+            <Text style={[styles.backButtonText, { color: colors.brandPrimary }]}>
+              Ajustes
             </Text>
           </Pressable>
+
+          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+            Segurança
+          </Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
+            Gerenciamento da sua senha e proteção da conta em duas etapas.
+          </Text>
+
+          <View style={styles.menuList}>
+            {/* Trocar Senha */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Trocar senha"
+              onPress={() => void handleOpenChangePassword()}
+              style={styles.menuItem}
+            >
+              <View style={styles.menuLeftCol}>
+                <LockIcon size={20} color={colors.textPrimary} />
+                <View style={styles.menuTextGroup}>
+                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                    Trocar senha
+                  </Text>
+                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                    {twoFactorLoading
+                      ? 'Verificando requisitos de segurança...'
+                      : twoFactorError
+                        ? 'Toque para verificar status e trocar senha'
+                        : 'Atualize sua senha de acesso periodicamente'}
+                  </Text>
+                </View>
+              </View>
+              <ChevronRightIcon size={18} color={colors.brandPrimary} />
+            </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+            {/* 2FA */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Autenticação em duas etapas"
+              onPress={() => {
+                if (twoFactorError) {
+                  void check2FaStatus();
+                } else {
+                  setTwoFactorOpen(true);
+                }
+              }}
+              style={styles.menuItem}
+            >
+              <View style={styles.menuLeftCol}>
+                <LockIcon size={20} color={colors.textPrimary} />
+                <View style={styles.menuTextGroup}>
+                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                    Autenticação em duas etapas
+                  </Text>
+                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                    {twoFactorLoading
+                      ? 'Verificando status de segurança...'
+                      : twoFactorError
+                        ? 'Não foi possível verificar status • Toque para tentar novamente'
+                        : twoFactorStatus?.enabled
+                          ? 'Ativada • Google Authenticator'
+                          : 'Desativada • Recomendado ativar'}
+                  </Text>
+                </View>
+              </View>
+              <ChevronRightIcon size={18} color={colors.brandPrimary} />
+            </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+            {/* Biometria no aparelho */}
+            <View style={styles.menuItem}>
+              <View style={styles.menuLeftCol}>
+                <LockIcon size={20} color={colors.textPrimary} />
+                <View style={styles.menuTextGroup}>
+                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                    Biometria neste aparelho
+                  </Text>
+                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                    {isBiometricActive
+                      ? `Ativada (${biometricDeviceInfo?.biometricLabel ?? 'Biometria'}) • Desbloqueio rápido neste aparelho`
+                      : biometricDeviceInfo?.isExpoGoIos
+                        ? 'Indisponível no Expo Go • Requer build própria no iOS'
+                        : !biometricDeviceInfo?.isSupported
+                          ? (biometricDeviceInfo?.reasonNotSupported ?? 'Biometria não disponível neste aparelho')
+                          : 'Desativada • Pode ser ativada na tela de login'}
+                  </Text>
+                </View>
+              </View>
+
+              {isBiometricActive ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Desativar biometria neste aparelho"
+                  onPress={handleDisableBiometrics}
+                  disabled={disablingBiometrics}
+                  style={styles.deactivateBtn}
+                >
+                  <Text style={[styles.deactivateBtnText, { color: colors.statusDanger }]}>
+                    {disablingBiometrics ? 'Desativando...' : 'Desativar'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
         </View>
-      </View>
+      ) : (
+        /* Seção Principal de Ajustes */
+        <View>
+          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+            Ajustes
+          </Text>
 
-      <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
-      {/* Menu Options List with Dividers (Print 4) */}
-      <View style={styles.menuList}>
-        {/* Aparência */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Aparência e tema"
-          onPress={() => setThemeSheetOpen(true)}
-          style={styles.menuItem}
-        >
-          <View style={styles.menuLeftCol}>
-            <SunIcon size={20} color={colors.textPrimary} />
-            <View style={styles.menuTextGroup}>
-              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
-                Aparência
+          {/* Account Profile Row (Print 4) */}
+          <View style={styles.profileRow}>
+            <PixelMascot variant="avatar" size={44} withFrame />
+            <View style={styles.profileTextCol}>
+              <Text style={[styles.profileName, { color: colors.textPrimary }]}>
+                {user?.name ?? 'Motorista FuelLog'}
               </Text>
-              <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
-                {themeLabel}
-              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Minha conta"
+                testID="settings-minha-conta-button"
+                onPress={() => router.push('/account')}
+                style={styles.minhaContaBtn}
+              >
+                <Text style={[styles.minhaContaText, { color: colors.brandPrimary }]}>
+                  Minha conta &gt;
+                </Text>
+              </Pressable>
             </View>
           </View>
-          <ChevronRightIcon size={18} color={colors.brandPrimary} />
-        </Pressable>
 
-        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-        {/* Segurança */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Segurança, senha e sessões"
-          onPress={() => setLimitationNotice('Gerenciamento de senhas e sessões ativas estará disponível em atualização futura da API.')}
-          style={styles.menuItem}
-        >
-          <View style={styles.menuLeftCol}>
-            <LockIcon size={20} color={colors.textPrimary} />
-            <View style={styles.menuTextGroup}>
-              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
-                Segurança
-              </Text>
-              <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
-                Senha e sessões
-              </Text>
-            </View>
+          {/* Menu Options List with Dividers (Print 4) */}
+          <View style={styles.menuList}>
+            {/* Aparência */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Aparência e tema"
+              onPress={() => setThemeSheetOpen(true)}
+              style={styles.menuItem}
+            >
+              <View style={styles.menuLeftCol}>
+                <SunIcon size={20} color={colors.textPrimary} />
+                <View style={styles.menuTextGroup}>
+                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                    Aparência
+                  </Text>
+                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                    {themeLabel}
+                  </Text>
+                </View>
+              </View>
+              <ChevronRightIcon size={18} color={colors.brandPrimary} />
+            </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+            {/* Segurança */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Segurança, senha e autenticação em duas etapas"
+              onPress={() => {
+                setActiveSection('security');
+                void check2FaStatus();
+              }}
+              style={styles.menuItem}
+            >
+              <View style={styles.menuLeftCol}>
+                <LockIcon size={20} color={colors.textPrimary} />
+                <View style={styles.menuTextGroup}>
+                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
+                    Segurança
+                  </Text>
+                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
+                    {twoFactorLoading
+                      ? 'Verificando segurança...'
+                      : twoFactorError
+                        ? 'Senha e proteção da conta'
+                        : isBiometricActive
+                          ? `Senha, 2FA ${twoFactorStatus?.enabled ? 'ativo' : 'inativo'} • Biometria ativa`
+                          : twoFactorStatus?.enabled
+                            ? 'Senha e 2FA ativo'
+                            : 'Senha e Google Authenticator'}
+                  </Text>
+                </View>
+              </View>
+              <ChevronRightIcon size={18} color={colors.brandPrimary} />
+            </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+            {/* Sair da conta (Red text & icon) */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sair da conta"
+              onPress={handleSignOut}
+              disabled={signingOut}
+              style={styles.menuItem}
+            >
+              <View style={styles.menuLeftCol}>
+                <LogOutIcon size={20} color={colors.statusDanger} />
+                <Text style={[styles.signOutText, { color: colors.statusDanger }]}>
+                  {signingOut ? 'Saindo...' : 'Sair da conta'}
+                </Text>
+              </View>
+              <ChevronRightIcon size={18} color={colors.statusDanger} />
+            </Pressable>
           </View>
-          <ChevronRightIcon size={18} color={colors.brandPrimary} />
-        </Pressable>
+        </View>
+      )}
 
-        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+      {/* Sheets de Segurança */}
+      <ChangePasswordSheet
+        visible={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+        isTwoFactorEnabled={twoFactorStatus?.enabled ?? false}
+      />
 
-        {/* Privacidade e termos */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Privacidade e termos"
-          onPress={() => setLegalModal('privacy')}
-          style={styles.menuItem}
-        >
-          <View style={styles.menuLeftCol}>
-            <ReceiptLogIcon size={20} color={colors.textPrimary} />
-            <View style={styles.menuTextGroup}>
-              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
-                Privacidade e termos
-              </Text>
-            </View>
-          </View>
-          <ChevronRightIcon size={18} color={colors.brandPrimary} />
-        </Pressable>
-
-        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
-        {/* Sobre o FuelLog */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Sobre o FuelLog"
-          onPress={() => setLimitationNotice('FuelLog v1.0.0 — Gestão eficiente e inteligente de abastecimentos e frotas.')}
-          style={styles.menuItem}
-        >
-          <View style={styles.menuLeftCol}>
-            <SettingsIcon size={20} color={colors.textPrimary} />
-            <View style={styles.menuTextGroup}>
-              <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>
-                Sobre o FuelLog
-              </Text>
-            </View>
-          </View>
-          <ChevronRightIcon size={18} color={colors.brandPrimary} />
-        </Pressable>
-
-        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
-        {/* Sair da conta (Red text & icon) */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Sair da conta"
-          onPress={handleSignOut}
-          disabled={signingOut}
-          style={styles.menuItem}
-        >
-          <View style={styles.menuLeftCol}>
-            <LogOutIcon size={20} color={colors.statusDanger} />
-            <Text style={[styles.signOutText, { color: colors.statusDanger }]}>
-              {signingOut ? 'Saindo...' : 'Sair da conta'}
-            </Text>
-          </View>
-          <ChevronRightIcon size={18} color={colors.statusDanger} />
-        </Pressable>
-      </View>
+      <TwoFactorSheet
+        visible={twoFactorOpen}
+        onClose={() => {
+          setTwoFactorOpen(false);
+          void check2FaStatus();
+        }}
+        onStatusChanged={handleTwoFactorStatusChanged}
+      />
 
       {/* Theme Picker Sheet */}
       <AppSheet
@@ -254,19 +442,6 @@ export function SettingsScreen({
           })}
         </View>
       </AppSheet>
-
-      {/* Legal Modal */}
-      <AppSheet
-        visible={legalModal !== null}
-        title={legalModal === 'terms' ? 'Termos de Uso' : 'Política de Privacidade'}
-        onClose={() => setLegalModal(null)}
-      >
-        <View style={{ paddingVertical: 12, gap: 8 }}>
-          <Text style={[styles.legalText, { color: colors.textSecondary }]}>
-            O FuelLog respeita integralmente a privacidade dos seus dados de abastecimento e frotas, mantendo segredos fora de logs e assegurando controle total ao usuário.
-          </Text>
-        </View>
-      </AppSheet>
     </ScreenShell>
   );
 }
@@ -275,12 +450,31 @@ const styles = StyleSheet.create({
   standaloneHeader: {
     paddingVertical: 8,
   },
+  subSectionWrap: {
+    gap: 8,
+  },
+  backButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    ...typography.bodyStrong,
+    fontSize: 14,
+  },
   screenTitle: {
     ...typography.screenTitle,
     fontSize: 28,
     fontWeight: '800',
-    paddingVertical: 8,
-    marginBottom: 8,
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    ...typography.body,
+    fontSize: 14,
+    marginBottom: 12,
   },
   profileRow: {
     flexDirection: 'row',
@@ -320,9 +514,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    flex: 1,
   },
   menuTextGroup: {
     gap: 2,
+    flex: 1,
   },
   menuItemTitle: {
     ...typography.bodyStrong,
@@ -330,6 +526,19 @@ const styles = StyleSheet.create({
   },
   menuItemSub: {
     ...typography.caption,
+    fontSize: 13,
+  },
+  deactivateBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deactivateBtnText: {
+    ...typography.bodyStrong,
     fontSize: 13,
   },
   signOutText: {
@@ -349,10 +558,5 @@ const styles = StyleSheet.create({
   themeOptionTitle: {
     ...typography.bodyStrong,
     fontSize: 16,
-  },
-  legalText: {
-    ...typography.body,
-    fontSize: 14,
-    lineHeight: 20,
   },
 });

@@ -94,9 +94,13 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   react.default = react;
   class ApiError extends Error { constructor(options) { super(options.message); Object.assign(this, options); } }
   const dependencies = {
-    react, 'react-native': { StyleSheet: { create: styles => styles, absoluteFillObject: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } },
+    react, 'react-native': { StyleSheet: { create: styles => styles, absoluteFill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } },
+      useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
       Platform: { OS: platform, select: map => map?.[platform] ?? map?.default }, Linking: { openURL: async url => { openedUrls.push(url); } }, View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator', Image: 'NativeImage' },
     'react-native-webview': { WebView: 'NativeWebView' },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) },
+    'react-native-svg': { default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop' },
+    '@/assets/brand/scene_day_road_integrated.png': 'IntegratedRoadScene',
     'expo-image': { Image: 'ExpoImage' },
     './AndroidLocationMap': { AndroidLocationMap: 'AndroidLocationMap' },
     'expo-location': {
@@ -119,7 +123,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     '@/api/types': { ApiError }, '@/state/SessionContext': { useSession: () => session },
     '@/api/tokenStorage': { getSessionEpoch: () => 0 },
     '@/theme/ThemeProvider': { useAppTheme: () => ({ colors: {}, isDark: false }) },
-    '@/theme/tokens': { radii: {}, shadows: {}, typography: {} },
+    '@/theme/tokens': { radii: {}, shadows: {}, typography: {}, layout: { horizontalPadding: 20 } },
     '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/location': location, '@/utils/uuid': { generateUuidV4: randomUUID },
   };
   dependencies['./useForegroundLocation'] = {
@@ -835,4 +839,48 @@ test('fechar no X do topo reseta o estado do formulário e limpa o rascunho', as
   assert.equal(h.snapshot.odometerKm, '');
   assert.equal(h.snapshot.manualPaidTotal, '');
   assert.equal(store.has(draftKey('A')), false, 'Rascunho deve ser removido do storage ao fechar');
+});
+
+test('sair por navegacao em NewFuelEntryScreen descarta rascunho e reseta o formulario', async () => {
+  const store = new Map([[draftKey('A'), JSON.stringify({ id: randomUUID(), liters: '35,0', unitPrice: '5,00', odometerKm: '1000' })]]);
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    store,
+  });
+  await h.settle();
+  assert.equal(h.snapshot.liters, '35,0');
+
+  // Abre submodal e gera erro
+  h.snapshot.setVehicleSheetOpen(true);
+  h.snapshot.setErrorMessage('Erro temporário');
+  await h.settle();
+  assert.equal(h.snapshot.vehicleSheetOpen, true);
+  assert.equal(h.snapshot.errorMessage, 'Erro temporário');
+
+  // Aba perde foco / muda rota (isTabActive: false)
+  h.activity.tabActive = false;
+  h.render();
+  await h.settle();
+
+  // Submodais, erros transientes e campos sao descartados e rascunho e removido do storage
+  assert.equal(h.snapshot.liters, '');
+  assert.equal(h.snapshot.vehicleSheetOpen, false);
+  assert.equal(h.snapshot.errorMessage, null);
+  assert.equal(store.has(draftKey('A')), false, 'Rascunho de abastecimento deve ser descartado ao sair por navegacao');
+});
+
+test('minimizar app em NewFuelEntryScreen preserva rascunho', async () => {
+  const store = new Map([[draftKey('A'), JSON.stringify({ id: randomUUID(), liters: '35,0', unitPrice: '5,00', odometerKm: '1000' })]]);
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    store,
+  });
+  await h.settle();
+  assert.equal(h.snapshot.liters, '35,0');
+
+  // App vai para segundo plano (appActive: false, tabActive: true)
+  h.activity.appActive = false;
+  h.render();
+  await h.settle();
+
+  assert.equal(h.snapshot.liters, '35,0');
+  assert.equal(store.has(draftKey('A')), true, 'Rascunho deve ser preservado ao minimizar');
 });

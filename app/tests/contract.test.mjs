@@ -13,6 +13,15 @@ const interfaces = {
   CreateVehicleRequest: 'CreateVehicle', Vehicle: 'Vehicle',
   CreateFuelEntryRequest: 'CreateFuelEntry', FuelEntry: 'FuelEntry', FuelEntryPage: 'FuelEntryPage',
   ConsumptionCycle: 'Cycle', CyclesResponse: 'Cycles', SummaryResponse: 'Summary',
+  PasswordChangeRequest: 'PasswordChange',
+  TwoFactorStatus: 'TwoFactorStatus',
+  TwoFactorSetupRequest: 'TwoFactorSetup',
+  TwoFactorSetupResponse: 'TwoFactorSetupResponse',
+  TwoFactorEnableRequest: 'TwoFactorEnable',
+  TwoFactorRecoveryCodes: 'TwoFactorRecoveryCodes',
+  TwoFactorDisableRequest: 'TwoFactorDisable',
+  TwoFactorChallenge: 'TwoFactorChallenge',
+  TwoFactorVerifyRequest: 'TwoFactorVerify',
 };
 
 for (const [interfaceName, schemaName] of Object.entries(interfaces)) {

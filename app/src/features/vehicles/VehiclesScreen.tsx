@@ -4,8 +4,11 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { FUEL_TYPE_SHORT_LABELS } from '@/api/endpoints';
 import { BrandLockup } from '@/components/brand/BrandLockup';
@@ -18,7 +21,7 @@ import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { radii, typography } from '@/theme/tokens';
+import { layout, radii, typography } from '@/theme/tokens';
 
 import { VehicleFormSheet } from './VehicleFormSheet';
 
@@ -27,7 +30,7 @@ export function VehiclesScreen({
 }: {
   embeddedInShell?: boolean;
 } = {}) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const { vehicles, activeVehicle, selectVehicle, showToast } = useSession();
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -37,10 +40,63 @@ export function VehiclesScreen({
     ? activeVehicle.allowedFuels.map((f) => FUEL_TYPE_SHORT_LABELS[f] ?? f).join(' e ')
     : 'Nenhum';
 
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const headerHeight = insets.top + 56;
+  const totalImageHeight = Math.round(windowWidth * (1355 / 1161));
+  const heroHeight = Math.max(totalImageHeight - headerHeight, 260);
+  const isIntegratedMode = !isDark;
+
+  const fullBleedHero = isIntegratedMode ? (
+    <View style={[styles.integratedHeroContainer, { height: heroHeight }]}>
+      <Image
+        source={require('@/assets/brand/scene_garage_day_integrated.png')}
+        style={[
+          styles.integratedHeroImage,
+          {
+            width: windowWidth,
+            height: totalImageHeight,
+            top: -headerHeight,
+          },
+        ]}
+        resizeMode="cover"
+        pointerEvents="none"
+        accessibilityLabel="Garagem diurna com carro azul e mascote"
+      />
+
+      {/* SVG Gradient over empty floor at bottom */}
+      <Svg
+        height={72}
+        width="100%"
+        style={styles.heroTailGradient}
+        pointerEvents="none"
+      >
+        <Defs>
+          <LinearGradient id="garageTailGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity="0" />
+            <Stop offset="0.65" stopColor={colors.bgPrimary} stopOpacity="0.6" />
+            <Stop offset="1" stopColor={colors.bgPrimary} stopOpacity="1" />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height={72} fill="url(#garageTailGrad)" />
+      </Svg>
+
+      {/* Title: Meus veículos over the sky */}
+      <View style={styles.integratedHeroContent} pointerEvents="box-none">
+        <View style={styles.heroInnerContainer}>
+          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+            Meus veículos
+          </Text>
+        </View>
+      </View>
+    </View>
+  ) : undefined;
+
   return (
     <ScreenShell
       withDockClearance
       omitTopSafeArea={embeddedInShell}
+      fullBleedHero={fullBleedHero}
       footer={embeddedInShell ? undefined : <FloatingDock activeTab="vehicles" />}
     >
       {!embeddedInShell ? (
@@ -49,19 +105,26 @@ export function VehiclesScreen({
         </View>
       ) : null}
 
-      <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-        Meus veículos
-      </Text>
+      {!isIntegratedMode ? (
+        <>
+          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+            Meus veículos
+          </Text>
 
-      {/* Garage scene with car and mascot (Print 2) */}
-      <View style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}>
-        <Image
-          source={require('@/assets/brand/scene_garage.png')}
-          style={styles.sceneImage}
-          resizeMode="cover"
-          accessibilityLabel="Garagem com carro azul e mascote"
-        />
-      </View>
+          {/* Garage scene with car and mascot (Print 2) */}
+          <View
+            style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}
+            pointerEvents="none"
+          >
+            <Image
+              source={require('@/assets/brand/scene_garage.png')}
+              style={styles.sceneImage}
+              resizeMode="cover"
+              accessibilityLabel="Garagem com carro azul e mascote"
+            />
+          </View>
+        </>
+      ) : null}
 
       {vehicles.length === 0 ? (
         <EmptyState
@@ -223,6 +286,31 @@ const styles = StyleSheet.create({
   sceneImage: {
     width: '100%',
     height: '100%',
+  },
+  integratedHeroContainer: {
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  integratedHeroImage: {
+    position: 'absolute',
+    left: 0,
+  },
+  heroTailGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  integratedHeroContent: {
+    ...StyleSheet.absoluteFill,
+    paddingTop: 8,
+  },
+  heroInnerContainer: {
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
+    paddingHorizontal: layout.horizontalPadding,
   },
   activeVehicleCard: {
     gap: 8,

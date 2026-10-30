@@ -35,6 +35,13 @@ export interface RegisteredUser {
   email: string;
 }
 
+export interface UpdateMeRequest {
+  name: string;
+  email: string;
+  currentPassword?: string;
+  secondFactorCode?: string;
+}
+
 export interface MeResponse {
   id: string;
   name: string;
@@ -226,4 +233,60 @@ export class ApiError extends Error {
     this.problem = options.problem;
     this.isUncertainWrite = Boolean(options.isUncertainWrite);
   }
+}
+
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+  secondFactorCode?: string;
+}
+
+export interface TwoFactorStatus {
+  enabled: boolean;
+  recoveryCodesRemaining: number;
+}
+
+export interface TwoFactorSetupRequest {
+  currentPassword: string;
+}
+
+export interface TwoFactorSetupResponse {
+  secret: string;
+  otpauthUri: string;
+  expiresAt: string;
+}
+
+export interface TwoFactorEnableRequest {
+  code: string;
+}
+
+export interface TwoFactorRecoveryCodes {
+  recoveryCodes: string[];
+}
+
+export interface TwoFactorDisableRequest {
+  currentPassword: string;
+  code: string;
+}
+
+export interface TwoFactorChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export interface TwoFactorVerifyRequest {
+  challengeToken: string;
+  code: string;
+}
+
+export type LoginResult = TokenResponse | TwoFactorChallenge;
+
+export function isTwoFactorChallenge(result: unknown): result is TwoFactorChallenge {
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    'mfaRequired' in result &&
+    (result as TwoFactorChallenge).mfaRequired === true
+  );
 }

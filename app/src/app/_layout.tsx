@@ -84,6 +84,7 @@ function NavigationGuardShell() {
         <Stack.Screen name="history" />
         <Stack.Screen name="vehicles" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="account" />
         <Stack.Screen name="fueling/new" />
         <Stack.Screen name="fueling/[entryId]" />
       </Stack>

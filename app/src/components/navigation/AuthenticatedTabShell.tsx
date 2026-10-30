@@ -3,16 +3,19 @@ import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   BackHandler,
+  Image,
   Platform,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandLockup } from '@/components/brand/BrandLockup';
 import { SettingsIcon } from '@/components/icons/AppIcons';
 import { PixelMascot } from '@/components/brand/PixelMascot';
+import { AccountScreen } from '@/features/account/AccountScreen';
 import { NewFuelEntryScreen } from '@/features/fueling/NewFuelEntryScreen';
 import { FuelEntryDetailScreen } from '@/features/history/FuelEntryDetailScreen';
 import { HistoryScreen } from '@/features/history/HistoryScreen';
@@ -31,7 +34,8 @@ export type AuthenticatedViewKey =
   | 'vehicles'
   | 'settings'
   | 'fueling-new'
-  | 'fueling-detail';
+  | 'fueling-detail'
+  | 'account';
 
 const VIEW_ORDER: Record<AuthenticatedViewKey, number> = {
   home: 0,
@@ -40,6 +44,7 @@ const VIEW_ORDER: Record<AuthenticatedViewKey, number> = {
   settings: 3,
   'fueling-new': 4,
   'fueling-detail': 5,
+  account: 6,
 };
 
 export interface ResolvedAuthenticatedRoute {
@@ -70,6 +75,9 @@ export function resolveAuthenticatedRoute(
   if (pathname === '/vehicles' || pathname.startsWith('/vehicles/')) {
     return { view: 'vehicles', tab: 'vehicles', detailEntryId: null };
   }
+  if (pathname === '/account' || pathname.startsWith('/account/')) {
+    return { view: 'account', tab: null, detailEntryId: null };
+  }
   if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     return { view: 'settings', tab: 'settings', detailEntryId: null };
   }
@@ -81,7 +89,9 @@ export const TabActiveContext = React.createContext<boolean>(true);
 export function AuthenticatedTabShell() {
   const router = useRouter();
   const pathname = usePathname();
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { reduceMotion, shouldAnimate, duration, easing } = useMotionPolicy();
 
   const resolved = resolveAuthenticatedRoute(pathname);
@@ -92,7 +102,12 @@ export function AuthenticatedTabShell() {
     lastDockTabRef.current = resolved.tab;
   }
   const activeDockTab = lastDockTabRef.current;
-  const isFocusedFlow = resolved.view === 'fueling-new' || resolved.view === 'fueling-detail';
+  const isFocusedFlow =
+    resolved.view === 'fueling-new' ||
+    resolved.view === 'fueling-detail' ||
+    resolved.view === 'account';
+  const isIntegratedScreen =
+    !isDark && (resolved.view === 'home' || resolved.view === 'vehicles');
 
   const visitedViewsRef = useRef<Set<AuthenticatedViewKey>>(
     new Set([resolved.view]),
@@ -195,13 +210,18 @@ export function AuthenticatedTabShell() {
       const current = resolveAuthenticatedRoute(pathname);
       if (
         current.view === 'fueling-new' ||
-        current.view === 'fueling-detail'
+        current.view === 'fueling-detail' ||
+        current.view === 'account'
       ) {
         if (router.canGoBack()) {
           router.back();
         } else {
           router.replace(
-            current.view === 'fueling-detail' ? '/history' : '/',
+            current.view === 'fueling-detail'
+            ? '/history'
+            : current.view === 'account'
+              ? '/settings'
+              : '/',
           );
         }
         return true;
@@ -225,23 +245,50 @@ export function AuthenticatedTabShell() {
       {!isFocusedFlow ? (
         <SafeAreaView
           edges={['top', 'left', 'right']}
-          style={[styles.headerSafe, { backgroundColor: colors.bgPrimary }]}
+          style={[
+            styles.headerSafe,
+            {
+              backgroundColor: isIntegratedScreen
+                ? 'transparent'
+                : colors.bgPrimary,
+            },
+          ]}
         >
+          {isIntegratedScreen ? (
+            <View style={styles.headerImageSlice} pointerEvents="none">
+              <Image
+                source={
+                  resolved.view === 'vehicles'
+                    ? require('@/assets/brand/scene_garage_day_integrated.png')
+                    : require('@/assets/brand/scene_day_road_integrated.png')
+                }
+                style={{
+                  width: windowWidth,
+                  height: Math.round(windowWidth * (1355 / 1161)),
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                }}
+                resizeMode="cover"
+              />
+            </View>
+          ) : null}
           <View style={styles.headerContainer}>
             <View style={styles.headerInner}>
               <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Ajustes"
+                accessibilityLabel="Minha conta"
+                testID="header-avatar-button"
                 onPress={() => {
-                  if (pathname !== '/settings') {
-                    router.replace('/settings');
+                  if (pathname !== '/account') {
+                    router.push('/account');
                   }
                 }}
                 style={styles.headerMascotButton}
               >
-                <SettingsIcon size={24} color={colors.brandPrimary} />
+                <PixelMascot variant="avatar" size={32} withFrame />
               </Pressable>
             </View>
           </View>
@@ -294,6 +341,14 @@ export function AuthenticatedTabShell() {
               embeddedInShell
               entryIdOverride={lastDetailEntryIdRef.current}
             />
+
+          </TabPane>
+        ) : null}
+
+        {visitedViewsRef.current.has('account') ? (
+          <TabPane active={resolved.view === 'account'}>
+            <AccountScreen embeddedInShell />
+
           </TabPane>
         ) : null}
       </Animated.View>
@@ -343,6 +398,11 @@ const styles = StyleSheet.create({
   },
   headerSafe: {
     zIndex: 30,
+    overflow: 'hidden',
+  },
+  headerImageSlice: {
+    ...StyleSheet.absoluteFill,
+    overflow: 'hidden',
   },
   headerContainer: {
     paddingHorizontal: layout.horizontalPadding,

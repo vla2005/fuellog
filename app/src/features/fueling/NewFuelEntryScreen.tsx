@@ -186,13 +186,6 @@ export function NewFuelEntryScreen({
     }
   }, [isScreenActive, resetLocation]);
 
-  // Limpa o bloqueio pós-salvamento quando a tela fica inativa na TabShell
-  useEffect(() => {
-    if (!isTabActive) {
-      isNavigatingHomeRef.current = false;
-    }
-  }, [isTabActive]);
-
   // Habilita captura automática apenas após a restauração do escopo coincidir com user + vehicle
   // e impede reinício imediato após salvar e navegar para Home
   useEffect(() => {
@@ -338,11 +331,27 @@ export function NewFuelEntryScreen({
     setUncertainPendingPayload(null);
     setErrorMessage(null);
     setFieldErrors({});
+    setVehicleSheetOpen(false);
+    setDateTimeSheetOpen(false);
+    setCreateVehicleOpen(false);
 
     if (expectedScopeKey) {
       void AsyncStorage.removeItem(expectedScopeKey).catch(() => {});
     }
   }, [activeVehicle?.allowedFuels, defaultTimezone, expectedScopeKey, resetLocation]);
+
+  // Descarta edição, fecha submodais e cancela restauração quando a tela for fechada por navegação
+  const prevTabActiveRef = useRef(isTabActive);
+  useEffect(() => {
+    const wasActive = prevTabActiveRef.current;
+    prevTabActiveRef.current = isTabActive;
+
+    if (wasActive && !isTabActive) {
+      isNavigatingHomeRef.current = false;
+      restoreSeqRef.current += 1;
+      resetFormState();
+    }
+  }, [isTabActive, resetFormState]);
 
   const handleClose = useCallback(() => {
     isNavigatingHomeRef.current = true;
@@ -357,7 +366,7 @@ export function NewFuelEntryScreen({
   // Salva rascunho somente quando o escopo restaurado coincide exatamente com userId + vehicleId atuais
   useEffect(() => {
     if (!user || !activeVehicle) return;
-    if (isNavigatingHomeRef.current) return;
+    if (isNavigatingHomeRef.current || !isTabActive) return;
     const key = getDraftStorageKey(user.id, activeVehicle.id);
     if (restoredScopeKey !== key || restoredScopeKeyRef.current !== key) {
       return;
