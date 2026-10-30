@@ -156,7 +156,12 @@ export function useForegroundLocation({
         setStatus('requesting_permission');
         let permResult: Location.LocationPermissionResponse;
         try {
-          permResult = await Location.requestForegroundPermissionsAsync();
+          permResult = await Location.getForegroundPermissionsAsync();
+          if (!isMountedRef.current || seq !== requestSeqRef.current) return null;
+          // Reabrir o pedido já concedido pode pausar a Activity e invalidar a captura.
+          if (!permResult.granted && permResult.canAskAgain) {
+            permResult = await Location.requestForegroundPermissionsAsync();
+          }
         } catch {
           if (isMountedRef.current && seq === requestSeqRef.current) {
             setStatus('error');

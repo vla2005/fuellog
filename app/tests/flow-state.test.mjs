@@ -131,6 +131,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     'expo-location': {
       Accuracy: { Balanced: 3 },
       hasServicesEnabledAsync: async () => true,
+      getForegroundPermissionsAsync: async () => ({ granted: false, canAskAgain: true }),
       requestForegroundPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
       getCurrentPositionAsync: async () => ({ coords: { latitude: -23.55052, longitude: -46.633308 } }),
       ...gps,
@@ -534,6 +535,78 @@ test('GPS negado, desligado ou indisponível bloqueia o handler real sem perder 
     assert.equal(calls.length, 0);
     assert.equal(h.snapshot.liters, '35');
     assert.ok(h.snapshot.errorMessage);
+  }
+});
+
+test('GPS com permissão concedida não reabre o pedido nativo nem reinicia captura', async context => {
+  let prompts = 0;
+  let captures = 0;
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    gps: {
+      getForegroundPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
+      requestForegroundPermissionsAsync: async () => {
+        if (++prompts === 1) {
+          h.activity.appActive = false; h.render(); await new Promise(resolve => setImmediate(resolve));
+          h.activity.appActive = true; h.render();
+        }
+        return { granted: true, canAskAgain: true };
+      },
+      getCurrentPositionAsync: async () => { captures++; return { coords: { latitude: 1, longitude: 2 } }; },
+    },
+  });
+  await h.settle();
+  context.after(() => h.unmount());
+  assert.equal(prompts, 0, 'Permissão concedida não deve abrir uma Activity de permissão que invalida a captura');
+  assert.equal(captures, 1);
+  assert.equal(h.snapshot.locationStatus, 'ready');
+  h.unmount();
+});
+
+test('primeira concessão GPS retoma uma única captura após voltar do pedido nativo', async context => {
+  let granted = false;
+  let prompts = 0;
+  let captures = 0;
+  const h = mount('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', {
+    gps: {
+      getForegroundPermissionsAsync: async () => ({ granted, canAskAgain: true }),
+      requestForegroundPermissionsAsync: async () => {
+        if (++prompts > 1) return { granted: true, canAskAgain: true };
+        h.activity.appActive = false; h.render(); await new Promise(resolve => setImmediate(resolve));
+        granted = true;
+        h.activity.appActive = true; h.render();
+        return { granted: true, canAskAgain: true };
+      },
+      getCurrentPositionAsync: async () => { captures++; return { coords: { latitude: 1, longitude: 2 } }; },
+    },
+  });
+  await h.settle();
+  context.after(() => h.unmount());
+  assert.equal(prompts, 1);
+  assert.equal(captures, 1);
+  assert.equal(h.snapshot.locationStatus, 'ready');
+  h.unmount();
+});
+
+test('GPS não solicita permissão após reset durante consulta nem após bloqueio definitivo', async () => {
+  for (const resetDuringCheck of [true, false]) {
+    const permission = deferred();
+    let prompts = 0;
+    const h = mount('features/fueling/useForegroundLocation.ts', 'useForegroundLocation', {
+      observableReturn: false,
+      gps: {
+        getForegroundPermissionsAsync: () => permission.promise,
+        requestForegroundPermissionsAsync: async () => { prompts++; return { granted: true, canAskAgain: true }; },
+      },
+    });
+    const request = h.snapshot.requestLocation(); await h.settle();
+    if (resetDuringCheck) h.snapshot.resetLocation();
+    permission.resolve({ granted: false, canAskAgain: !resetDuringCheck ? false : true });
+    await request; await h.settle();
+    assert.equal(prompts, 0);
+    assert.equal(h.snapshot.coordinates, null);
+    assert.equal(h.snapshot.status, resetDuringCheck ? 'idle' : 'permission_denied');
+    if (!resetDuringCheck) assert.equal(h.snapshot.canAskAgain, false);
+    h.unmount();
   }
 });
 
