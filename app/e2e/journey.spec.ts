@@ -34,8 +34,10 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
   await expect(page.getByLabel(`Trocar veículo ativo. Atual: ${vehicle}`, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
   await expect(page).toHaveURL(/\/fueling\/new$/);
-  await page.getByLabel('Litros abastecidos', { exact: true }).fill('10,1');
+  await page.getByLabel('Valor pago', { exact: true }).fill('54,84');
   await page.getByLabel('Preço por litro', { exact: true }).fill('5,43');
+  await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+  await page.getByLabel('Litros calculados', { exact: true }).fill('10,100');
   await page.getByLabel('Hodômetro atual (km inteiro)', { exact: true }).fill('1000');
   await expect(page.getByRole('button', { name: 'Recapturar localização atual', exact: true })).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Tanque cheio', exact: true })).toHaveCount(0);
@@ -50,7 +52,7 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
   await page.getByRole('button', { name: 'Salvar abastecimento', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Reenviar abastecimento com mesmo ID', exact: true });
   await expect(retry).toBeVisible();
-  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('10,1');
+  await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toContainText('10,100');
   await expect(page.getByLabel('Hodômetro atual (km inteiro)', { exact: true })).toHaveValue('1000');
   await page.unroute(failureRoute);
   const saved = page.waitForResponse(response => response.request().method() === 'POST' && /\/fuel-entries$/.test(response.url()));
@@ -59,12 +61,12 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual(uncertainPayload);
   const persisted = await response.json();
-  expect(persisted).toMatchObject({ liters: '10.1', unitPrice: '5.43', paidTotal: '54.84',
+  expect(persisted).toMatchObject({ liters: '10.100', unitPrice: '5.43', paidTotal: '54.84',
     latitude: -23.55052, longitude: -46.633308, tankState: 'UNKNOWN', historyGapBefore: false,
     stationName: null, notes: null });
   await expect(page).toHaveURL(/\/\/?$/);
   await page.getByRole('tab', { name: 'Histórico', exact: true }).click();
-  await page.getByRole('button', { name: /^Abastecimento de R\$ 54,84 em / }).click();
+  await page.getByRole('button', { name: /^Abastecimento de R\$ 54,84, Gasolina comum, em / }).click();
   await expect(page).toHaveURL(/\/fueling\/[0-9a-f-]+$/);
   await expect(page.getByText('Litros', { exact: true }).filter({ visible: true })).toBeVisible();
   const readBack = await page.request.get(`${new URL(response.url()).origin}/api/v1/vehicles/${persisted.vehicleId}/fuel-entries/${persisted.id}`, {

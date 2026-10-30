@@ -63,14 +63,57 @@ import {
   isValidCoordinate,
 } from '@/utils/location';
 import { generateUuidV4 } from '@/utils/uuid';
+import {
+  calculateLitersFromPaidAndPrice,
+  calculateReferenceTotalCents,
+  isConsistentWithoutDiscount,
+  validateDiscountAmounts,
+} from './fuelingCalculations';
 import { useForegroundLocation } from './useForegroundLocation';
+
+function formatDigitsToDisplay3(digits: string): string {
+  if (!digits) return '';
+  const clean = digits.replace(/\D/g, '').replace(/^0+/, '') || '0';
+  const padded = clean.padStart(4, '0');
+  const intPart = padded.slice(0, padded.length - 3);
+  const fracPart = padded.slice(padded.length - 3);
+  return `${intPart},${fracPart}`;
+}
+
+function parseInputToDigits3(raw: string): string | null {
+  if (!raw) return '';
+  const clean = raw.replace(/[^\d,.]/g, '').trim();
+  if (!clean) return '';
+  const parsed = parsePositiveDecimalInput(clean, 3);
+  if (!parsed.valid || !parsed.normalizedDot) return null;
+  const parts = parsed.normalizedDot.split('.');
+  const intPart = parts[0];
+  const fracPart = (parts[1] ?? '').padEnd(3, '0');
+  return (intPart + fracPart).replace(/^0+/, '') || '0';
+}
+
+function sanitizeUnitPriceInput(raw: string): string {
+  if (!raw) return '';
+  const converted = raw.replace(/\./g, ',');
+  const filtered = converted.replace(/[^\d,]/g, '');
+  const parts = filtered.split(',');
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  const intPart = parts[0];
+  const fracPart = parts.slice(1).join('').slice(0, 4);
+  return `${intPart},${fracPart}`;
+}
 
 interface FuelEntryDraft {
   id: string;
   liters: string;
   unitPrice: string;
+  paidTotal: string;
   manualPaidTotal: string;
   isManualPaidTotal: boolean;
+  isDiscountActive?: boolean;
+  isLitersManuallyOverridden?: boolean;
   adjustmentReason: string;
   odometerKm: string;
   dateStr: string;
@@ -121,8 +164,18 @@ export function NewFuelEntryScreen({
   const [entryId, setEntryId] = useState<string>(() => generateUuidV4());
   const [liters, setLiters] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
+  const [paidTotal, setPaidTotal] = useState('');
   const [manualPaidTotal, setManualPaidTotal] = useState('');
   const [isManualPaidTotal, setIsManualPaidTotal] = useState(false);
+  const [isDiscountActive, setIsDiscountActive] = useState(false);
+  const [isLitersManuallyOverridden, setIsLitersManuallyOverridden] = useState(false);
+  const [isEditingLiters, setIsEditingLiters] = useState(false);
+  const paidTotalRef = useRef('');
+  const unitPriceRef = useRef('');
+  const isDiscountActiveRef = useRef(false);
+  const isLitersManuallyOverriddenRef = useRef(false);
+  const adjustmentReasonRef = useRef('');
+  const savedAdjustmentReasonRef = useRef('');
   const [adjustmentReason, setAdjustmentReason] = useState('');
   const [odometerKm, setOdometerKm] = useState('');
   const [dateStr, setDateStr] = useState(() => formatLocalDateInput(now));
@@ -170,6 +223,12 @@ export function NewFuelEntryScreen({
       setFuelType(activeVehicle.allowedFuels[0] ?? null);
     }
   }, [activeVehicle, fuelType]);
+
+  useEffect(() => {
+    if (adjustmentReason.trim() && adjustmentReason.trim() !== 'Desconto') {
+      savedAdjustmentReasonRef.current = adjustmentReason.trim();
+    }
+  }, [adjustmentReason]);
 
   const expectedScopeKey =
     user && activeVehicle
@@ -225,8 +284,17 @@ export function NewFuelEntryScreen({
     setEntryId(generateUuidV4());
     setLiters('');
     setUnitPrice('');
+    setPaidTotal('');
     setManualPaidTotal('');
     setIsManualPaidTotal(false);
+    setIsDiscountActive(false);
+    setIsLitersManuallyOverridden(false);
+    setIsEditingLiters(false);
+    paidTotalRef.current = '';
+    unitPriceRef.current = '';
+    isDiscountActiveRef.current = false;
+    isLitersManuallyOverriddenRef.current = false;
+    adjustmentReasonRef.current = '';
     setAdjustmentReason('');
     setOdometerKm('');
     setDateStr(formatLocalDateInput(freshNow));
@@ -252,15 +320,52 @@ export function NewFuelEntryScreen({
             const parsed = JSON.parse(raw) as Partial<FuelEntryDraft>;
             if (parsed.id) setEntryId(parsed.id);
             if (typeof parsed.liters === 'string') setLiters(parsed.liters);
-            if (typeof parsed.unitPrice === 'string') setUnitPrice(parsed.unitPrice);
+            if (typeof parsed.unitPrice === 'string') {
+              setUnitPrice(parsed.unitPrice);
+              unitPriceRef.current = parsed.unitPrice;
+            }
+            if (typeof parsed.paidTotal === 'string') {
+              setPaidTotal(parsed.paidTotal);
+              paidTotalRef.current = parsed.paidTotal;
+            } else if (typeof parsed.manualPaidTotal === 'string' && parsed.manualPaidTotal) {
+              setPaidTotal(parsed.manualPaidTotal);
+              paidTotalRef.current = parsed.manualPaidTotal;
+            } else if (
+              typeof parsed.liters === 'string' &&
+              typeof parsed.unitPrice === 'string' &&
+              parsed.liters &&
+              parsed.unitPrice
+            ) {
+              const ref = calculateReferenceTotal(parsed.liters, parsed.unitPrice);
+              if (ref) {
+                setPaidTotal(ref);
+                paidTotalRef.current = ref;
+              }
+            }
             if (typeof parsed.manualPaidTotal === 'string') {
               setManualPaidTotal(parsed.manualPaidTotal);
             }
             if (typeof parsed.isManualPaidTotal === 'boolean') {
               setIsManualPaidTotal(parsed.isManualPaidTotal);
+              setIsDiscountActive(parsed.isManualPaidTotal);
+              isDiscountActiveRef.current = parsed.isManualPaidTotal;
+            }
+            if (typeof parsed.isDiscountActive === 'boolean') {
+              setIsDiscountActive(parsed.isDiscountActive);
+              isDiscountActiveRef.current = parsed.isDiscountActive;
+              setIsManualPaidTotal(parsed.isDiscountActive);
+            }
+            if (typeof parsed.isLitersManuallyOverridden === 'boolean') {
+              setIsLitersManuallyOverridden(parsed.isLitersManuallyOverridden);
+              isLitersManuallyOverriddenRef.current = parsed.isLitersManuallyOverridden;
+            } else if (typeof parsed.liters === 'string' && parsed.liters.trim() !== '') {
+              setIsLitersManuallyOverridden(true);
+              isLitersManuallyOverriddenRef.current = true;
             }
             if (typeof parsed.adjustmentReason === 'string') {
               setAdjustmentReason(parsed.adjustmentReason);
+              adjustmentReasonRef.current = parsed.adjustmentReason;
+              savedAdjustmentReasonRef.current = parsed.adjustmentReason;
             }
             if (typeof parsed.odometerKm === 'string') setOdometerKm(parsed.odometerKm);
             if (typeof parsed.dateStr === 'string') setDateStr(parsed.dateStr);
@@ -319,8 +424,17 @@ export function NewFuelEntryScreen({
     setEntryId(generateUuidV4());
     setLiters('');
     setUnitPrice('');
+    setPaidTotal('');
     setManualPaidTotal('');
     setIsManualPaidTotal(false);
+    setIsDiscountActive(false);
+    setIsLitersManuallyOverridden(false);
+    setIsEditingLiters(false);
+    paidTotalRef.current = '';
+    unitPriceRef.current = '';
+    isDiscountActiveRef.current = false;
+    isLitersManuallyOverriddenRef.current = false;
+    adjustmentReasonRef.current = '';
     setAdjustmentReason('');
     setOdometerKm('');
     setDateStr(formatLocalDateInput(freshNow));
@@ -363,6 +477,35 @@ export function NewFuelEntryScreen({
     }
   }, [resetFormState, router]);
 
+  const referenceTotalDot = useMemo(
+    () => calculateReferenceTotal(liters, unitPrice),
+    [liters, unitPrice],
+  );
+
+  const hasDiscount = isDiscountActive || isManualPaidTotal;
+
+  // Real payment strictly tracked in state: empty is respected and never falls back to calculated values
+  const effectivePaidTotalInput = paidTotal;
+
+  const adjustmentInfo = useMemo(
+    () => calculateAdjustment(effectivePaidTotalInput, referenceTotalDot),
+    [effectivePaidTotalInput, referenceTotalDot],
+  );
+
+  const displayLiters = useMemo(() => {
+    if (!liters) return '0,000';
+    const parsedDigits = parseInputToDigits3(liters);
+    if (parsedDigits !== null) {
+      return formatDigitsToDisplay3(parsedDigits);
+    }
+    return liters;
+  }, [liters]);
+
+  const parsedOccurredAtIso = useMemo(
+    () => parseLocalDateTimeToIso(dateStr, timeStr),
+    [dateStr, timeStr],
+  );
+
   // Salva rascunho somente quando o escopo restaurado coincide exatamente com userId + vehicleId atuais
   useEffect(() => {
     if (!user || !activeVehicle) return;
@@ -375,6 +518,7 @@ export function NewFuelEntryScreen({
     const hasContent =
       Boolean(liters) ||
       Boolean(unitPrice) ||
+      Boolean(paidTotal) ||
       Boolean(manualPaidTotal) ||
       Boolean(odometerKm) ||
       Boolean(adjustmentReason) ||
@@ -389,8 +533,11 @@ export function NewFuelEntryScreen({
       id: entryId,
       liters,
       unitPrice,
-      manualPaidTotal,
-      isManualPaidTotal,
+      paidTotal: effectivePaidTotalInput,
+      manualPaidTotal: effectivePaidTotalInput,
+      isManualPaidTotal: hasDiscount,
+      isDiscountActive: hasDiscount,
+      isLitersManuallyOverridden,
       adjustmentReason,
       odometerKm,
       dateStr,
@@ -407,12 +554,16 @@ export function NewFuelEntryScreen({
     adjustmentReason,
     coordinates,
     dateStr,
+    effectivePaidTotalInput,
     entryId,
     fuelType,
-    isManualPaidTotal,
+    hasDiscount,
+    isLitersManuallyOverridden,
+    isTabActive,
     liters,
     manualPaidTotal,
     odometerKm,
+    paidTotal,
     restoredScopeKey,
     timeStr,
     timezone,
@@ -421,38 +572,60 @@ export function NewFuelEntryScreen({
     user,
   ]);
 
-  const referenceTotalDot = useMemo(
-    () => calculateReferenceTotal(liters, unitPrice),
-    [liters, unitPrice],
-  );
-
-  const effectivePaidTotalInput = isManualPaidTotal
-    ? manualPaidTotal
-    : referenceTotalDot ?? '';
-
-  const adjustmentInfo = useMemo(
-    () => calculateAdjustment(effectivePaidTotalInput, referenceTotalDot),
-    [effectivePaidTotalInput, referenceTotalDot],
-  );
-
-  const parsedOccurredAtIso = useMemo(
-    () => parseLocalDateTimeToIso(dateStr, timeStr),
-    [dateStr, timeStr],
-  );
-
   const isLockedForUncertainRetry = uncertainPendingPayload !== null;
 
-  const handleToggleManualPaid = () => {
-    if (isLockedForUncertainRetry) return;
-    if (!isManualPaidTotal) {
-      if (referenceTotalDot) {
-        setManualPaidTotal(referenceTotalDot.replace('.', ','));
+  const handlePaidTotalChange = (text: string) => {
+    paidTotalRef.current = text;
+    setPaidTotal(text);
+    setManualPaidTotal(text);
+    if (!isLitersManuallyOverriddenRef.current && !isDiscountActiveRef.current) {
+      const calc = calculateLitersFromPaidAndPrice(text, unitPriceRef.current);
+      if (calc) {
+        setLiters(calc.formattedDisplay);
       }
-      setIsManualPaidTotal(true);
-    } else {
-      setIsManualPaidTotal(false);
-      setManualPaidTotal('');
     }
+  };
+
+  const handleUnitPriceChange = (rawText: string) => {
+    const text = sanitizeUnitPriceInput(rawText);
+    unitPriceRef.current = text;
+    setUnitPrice(text);
+    if (!isLitersManuallyOverriddenRef.current && !isDiscountActiveRef.current) {
+      const calc = calculateLitersFromPaidAndPrice(paidTotalRef.current, text);
+      if (calc) {
+        setLiters(calc.formattedDisplay);
+      }
+    }
+  };
+
+  const handleLitersChange = (text: string) => {
+    isLitersManuallyOverriddenRef.current = true;
+    setIsLitersManuallyOverridden(true);
+    setLiters(text);
+  };
+
+  const handleToggleDiscount = () => {
+    if (isLockedForUncertainRetry) return;
+    const next = !isDiscountActiveRef.current;
+    isDiscountActiveRef.current = next;
+    setIsDiscountActive(next);
+    setIsManualPaidTotal(next);
+    if (!next) {
+      const currentReason = adjustmentReason.trim() || adjustmentReasonRef.current.trim();
+      if (currentReason) {
+        savedAdjustmentReasonRef.current = currentReason;
+      }
+      adjustmentReasonRef.current = '';
+      setAdjustmentReason('');
+    } else {
+      const reasonToRestore = savedAdjustmentReasonRef.current || 'Desconto';
+      adjustmentReasonRef.current = reasonToRestore;
+      setAdjustmentReason(reasonToRestore);
+    }
+  };
+
+  const handleToggleManualPaid = () => {
+    handleToggleDiscount();
   };
 
   const handleResetUncertainLock = () => {
@@ -489,21 +662,26 @@ export function NewFuelEntryScreen({
     } else {
       const nextErrors: Record<string, string> = {};
 
-      const parsedLiters = parsePositiveDecimalInput(liters, 1);
+      const parsedLiters = parsePositiveDecimalInput(liters, 3);
       if (!parsedLiters.valid || !parsedLiters.normalizedDot) {
         nextErrors.liters =
           parsedLiters.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Máximo de 1 casa decimal para litros.'
+            ? 'Máximo de 3 casas decimais para litros.'
             : parsedLiters.errorReason === 'NON_POSITIVE'
               ? 'Informe um volume maior que zero.'
               : 'Informe os litros.';
+      } else if (!hasDiscount) {
+        if (!isConsistentWithoutDiscount(liters, unitPrice, effectivePaidTotalInput)) {
+          nextErrors.liters =
+            'Litros inconsistentes com valor pago e preço por litro. Marque desconto se aplicável.';
+        }
       }
 
-      const parsedUnitPrice = parsePositiveDecimalInput(unitPrice, 2);
+      const parsedUnitPrice = parsePositiveDecimalInput(unitPrice, 4);
       if (!parsedUnitPrice.valid || !parsedUnitPrice.normalizedDot) {
         nextErrors.unitPrice =
           parsedUnitPrice.errorReason === 'EXCESSIVE_SCALE'
-            ? 'Máximo de 2 casas decimais para o preço.'
+            ? 'Máximo de 4 casas decimais para o preço.'
             : parsedUnitPrice.errorReason === 'NON_POSITIVE'
               ? 'Informe um preço maior que zero.'
               : 'Informe o preço por litro.';
@@ -517,6 +695,26 @@ export function NewFuelEntryScreen({
             : parsedPaid.errorReason === 'NON_POSITIVE'
               ? 'Informe um valor maior que zero.'
               : 'Informe o valor pago.';
+      } else if (hasDiscount) {
+        const discountCheck = validateDiscountAmounts(
+          liters,
+          unitPrice,
+          effectivePaidTotalInput,
+        );
+        if (!discountCheck.valid && discountCheck.errorReason === 'OVERPRICED') {
+          nextErrors.paidTotal =
+            'Com desconto, o valor pago não pode superar o valor de referência.';
+        }
+      }
+
+      if (
+        isManualPaidTotal &&
+        !isDiscountActive &&
+        adjustmentInfo.requiresReason &&
+        !adjustmentReason.trim()
+      ) {
+        nextErrors.adjustmentReason =
+          'Diferença acima de R$ 0,05 exige justificativa.';
       }
 
       const cleanOdometer = odometerKm.trim();
@@ -535,11 +733,9 @@ export function NewFuelEntryScreen({
           'Este combustível não é permitido para o veículo selecionado.';
       }
 
-      const cleanReason = adjustmentReason.trim();
-      if (adjustmentInfo.requiresReason && !cleanReason) {
-        nextErrors.adjustmentReason =
-          'Diferença acima de R$ 0,05 exige justificativa.';
-      }
+      const cleanReason = hasDiscount
+        ? (adjustmentReason.trim() || 'Desconto')
+        : null;
 
       if (Object.keys(nextErrors).length > 0) {
         setFieldErrors(nextErrors);
@@ -571,7 +767,7 @@ export function NewFuelEntryScreen({
         longitude: coordinates.longitude,
         tankState: 'UNKNOWN',
         historyGapBefore: false,
-        adjustmentReason: cleanReason || null,
+        adjustmentReason: cleanReason,
         stationName: null,
         notes: null,
       };
@@ -783,56 +979,52 @@ export function NewFuelEntryScreen({
             ) : null}
           </View>
 
-          {/* 2-Column Inputs: Litros & Preço por litro (campos principais) */}
+          {/* 2-Column Inputs: Valor pago & Preço por litro (lado a lado) */}
           <View style={styles.twoColRow}>
+            {/* Left: Valor pago */}
             <View style={styles.col}>
               <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
-                Litros
+                Valor pago
               </Text>
               <View
                 style={[
                   styles.decimalBox,
                   {
                     backgroundColor: surfaceBg,
-                    borderColor: fieldErrors.liters
+                    borderColor: fieldErrors.paidTotal
                       ? colors.dangerBorder
-                      : litersFocused
+                      : manualPaidFocused
                         ? focusBorderColor
                         : surfaceBorder,
                   },
                 ]}
               >
-                <FixedScaleInput
-                  accessibilityLabel="Litros abastecidos"
-                  value={liters}
-                  onChangeText={setLiters}
-                  onFocus={() => setLitersFocused(true)}
-                  onBlur={() => setLitersFocused(false)}
-                  scale={1}
-                  editable={!isLockedForUncertainRetry}
-                  placeholder="0,0"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.decimalInput, { color: colors.textPrimary }]}
-                />
-                <View
-                  style={[
-                    styles.affixDivider,
-                    { backgroundColor: surfaceBorder },
-                  ]}
-                />
                 <Text
                   style={[styles.affixText, { color: colors.textSecondary }]}
                 >
-                  L
+                  R$
                 </Text>
+                <FixedScaleInput
+                  accessibilityLabel="Valor pago"
+                  value={paidTotal}
+                  onChangeText={handlePaidTotalChange}
+                  onFocus={() => setManualPaidFocused(true)}
+                  onBlur={() => setManualPaidFocused(false)}
+                  scale={2}
+                  editable={!isLockedForUncertainRetry}
+                  placeholder="0,00"
+                  placeholderTextColor={colors.textMuted}
+                  style={[styles.decimalInput, { color: colors.textPrimary }]}
+                />
               </View>
-              {fieldErrors.liters ? (
+              {fieldErrors.paidTotal ? (
                 <Text style={[styles.errorText, { color: colors.dangerText }]}>
-                  {fieldErrors.liters}
+                  {fieldErrors.paidTotal}
                 </Text>
               ) : null}
             </View>
 
+            {/* Right: Preço por litro */}
             <View style={styles.col}>
               <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
                 Preço por litro
@@ -855,13 +1047,13 @@ export function NewFuelEntryScreen({
                 >
                   R$
                 </Text>
-                <FixedScaleInput
+                <TextInput
                   accessibilityLabel="Preço por litro"
                   value={unitPrice}
-                  onChangeText={setUnitPrice}
+                  onChangeText={handleUnitPriceChange}
                   onFocus={() => setUnitPriceFocused(true)}
                   onBlur={() => setUnitPriceFocused(false)}
-                  scale={2}
+                  keyboardType="decimal-pad"
                   editable={!isLockedForUncertainRetry}
                   placeholder="0,00"
                   placeholderTextColor={colors.textMuted}
@@ -876,162 +1068,183 @@ export function NewFuelEntryScreen({
             </View>
           </View>
 
-          {/* Valor pago logo abaixo menor e editável em caso de desconto */}
+          {/* Checkbox Desconto acima de litros */}
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: hasDiscount }}
+            aria-checked={hasDiscount}
+            accessibilityLabel="Houve desconto no abastecimento"
+            disabled={isLockedForUncertainRetry}
+            onPress={handleToggleDiscount}
+            style={styles.discountCheckboxRow}
+          >
+            <View
+              style={[
+                styles.checkboxBox,
+                {
+                  borderColor: hasDiscount
+                    ? (isDark ? colors.borderFocus : colors.brandPrimary)
+                    : colors.borderDefault,
+                  backgroundColor: hasDiscount
+                    ? (isDark ? colors.borderFocus : colors.brandPrimary)
+                    : 'transparent',
+                },
+              ]}
+            >
+              {hasDiscount ? (
+                <CheckIcon size={13} color="#FFFFFF" />
+              ) : null}
+            </View>
+            <Text
+              style={[styles.discountCheckboxLabel, { color: colors.textPrimary }]}
+            >
+              Houve desconto no abastecimento
+            </Text>
+          </Pressable>
+
+          {/* Card estável: Litros calculados */}
           <View
             style={[
-              styles.paidCompactCard,
+              styles.calculatedCard,
               {
-                backgroundColor: surfaceBg,
-                borderColor: fieldErrors.paidTotal
+                backgroundColor: isDark ? colors.accentSoft : colors.brandSoft,
+                borderColor: fieldErrors.liters
                   ? colors.dangerBorder
-                  : manualPaidFocused
+                  : litersFocused
                     ? focusBorderColor
                     : surfaceBorder,
               },
-              isDark ? shadows.darkCard : shadows.lightCard,
             ]}
           >
-            <View style={styles.paidCompactRow}>
-              <View style={styles.paidCompactLeft}>
-                <Text style={[styles.paidCompactLabel, { color: colors.textSecondary }]}>
-                  {isManualPaidTotal
-                    ? 'Valor pago (desconto / ajuste manual)'
-                    : 'Valor pago'}
-                </Text>
+            <Text
+              style={[
+                styles.calculatedCardHeader,
+                { color: colors.textSecondary },
+              ]}
+            >
+              Litros calculados
+            </Text>
 
-                {isManualPaidTotal ? (
-                  <View style={styles.manualPaidInputRow}>
-                    <Text
-                      style={[
-                        styles.manualCurrencyPrefix,
-                        { color: colors.textPrimary },
-                      ]}
-                    >
-                      R$
-                    </Text>
+            <View style={styles.calculatedNumberContainer}>
+              <View style={styles.calculatedRow}>
+                <Pressable
+                  accessible={!isEditingLiters}
+                  accessibilityRole={isEditingLiters ? undefined : 'button'}
+                  accessibilityLabel={
+                    isEditingLiters
+                      ? undefined
+                      : `Litros calculados: ${displayLiters} L. Toque para editar`
+                  }
+                  disabled={isLockedForUncertainRetry}
+                  onPress={
+                    isEditingLiters || isLockedForUncertainRetry
+                      ? undefined
+                      : () => {
+                          isLitersManuallyOverriddenRef.current = true;
+                          setIsLitersManuallyOverridden(true);
+                          setIsEditingLiters(true);
+                        }
+                  }
+                  style={styles.calculatedNumberSlot}
+                >
+                  {/* Medidor natural da geometria tipográfica: sempre no fluxo */}
+                  <Text
+                    aria-hidden={isEditingLiters}
+                    accessibilityElementsHidden={isEditingLiters}
+                    importantForAccessibility={isEditingLiters ? 'no-hide-descendants' : 'auto'}
+                    style={[
+                      styles.calculatedNumberText,
+                      { color: colors.textPrimary },
+                      isEditingLiters ? styles.measurerHidden : null,
+                    ]}
+                  >
+                    {displayLiters}
+                  </Text>
+
+                  {/* Input absoluto sobreposto com exata correspondência métrica */}
+                  {isEditingLiters ? (
                     <FixedScaleInput
-                      accessibilityLabel="Valor total pago"
-                      value={manualPaidTotal}
-                      onChangeText={setManualPaidTotal}
-                      onFocus={() => setManualPaidFocused(true)}
-                      onBlur={() => setManualPaidFocused(false)}
-                      scale={2}
+                      accessibilityLabel="Litros calculados"
+                      value={liters}
+                      onChangeText={handleLitersChange}
+                      onFocus={() => setLitersFocused(true)}
+                      onBlur={() => {
+                        setLitersFocused(false);
+                        setIsEditingLiters(false);
+                      }}
+                      scale={3}
                       editable={!isLockedForUncertainRetry}
-                      placeholder="0,00"
+                      placeholder="0,000"
                       placeholderTextColor={colors.textMuted}
                       style={[
-                        styles.manualPaidInput,
+                        styles.calculatedNumberInputAbsolute,
                         { color: colors.textPrimary },
                       ]}
+                      autoFocus
                     />
-                  </View>
-                ) : (
-                  <Text
-                    style={[
-                      styles.paidCompactDisplay,
-                      { color: colors.textPrimary },
-                    ]}
-                    accessibilityLabel={`Valor total pago calculado: ${formatCurrencyBRL(
-                      referenceTotalDot ?? '0.00',
-                    )}`}
-                  >
-                    {formatCurrencyBRL(referenceTotalDot ?? '0.00')}
-                  </Text>
-                )}
+                  ) : null}
+                </Pressable>
 
                 <Text
-                  style={[styles.referenceText, { color: colors.textSecondary }]}
+                  style={[
+                    styles.calculatedUnitText,
+                    { color: colors.textPrimary },
+                  ]}
                 >
-                  {adjustmentInfo.adjustmentDot &&
-                  adjustmentInfo.diffCents !== 0n
-                    ? `Ref. ${formatCurrencyBRL(
-                        referenceTotalDot ?? '0.00',
-                      )} • Ajuste ${formatCurrencyBRL(
-                        adjustmentInfo.adjustmentDot,
-                      )}`
-                    : 'Calculado por litros × preço'}
+                  {' '}L
                 </Text>
               </View>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isManualPaidTotal
-                    ? 'Usar valor calculado automaticamente'
-                    : 'Editar valor total pago manualmente'
-                }
-                disabled={isLockedForUncertainRetry}
-                onPress={handleToggleManualPaid}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={[
-                  styles.editPaidCompactButton,
-                  {
-                    backgroundColor: colors.brandSoft,
-                  },
-                ]}
-              >
-                {isManualPaidTotal ? (
-                  <CheckIcon
-                    size={18}
-                    color={isDark ? colors.borderFocus : colors.brandPrimary}
-                  />
-                ) : (
-                  <PencilIcon
-                    size={16}
-                    color={isDark ? colors.borderFocus : colors.brandPrimary}
-                  />
-                )}
-              </Pressable>
             </View>
 
-            {fieldErrors.paidTotal ? (
-              <Text style={[styles.errorText, { color: colors.dangerText }]}>
-                {fieldErrors.paidTotal}
-              </Text>
-            ) : null}
+            <Text
+              style={[
+                styles.calculatedCardSub,
+                { color: colors.textSecondary },
+              ]}
+            >
+              Calculado pelo valor pago ÷ preço por litro
+            </Text>
           </View>
+          {fieldErrors.liters ? (
+            <Text style={[styles.errorText, { color: colors.dangerText }]}>
+              {fieldErrors.liters}
+            </Text>
+          ) : null}
 
-          {/* Conditional Adjustment Reason when abs(paidTotal - referenceTotal) > 0.05 */}
-          {adjustmentInfo.requiresReason || isManualPaidTotal ? (
+          {/* Conditional Adjustment Reason if discount is active */}
+          {hasDiscount ? (
             <View
               style={[
                 styles.adjustmentCard,
                 {
-                  backgroundColor: adjustmentInfo.requiresReason
-                    ? colors.warningSoft
-                    : surfaceBg,
+                  backgroundColor: surfaceBg,
                   borderColor: fieldErrors.adjustmentReason
                     ? colors.dangerBorder
                     : adjustmentFocused
                       ? focusBorderColor
-                      : adjustmentInfo.requiresReason
-                        ? colors.warningBorder
-                        : surfaceBorder,
+                      : surfaceBorder,
                 },
               ]}
             >
               <Text
                 style={[
                   styles.adjustmentLabel,
-                  {
-                    color: adjustmentInfo.requiresReason
-                      ? colors.warningText
-                      : colors.textSecondary,
-                  },
+                  { color: colors.textSecondary },
                 ]}
               >
-                {adjustmentInfo.requiresReason
-                  ? 'Justificativa do ajuste (obrigatória para diferença > R$ 0,05) *'
-                  : 'Motivo do ajuste no valor pago (opcional até R$ 0,05)'}
+                Motivo do desconto (opcional)
               </Text>
               <TextInput
-                accessibilityLabel="Justificativa do ajuste"
+                accessibilityLabel="Motivo do desconto"
                 value={adjustmentReason}
-                onChangeText={setAdjustmentReason}
+                onChangeText={(text) => {
+                  adjustmentReasonRef.current = text;
+                  setAdjustmentReason(text);
+                }}
                 onFocus={() => setAdjustmentFocused(true)}
                 onBlur={() => setAdjustmentFocused(false)}
                 editable={!isLockedForUncertainRetry}
-                placeholder="Ex: Desconto no app do posto ou arredondamento na bomba"
+                placeholder="Ex: Desconto app do posto ou bomba"
                 placeholderTextColor={colors.textMuted}
                 maxLength={300}
                 style={[
@@ -1563,6 +1776,124 @@ const styles = StyleSheet.create({
   fuelRadioText: {
     ...typography.bodyStrong,
     fontSize: 14,
+  },
+  discountCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+    marginVertical: 2,
+  },
+  checkboxBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discountCheckboxLabel: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  calculatedCard: {
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 4,
+    overflow: 'hidden',
+  },
+  calculatedCardHeader: {
+    ...typography.caption,
+    fontSize: 13,
+  },
+  calculatedNumberContainer: {
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    marginVertical: 2,
+    overflow: 'hidden',
+  },
+  calculatedRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    minHeight: 48,
+    maxWidth: '100%',
+  },
+  calculatedNumberSlot: {
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'baseline',
+  },
+  measurerHidden: {
+    opacity: 0,
+  },
+  calculatedDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    minHeight: 48,
+  },
+  calculatedInputRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    minHeight: 48,
+  },
+  calculatedNumberText: {
+    ...typography.heroValue,
+    fontSize: 32,
+    fontWeight: '700',
+    lineHeight: 38,
+    includeFontPadding: false,
+  },
+  calculatedNumberInput: {
+    ...typography.heroValue,
+    fontSize: 32,
+    fontWeight: '700',
+    lineHeight: 38,
+    includeFontPadding: false,
+    padding: 0,
+    margin: 0,
+    textAlign: 'left',
+  },
+  calculatedNumberInputAbsolute: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    ...typography.heroValue,
+    fontSize: 32,
+    fontWeight: '700',
+    lineHeight: 38,
+    includeFontPadding: false,
+    padding: 0,
+    margin: 0,
+    textAlign: 'left',
+    minWidth: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none',
+        outlineWidth: 0,
+      } as any,
+    }),
+  },
+  calculatedUnitText: {
+    ...typography.bodyStrong,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 30,
+    marginLeft: 4,
+    flexShrink: 0,
+  },
+  calculatedCardSub: {
+    ...typography.caption,
+    fontSize: 13,
+    marginTop: 2,
   },
   paidCompactCard: {
     borderRadius: radii.lg,

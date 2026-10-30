@@ -470,7 +470,7 @@ test.describe('Fluxos de Segurança Frontend (Mocks Identificados)', () => {
     await page.setViewportSize({ width: 320, height: 640 });
     await page.goto('/settings');
     await page.getByRole('button', { name: /Segurança/ }).click();
-    await expect(page.getByText('Segurança')).toBeVisible();
+    await expect(page.getByText('Segurança', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Trocar senha' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Autenticação em duas etapas' })).toBeVisible();
 
@@ -478,7 +478,7 @@ test.describe('Fluxos de Segurança Frontend (Mocks Identificados)', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/settings');
     await page.getByRole('button', { name: /Segurança/ }).click();
-    await expect(page.getByText('Segurança')).toBeVisible();
+    await expect(page.getByText('Segurança', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Voltar para Ajustes' }).click();
     await expect(page.getByText('Aparência')).toBeVisible();
   });

@@ -1,10 +1,10 @@
 import { test, expect, Page, Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-import { createAccount, createVehicle } from './api-fixtures';
+import { apiURL, createAccount, createVehicle } from './api-fixtures';
 
-// Proxy Playwright para API real localhost:8080 viabiliza testes sem alterar CORS nem interceptar produção
-test.beforeEach(async ({ page }) => {
-  await page.route('http://localhost:8080/**', async (route) => {
+// Proxy Playwright para a API configurada viabiliza testes sem alterar CORS.
+test.beforeEach(async ({ page, baseURL }) => {
+  await page.route(`${new URL(apiURL).origin}/**`, async (route) => {
     if (route.request().method() === 'OPTIONS') {
       await route.fulfill({
         status: 204,
@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => {
     const response = await route.fetch({
       headers: {
         ...route.request().headers(),
-        origin: 'http://localhost:8081',
+        origin: new URL(baseURL ?? 'http://localhost:8081').origin,
       },
     });
     await route.fulfill({
@@ -75,7 +75,7 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   page,
   request,
 }) => {
-  // 1. Cria conta e veículo com enums reais via API real 8080
+  // 1. Cria conta e veículo com enums reais na API configurada.
   const account = await createAccount(request);
   await createVehicle(request, account.headers, 'Civic Flex E2E');
 
@@ -109,66 +109,71 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   await gasRadio.click();
   await expect(gasRadio).toBeChecked();
 
-  // 5. Verificação visual de layout: Litros e Preço lado a lado e acima do valor pago
-  const litrosInput = page.getByLabel('Litros abastecidos', { exact: true });
+  // 5. Valor efetivamente pago e preço compartilham a linha acima do volume.
+  const paidManualInput = page.getByLabel('Valor pago', { exact: true });
   const precoInput = page.getByLabel('Preço por litro', { exact: true });
-  const litrosContainer = litrosInput.locator('xpath=..');
+  const paidManualContainer = paidManualInput.locator('xpath=..');
   const precoContainer = precoInput.locator('xpath=..');
 
-  await expect(litrosInput).toBeVisible();
+  await expect(paidManualInput).toBeVisible();
   await expect(precoInput).toBeVisible();
 
-  const litrosBox = await litrosInput.boundingBox();
+  const paidBox = await paidManualInput.boundingBox();
   const precoBox = await precoInput.boundingBox();
-  expect(litrosBox).not.toBeNull();
+  expect(paidBox).not.toBeNull();
   expect(precoBox).not.toBeNull();
 
   // Devem estar lado a lado (mesmo nível vertical aproximado)
-  expect(Math.abs(litrosBox!.y - precoBox!.y)).toBeLessThan(15);
-  // Litros à esquerda do preço
-  expect(litrosBox!.x).toBeLessThan(precoBox!.x);
+  expect(Math.abs(paidBox!.y - precoBox!.y)).toBeLessThan(15);
+  // Pagamento à esquerda do preço
+  expect(paidBox!.x).toBeLessThan(precoBox!.x);
 
-  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros inicial');
+  await assertInputWithinSurfaceAndViewport(page, paidManualInput, paidManualContainer, 390, 'Pagamento inicial');
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço inicial');
 
-  // 6. Digitação sequencial em Litros (1 casa decimal): 351 deve exibir 35,1
-  await litrosInput.click();
+  // 6. Pagamento usa máscara reversa de centavos; o preço aceita a tarifa decimal.
+  await paidManualInput.pressSequentially('15343', { delay: 20 });
+  await expect(paidManualInput).toHaveValue('153,43');
+  await precoInput.fill('4,58');
+  const litersDisplay = page.getByRole('button', { name: /^Litros calculados:/ });
+  await expect(litersDisplay).toContainText('33,500');
+  const litersCard = page.getByText('Litros calculados', { exact: true }).locator('xpath=..');
+  const cardBeforeFocus = await litersCard.boundingBox();
+  await litersDisplay.click();
+  const litrosInput = page.getByLabel('Litros calculados', { exact: true });
+  const litrosContainer = litrosInput.locator('xpath=..');
+  await expect(litrosInput).toHaveValue('33,500');
+  await expect(litrosInput).toBeEnabled();
+  expect(await litersCard.boundingBox()).toEqual(cardBeforeFocus);
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros focado');
-  await litrosInput.pressSequentially('351', { delay: 30 });
-  await expect(litrosInput).toHaveValue('35,1');
-  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros após digitar 351');
+  await litrosInput.fill('');
+  await litrosInput.pressSequentially('35000', { delay: 20 });
+  await expect(litrosInput).toHaveValue('35,000');
+  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros após digitar 35000');
 
   // Backspace apaga o último dígito
   await litrosInput.press('Backspace');
-  await expect(litrosInput).toHaveValue('3,5');
+  await expect(litrosInput).toHaveValue('3,500');
 
-  // Redigita 1 -> volta a 35,1
-  await litrosInput.press('1');
-  await expect(litrosInput).toHaveValue('35,1');
-  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros restaurado 35,1');
+  // Redigita 0 e restaura o volume manual, sem recalcular o pagamento.
+  await litrosInput.press('0');
+  await expect(litrosInput).toHaveValue('35,000');
+  await expect(paidManualInput).toHaveValue('153,43');
+  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 390, 'Litros restaurado 35,000');
 
-  // 7. Digitação sequencial no Preço por litro (2 casas decimais): 543 deve exibir 5,43
+  // 7. A tarifa preserva quatro casas, inclusive após o override do volume.
   await precoInput.click();
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço focado');
-  await precoInput.pressSequentially('543', { delay: 30 });
-  await expect(precoInput).toHaveValue('5,43');
-  await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço após digitar 543');
+  await precoInput.fill('6,1234');
+  await expect(precoInput).toHaveValue('6,1234');
+  await expect(litersDisplay).toContainText('35,000');
+  await expect(paidManualInput).toHaveValue('153,43');
+  await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 390, 'Preço com quatro casas');
 
-  // 8. Valor pago calculado automaticamente: 35.1 * 5.43 = 190.59 (HALF_UP)
-  await expect(
-    page.getByLabel(/^Valor total pago calculado: R\$ 190,59/),
-  ).toBeVisible();
-
-  // 9. Edição do valor pago para aplicar desconto de R$ 180,00
-  const editPaidBtn = page.getByRole('button', {
-    name: 'Editar valor total pago manualmente',
-    exact: true,
-  });
-  await editPaidBtn.click();
-
-  const paidManualInput = page.getByLabel('Valor total pago', { exact: true });
-  const paidManualContainer = paidManualInput.locator('xpath=..');
-  await expect(paidManualInput).toBeVisible();
+  // 8. Checkbox declara desconto; pago e volume continuam independentes.
+  const discount = page.getByRole('checkbox', { name: 'Houve desconto no abastecimento' });
+  await discount.click();
+  await expect(discount).toBeChecked();
 
   await paidManualInput.click();
   await assertInputWithinSurfaceAndViewport(page, paidManualInput, paidManualContainer, 390, 'Valor manual focado');
@@ -176,12 +181,22 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   await page.keyboard.press('Backspace');
   await paidManualInput.pressSequentially('18000', { delay: 30 });
   await expect(paidManualInput).toHaveValue('180,00');
+  await expect(litersDisplay).toContainText('35,000');
   await assertInputWithinSurfaceAndViewport(page, paidManualInput, paidManualContainer, 390, 'Valor manual após digitar 18000');
 
-  // Diferença de R$ 10,59 > R$ 0,05 exige justificativa
-  const reasonInput = page.getByLabel('Justificativa do ajuste', { exact: true });
+  // A checkbox fornece motivo padrão; um motivo personalizado continua preservado.
+  const reasonInput = page.getByLabel('Motivo do desconto', { exact: true });
   await expect(reasonInput).toBeVisible();
+  await expect(reasonInput).toHaveValue('Desconto');
   await reasonInput.fill('Desconto concedido na bomba');
+  await discount.click();
+  await expect(discount).not.toBeChecked();
+  await expect(reasonInput).toBeHidden();
+  await expect(paidManualInput).toHaveValue('180,00');
+  await expect(litersDisplay).toContainText('35,000');
+  await discount.click();
+  await expect(discount).toBeChecked();
+  await expect(reasonInput).toHaveValue('Desconto concedido na bomba');
 
   // 10. Hodômetro inteiro km escala 0: digitar 120542
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)', { exact: true });
@@ -225,8 +240,8 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   const payload = savedResponse.request().postDataJSON();
   expect(payload).toMatchObject({
     fuelType: 'GASOLINE_REGULAR',
-    liters: '35.1',
-    unitPrice: '5.43',
+    liters: '35.000',
+    unitPrice: '6.1234',
     paidTotal: '180.00',
     odometerKm: 120542,
     adjustmentReason: 'Desconto concedido na bomba',
@@ -237,14 +252,16 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   // 13. Verifica que o formulário foi resetado após o envio
   await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
   await expect(page).toHaveURL(/\/fueling\/new$/);
-  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toContainText('0,000');
+  await expect(page.getByLabel('Valor pago', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Preço por litro', { exact: true })).toHaveValue('');
 
   // 14. Digita valor e clica no X do topo (Fechar) -> deve resetar o estado e limpar rascunho
-  const litrosField = page.getByLabel('Litros abastecidos', { exact: true });
+  await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+  const litrosField = page.getByLabel('Litros calculados', { exact: true });
   await litrosField.click();
-  await litrosField.pressSequentially('200', { delay: 20 });
-  await expect(litrosField).toHaveValue('20,0');
+  await litrosField.pressSequentially('20000', { delay: 20 });
+  await expect(litrosField).toHaveValue('20,000');
 
   await page.getByRole('button', { name: 'Fechar', exact: true }).click();
   await expect(page).toHaveURL(/\/\/?$/);
@@ -252,7 +269,7 @@ test('formulário de abastecimento real: radios, máscaras, cálculo, desconto e
   // Reabre e confirma que voltou limpo sem resquício
   await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
   await expect(page).toHaveURL(/\/fueling\/new$/);
-  await expect(page.getByLabel('Litros abastecidos', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toContainText('0,000');
 });
 
 test('responsividade do formulário a 320px no modo escuro sem overflow', async ({
@@ -274,27 +291,34 @@ test('responsividade do formulário a 320px no modo escuro sem overflow', async 
   await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
   await expect(page).toHaveURL(/\/fueling\/new$/);
 
-  const litrosInput = page.getByLabel('Litros abastecidos', { exact: true });
+  const paidInput = page.getByLabel('Valor pago', { exact: true });
   const precoInput = page.getByLabel('Preço por litro', { exact: true });
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)', { exact: true });
-  const litrosContainer = litrosInput.locator('xpath=..');
+  const paidContainer = paidInput.locator('xpath=..');
   const precoContainer = precoInput.locator('xpath=..');
   const odoContainer = odoInput.locator('xpath=..');
 
-  await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 320, '320px Litros inicial');
+  await assertInputWithinSurfaceAndViewport(page, paidInput, paidContainer, 320, '320px Pagamento inicial');
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 320, '320px Preço inicial');
 
   // Digita dados para verificar legibilidade e dimensões
-  await litrosInput.click();
+  await paidInput.pressSequentially('15343', { delay: 20 });
+  await expect(paidInput).toHaveValue('153,43');
+  await precoInput.fill('4,58');
+  await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+  const litrosInput = page.getByLabel('Litros calculados', { exact: true });
+  const litrosContainer = litrosInput.locator('xpath=..');
+  await expect(litrosInput).toBeEnabled();
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 320, '320px Litros focado');
-  await litrosInput.pressSequentially('351', { delay: 20 });
-  await expect(litrosInput).toHaveValue('35,1');
+  await litrosInput.fill('');
+  await litrosInput.pressSequentially('35000', { delay: 20 });
+  await expect(litrosInput).toHaveValue('35,000');
   await assertInputWithinSurfaceAndViewport(page, litrosInput, litrosContainer, 320, '320px Litros digitado');
 
   await precoInput.click();
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 320, '320px Preço focado');
-  await precoInput.pressSequentially('543', { delay: 20 });
-  await expect(precoInput).toHaveValue('5,43');
+  await precoInput.fill('6,1234');
+  await expect(precoInput).toHaveValue('6,1234');
   await assertInputWithinSurfaceAndViewport(page, precoInput, precoContainer, 320, '320px Preço digitado');
 
   await odoInput.click();
@@ -318,6 +342,7 @@ test('responsividade do formulário a 320px no modo escuro sem overflow', async 
   }
   await page.evaluate(() => window.scrollTo(0, 0));
 
+  await mkdir('test-results/qa', { recursive: true });
   await page.screenshot({
     path: 'test-results/qa/fueling-form-320px-dark.png',
     fullPage: true,

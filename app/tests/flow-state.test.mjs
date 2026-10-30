@@ -44,9 +44,27 @@ function loadUtility(name) {
   return module.exports;
 }
 
+function loadFeatureModule(relativePath, dependencies, clock = globalThis) {
+  const path = new URL(`../src/${relativePath}`, import.meta.url);
+  const source = ts.createSourceFile(path.pathname, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const output = ts.transpileModule(source.text, {
+    fileName: path.pathname,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', output)(specifier => {
+    if (Object.hasOwn(dependencies, specifier)) return dependencies[specifier];
+    if (specifier === '../../utils/decimal' || specifier === '@/utils/decimal') return dependencies['@/utils/decimal'];
+    if (specifier === '../../utils/numericMask' || specifier === '@/utils/numericMask') return dependencies['@/utils/numericMask'];
+    throw Error(`Unmapped dependency: ${specifier}`);
+  }, module, module.exports, clock.setTimeout.bind(clock), clock.clearTimeout.bind(clock));
+  return module.exports;
+}
+
 const date = loadUtility('date');
 const decimal = loadUtility('decimal');
 const location = loadUtility('location');
+const numericMask = loadUtility('numericMask');
 const vehicle = id => ({ id, nickname: id, allowedFuels: ['ETHANOL'], brand: null, model: null, plate: null });
 const period = { from: '2026-10-01', to: '2026-10-31', label: 'Outubro 2026', monthKey: '2026-10' };
 const draftKey = id => `fuellog.draft.fuel_entry.v1.user.${id}`;
@@ -125,7 +143,10 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     '@/theme/ThemeProvider': { useAppTheme: () => ({ colors: {}, isDark: false }) },
     '@/theme/tokens': { radii: {}, shadows: {}, typography: {}, layout: { horizontalPadding: 20 } },
     '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/location': location, '@/utils/uuid': { generateUuidV4: randomUUID },
+    '@/utils/numericMask': numericMask, '../../utils/numericMask': numericMask,
   };
+  dependencies['./fuelingCalculations'] = loadFeatureModule('features/fueling/fuelingCalculations.ts', dependencies, clock);
+  dependencies['@/features/fueling/fuelingCalculations'] = dependencies['./fuelingCalculations'];
   dependencies['./useForegroundLocation'] = {
     useForegroundLocation: loadScreen('features/fueling/useForegroundLocation.ts', 'useForegroundLocation', dependencies, false, clock),
   };
@@ -728,6 +749,7 @@ test('combustível incompatível é sanitizado no estado e no envio ao trocar de
   assert.equal(h.snapshot.fuelType, 'DIESEL_S10', 'Deve adotar combustível permitido pelo novo veículo');
 
   // Ao salvar o abastecimento no novo veículo, envia exatamente DIESEL_S10
+  h.snapshot.setPaidTotal('240,00');
   h.snapshot.setLiters('40,0');
   h.snapshot.setUnitPrice('6,00');
   h.snapshot.setOdometerKm('51000');
@@ -761,6 +783,7 @@ test('cálculo com desconto manual e payload exato sem separador de milhar', asy
 
   // Aplica desconto manual: pagou 180,00 (diferença de R$ 10,59 > R$ 0,05 exige justificativa)
   h.snapshot.setIsManualPaidTotal(true);
+  h.snapshot.setPaidTotal('180,00');
   h.snapshot.setManualPaidTotal('180,00');
   await h.settle();
   assert.equal(h.snapshot.adjustmentInfo.requiresReason, true);
@@ -791,7 +814,7 @@ test('cálculo com desconto manual e payload exato sem separador de milhar', asy
 test('rascunho inválido com excesso de escala ou negativo não é mascarado como válido', async () => {
   const invalidDraft = {
     id: randomUUID(),
-    liters: '35,12', // excesso de escala (2 casas para litros que aceita 1)
+    liters: '35,1234', // excesso de escala (4 casas para litros que aceita 3)
     unitPrice: '-5,00', // negativo
     odometerKm: '1000',
     dateStr: '2026-10-20',
@@ -809,7 +832,7 @@ test('rascunho inválido com excesso de escala ou negativo não é mascarado com
   await h.settle();
 
   // Rascunho mantém os valores originais no estado sem silenciar/normalizar para válidos
-  assert.equal(h.snapshot.liters, '35,12');
+  assert.equal(h.snapshot.liters, '35,1234');
   assert.equal(h.snapshot.unitPrice, '-5,00');
 
   // Ao tentar submeter, o formulário barra com erro explícito de validação

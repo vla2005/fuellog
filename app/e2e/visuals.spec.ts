@@ -38,10 +38,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     if (process.env.FUELLOG_QA_FUEL_HISTORY_ONLY !== '1') await capture(page, `dashboard-${colorScheme}`);
     if (process.env.FUELLOG_QA_DASHBOARD_ONLY === '1') return;
     await page.goto('/fueling/new');
-    await expect(page.getByLabel('Litros abastecidos', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toBeVisible();
     await capture(page, `fueling-form-${colorScheme}`);
     await page.goto('/history');
-    await expect(page.getByRole('button', { name: /^Abastecimento de R\$ 55,00 em / }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Abastecimento de R\$ 55,00, Gasolina comum, em / }).first()).toBeVisible();
     await capture(page, `history-${colorScheme}`);
   });
 }

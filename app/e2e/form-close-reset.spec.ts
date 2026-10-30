@@ -402,7 +402,8 @@ test.describe('Ciclo de vida e descarte de formulários ao fechar/voltar', () =>
     await expect(page).toHaveURL(/\/fueling\/new$/);
 
     // Preenche Litros
-    const litersInput = page.getByLabel('Litros abastecidos');
+    await page.getByRole('button', { name: /^Litros calculados:/ }).click();
+    const litersInput = page.getByLabel('Litros calculados', { exact: true });
     await expect(litersInput).toBeVisible();
     await litersInput.fill('45,5');
 
@@ -414,7 +415,8 @@ test.describe('Ciclo de vida e descarte de formulários ao fechar/voltar', () =>
     await newFuelBtn.click();
     await expect(page).toHaveURL(/\/fueling\/new$/);
 
-    // O campo de litros foi descartado e inicia vazio
-    await expect(page.getByLabel('Litros abastecidos')).toHaveValue('');
+    // O rascunho foi descartado; o card mostra zero e o pagamento inicia vazio.
+    await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toContainText('0,000');
+    await expect(page.getByLabel('Valor pago', { exact: true })).toHaveValue('');
   });
 });
