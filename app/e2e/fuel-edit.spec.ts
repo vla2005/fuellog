@@ -200,7 +200,7 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
 }
 
 async function loginAndGoToDetail(page: Page) {
-  await page.goto('/login');
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
   await page.getByLabel('E-mail', { exact: true }).fill('motorista@example.test');
   await page.getByLabel('Senha', { exact: true }).fill('FuelLog-test-2026!');
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
@@ -215,7 +215,7 @@ async function loginAndGoToDetail(page: Page) {
   await entryCard.click();
 
   // Aguarda carregar a tela de Detalhe
-  await expect(page.getByRole('button', { name: 'Editar abastecimento' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled({ timeout: 10_000 });
 }
 
 test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match preservando occurredAt com segundos/ms de outro fuso, dados ocultos/GPS e atualiza detalhe', async ({
@@ -234,7 +234,8 @@ test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match pr
   await expect(page.getByText('R$ 265,05').filter({ visible: true })).toBeVisible();
 
   // Clica no botão "Editar abastecimento"
-  const editBtn = page.getByRole('button', { name: 'Editar abastecimento' });
+  await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+  const editBtn = page.getByRole('menuitem', { name: 'Editar abastecimento' });
   await editBtn.click();
 
   // Verifica que o formulário de edição abriu com título e dados preenchidos
@@ -261,7 +262,7 @@ test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match pr
   await saveBtn.click();
 
   // Aguarda retorno ao detalhe
-  await expect(page.getByRole('button', { name: 'Editar abastecimento' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled({ timeout: 10_000 });
 
   // Verifica que o PUT foi executado conforme o contrato
   const put = mockApi.getCapturedPut();
@@ -310,7 +311,8 @@ test('Edição de abastecimento: preserva alta precisão legada (3 casas litros,
   await loginAndGoToDetail(page);
 
   // Clica em Editar
-  await page.getByRole('button', { name: 'Editar abastecimento' }).click();
+  await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+  await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
 
   // Verifica precisão preservada nos inputs
   const litersInput = page.getByLabel('Litros abastecidos');
@@ -332,7 +334,7 @@ test('Edição de abastecimento: preserva alta precisão legada (3 casas litros,
   await page.getByRole('button', { name: 'Salvar alterações' }).click();
 
   // Aguarda retorno ao detalhe
-  await expect(page.getByRole('button', { name: 'Editar abastecimento' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled({ timeout: 10_000 });
 
   const put = mockApi.getCapturedPut();
   expect(put).not.toBeNull();
@@ -356,7 +358,8 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
   });
 
   await loginAndGoToDetail(page);
-  await page.getByRole('button', { name: 'Editar abastecimento' }).click();
+  await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+  await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
 
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)');
   const litersInput = page.getByLabel('Litros abastecidos');
@@ -403,7 +406,7 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
 
   // Submete novo PUT
   await page.getByRole('button', { name: 'Salvar alterações' }).click();
-  await expect(page.getByRole('button', { name: 'Editar abastecimento' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled({ timeout: 10_000 });
 
   // Valida que o novo PUT utilizou a versão sincronizada no If-Match e os novos campos/GPS
   const put = mockApi.getCapturedPut();
@@ -423,7 +426,7 @@ test('Revisão visual e capturas de tela: 320px Dark e 390px Light', async ({
   const initial = createMockEntry();
   await setupMockApi(page, initial);
 
-  const resultsDir = path.resolve(__dirname, '../../test-results');
+  const resultsDir = path.resolve(__dirname, '../test-results');
   if (!fs.existsSync(resultsDir)) {
     fs.mkdirSync(resultsDir, { recursive: true });
   }
@@ -438,7 +441,8 @@ test('Revisão visual e capturas de tela: 320px Dark e 390px Light', async ({
     await toast.click();
     await page.waitForTimeout(300);
   }
-  await page.getByRole('button', { name: 'Editar abastecimento' }).click();
+  await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+  await page.getByRole('menuitem', { name: 'Editar abastecimento' }).click();
   await expect(page.getByText('Editar abastecimento')).toBeVisible();
 
   await page.screenshot({

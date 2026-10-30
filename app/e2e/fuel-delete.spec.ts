@@ -126,10 +126,13 @@ test('detail failure retains entry; retry sends once, awaits 204, invalidates an
   await history(page);
   const homeTabBox = (await page.getByRole('tab', { name: 'Início', exact: true }).boundingBox())!;
   await page.getByRole('button', { name: /^Abastecimento de R\$/ }).first().click();
-  await page.getByRole('button', { name: 'Excluir abastecimento', exact: true }).click();
+  await page.getByRole('button', { name: 'Opções do abastecimento', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Excluir abastecimento', exact: true }).click();
+  await expect(page.getByRole('menu')).toHaveCount(0);
   await dialog(page).getByRole('button', { name: 'Cancelar', exact: true }).click();
   expect(api.calls()).toBe(0);
-  await page.getByRole('button', { name: 'Excluir abastecimento', exact: true }).click();
+  await page.getByRole('button', { name: 'Opções do abastecimento', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Excluir abastecimento', exact: true }).click();
   api.setStatus(500);
   await dialog(page).getByRole('button', { name: 'Excluir abastecimento', exact: true }).click();
   await expect(dialog(page).getByRole('alert')).toBeVisible();
@@ -160,6 +163,71 @@ test('detail failure retains entry; retry sends once, awaits 204, invalidates an
   await page.goto('/fueling/delete-entry', { waitUntil: 'domcontentloaded' });
   await expect(page.getByText('Registro indisponível', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Editar abastecimento', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Opções do abastecimento', exact: true })).toBeDisabled();
+});
+
+test('detail menu is compact, dismisses without click-through and restores keyboard focus in both themes', async ({ page }) => {
+  await setup(page);
+  await history(page);
+  await page.getByRole('button', { name: /^Abastecimento de R\$/ }).first().click();
+  const options = page.getByRole('button', { name: 'Opções do abastecimento', exact: true });
+  await expect(options).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Editar abastecimento', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Excluir abastecimento', exact: true })).toHaveCount(0);
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await options.click();
+    const menu = page.getByRole('menu', { name: 'Opções do abastecimento' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem')).toHaveCount(2);
+    await expect(menu.getByRole('menuitem', { name: 'Editar abastecimento' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Excluir abastecimento' })).toBeFocused();
+    await page.screenshot({ path: test.info().outputPath(`detail-menu-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(options).toBeFocused();
+  }
+  await options.click();
+  const back = (await page.getByRole('button', { name: 'Voltar', exact: true }).boundingBox())!;
+  await page.mouse.click(back.x + back.width / 2, back.y + back.height / 2);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/fueling\/delete-entry$/);
+  await options.click();
+  await page.goBack({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/history$/);
+  await page.getByRole('button', { name: /^Abastecimento de R\$/ }).first().click();
+  await expect(options).toBeEnabled();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await options.click();
+  const triggerBox = (await options.boundingBox())!;
+  const menuBox = (await page.getByRole('menu').boundingBox())!;
+  expect(Math.abs(menuBox.x + menuBox.width - triggerBox.x - triggerBox.width)).toBeLessThan(2);
+  expect(menuBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height);
+  await page.screenshot({ path: test.info().outputPath('detail-menu-wide.png') });
+  await page.keyboard.press('Escape');
+});
+
+test('detail actions stay unavailable while loading and after failed retrieval', async ({ page }) => {
+  await setup(page);
+  await history(page);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/fuel-entries/delete-entry', async route => {
+    await gate;
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ status: 404, code: 'NOT_FOUND', detail: 'Registro indisponível.' }) });
+  });
+  await page.getByRole('button', { name: /^Abastecimento de R\$/ }).first().click();
+  const options = page.getByRole('button', { name: 'Opções do abastecimento', exact: true });
+  await expect(page.getByText('Carregando registro...')).toBeVisible();
+  await expect(options).toBeDisabled();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  release();
+  await expect(page.getByText('Registro indisponível', { exact: true })).toBeVisible();
+  await expect(options).toBeDisabled();
+  await expect(page.getByRole('menuitem')).toHaveCount(0);
 });
 
 test('history success keeps period and vehicle while refreshing totals', async ({ page }) => {

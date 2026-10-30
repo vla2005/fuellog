@@ -8,6 +8,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -23,7 +24,7 @@ import {
   FuelEntry,
 } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
-import { ChevronLeftIcon, PencilIcon } from '@/components/icons/AppIcons';
+import { ChevronLeftIcon } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { LocationMap } from '@/components/location/LocationMap';
@@ -36,6 +37,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, shadows, typography } from '@/theme/tokens';
 import { formatDateTimeFullBR } from '@/utils/date';
 import { DeleteFuelEntrySheet } from './components/DeleteFuelEntrySheet';
+import { FuelEntryActionsMenu } from './components/FuelEntryActionsMenu';
 import {
   formatConsumptionBR,
   formatCurrencyBRL,
@@ -60,6 +62,7 @@ export function FuelEntryDetailScreen({
     entryIdOverride !== undefined ? entryIdOverride : entryId;
   const isTabActive = useContext(TabActiveContext);
   const { colors, isDark } = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const { activeVehicle, dataVersion } = useSession();
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -151,7 +154,15 @@ export function FuelEntryDetailScreen({
   }, [loadDetail]);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<React.ElementRef<typeof View>>(null);
+  const [menuAnchor, setMenuAnchor] = useState({ top: 0, right: 0 });
   const [limitationNotice, setLimitationNotice] = useState<string | null>(null);
+  const actionsAvailable = !loading && !errorMessage && isTabActive && entry?.id === resolvedEntryId
+    && entry?.vehicleId === activeVehicle?.id && Boolean(entry);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [loading, pathname, resolvedEntryId, activeVehicle?.id, isTabActive]);
 
   const prevActiveRef = useRef(isTabActive);
   useEffect(() => {
@@ -217,10 +228,19 @@ export function FuelEntryDetailScreen({
       </View>
 
       <Pressable
+        ref={menuButtonRef}
         accessibilityRole="button"
         accessibilityLabel="Opções do abastecimento"
-        onPress={() => setIsEditing(true)}
-        style={styles.menuDotsBtn}
+        accessibilityState={{ disabled: !actionsAvailable, expanded: menuOpen }}
+        aria-haspopup="menu"
+        disabled={!actionsAvailable}
+        onPress={() => {
+          menuButtonRef.current?.measureInWindow((x, y, width, height) => {
+            setMenuAnchor({ top: y + height, right: windowWidth - x - width });
+            setMenuOpen(true);
+          });
+        }}
+        style={[styles.menuDotsBtn, !actionsAvailable && { opacity: 0.4 }]}
       >
         <Text style={[styles.menuDotsText, { color: colors.brandPrimary }]}>•••</Text>
       </Pressable>
@@ -266,6 +286,20 @@ export function FuelEntryDetailScreen({
         ) : undefined
       }
     >
+      {menuOpen && actionsAvailable ? (
+        <FuelEntryActionsMenu
+          anchor={menuAnchor}
+          onClose={() => setMenuOpen(false)}
+          onEdit={() => {
+            setMenuOpen(false);
+            setIsEditing(true);
+          }}
+          onDelete={() => {
+            setMenuOpen(false);
+            setDeleteOpen(true);
+          }}
+        />
+      ) : null}
       {deleteOpen && entry && activeVehicle?.id === entry.vehicleId ? (
         <DeleteFuelEntrySheet
           key={entry.id}
@@ -412,21 +446,6 @@ export function FuelEntryDetailScreen({
               message={limitationNotice}
             />
           ) : null}
-
-          {/* Stepped CTA: Editar abastecimento */}
-          <PrimaryButton
-            label="Editar abastecimento"
-            leftIcon={<PencilIcon size={18} color="#FFFFFF" />}
-            onPress={() => setIsEditing(true)}
-            stepped
-            style={{ marginTop: 12, marginBottom: 24 }}
-          />
-          <PrimaryButton
-            label="Excluir abastecimento"
-            variant="danger"
-            onPress={() => setDeleteOpen(true)}
-            style={{ marginBottom: 24 }}
-          />
 
         </View>
       )}
