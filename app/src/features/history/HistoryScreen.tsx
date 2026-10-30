@@ -31,15 +31,10 @@ import { PixelMascot } from '@/components/brand/PixelMascot';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
-  CalendarIcon,
-  CarIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  FilterIcon,
-  PixelCrossIcon,
   PlusIcon,
-  ReceiptLogIcon,
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
@@ -73,37 +68,35 @@ const WEEKDAY_NAMES_PT = [
   'Sábado',
 ];
 
-function formatHistoryDateColumn(
+function formatHistoryItemDate(
   iso: string,
   timezone?: string,
-): { dayMonth: string; weekday: string } {
+): string {
   try {
     const d = new Date(iso);
     if (!Number.isNaN(d.getTime())) {
       const tz = timezone || 'America/Sao_Paulo';
-      const dm = new Intl.DateTimeFormat('pt-BR', {
+      const day = new Intl.DateTimeFormat('pt-BR', {
         day: '2-digit',
-        month: 'short',
+        timeZone: tz,
+      }).format(d);
+      const wdShort = new Intl.DateTimeFormat('pt-BR', {
+        weekday: 'short',
         timeZone: tz,
       })
         .format(d)
-        .replace(/\s+de\s+/i, ' ')
         .replace(/\./g, '')
         .trim();
-      const wdShort = new Intl.DateTimeFormat('pt-BR', {
-        weekday: 'long',
-        timeZone: tz,
-      }).format(d);
       const cleanWd = wdShort.split('-')[0] || '';
       const capitalizedWd = cleanWd
         ? cleanWd.charAt(0).toUpperCase() + cleanWd.slice(1)
-        : WEEKDAY_NAMES_PT[d.getDay()] ?? '';
-      return { dayMonth: dm, weekday: capitalizedWd };
+        : WEEKDAY_NAMES_PT[d.getDay()]?.slice(0, 3) ?? '';
+      return capitalizedWd ? `${day}, ${capitalizedWd}` : day;
     }
   } catch {
     // Fallback below
   }
-  return { dayMonth: iso.slice(0, 10), weekday: '' };
+  return iso.slice(8, 10);
 }
 
 export function HistoryScreen({
@@ -351,7 +344,6 @@ export function HistoryScreen({
 
   const surfaceBg = colors.surface;
   const surfaceBorder = colors.borderSubtle;
-  const badgeSquareBg = colors.subtle;
 
   const vehiclePillLabel = activeVehicle
     ? [
@@ -361,15 +353,6 @@ export function HistoryScreen({
         .filter(Boolean)
         .join(' ')
     : 'Selecionar veículo';
-
-  const filterSummaryLabel =
-    filterFuel && filterTank
-      ? `${FUEL_TYPE_SHORT_LABELS[filterFuel]} • ${TANK_STATE_SHORT_LABELS[filterTank]}`
-      : filterFuel
-        ? FUEL_TYPE_SHORT_LABELS[filterFuel]
-        : filterTank
-          ? TANK_STATE_SHORT_LABELS[filterTank]
-          : null;
 
   return (
     <ScreenShell
@@ -548,7 +531,7 @@ export function HistoryScreen({
               <View
                 key={group.title}
                 style={[
-                  styles.monthCard,
+                  styles.monthSection,
                   {
                     backgroundColor: surfaceBg,
                     borderColor: surfaceBorder,
@@ -556,36 +539,27 @@ export function HistoryScreen({
                   isDark ? shadows.darkCard : shadows.lightCard,
                 ]}
               >
-                <Text style={[styles.monthHeader, { color: colors.textPrimary }]}>
-                  {shortMonthHeading}
-                </Text>
+                <View style={[styles.monthHeaderRow, { borderBottomColor: surfaceBorder }]}>
+                  <Text style={[styles.monthHeaderText, { color: colors.textPrimary }]}>
+                    {shortMonthHeading}
+                  </Text>
+                </View>
 
                 <View style={styles.rowsStack}>
                   {group.items.map((entry, idx) => {
-                    const closedCycle = cyclesByEndEntry[entry.id];
-                    const cycleText = formatConsumptionBR(
-                      closedCycle?.consumptionKmPerLiter,
-                    );
-                    const hasAdjustment =
-                      Boolean(entry.adjustmentAmount) &&
-                      entry.adjustmentAmount !== '0.00' &&
-                      entry.adjustmentAmount !== '-0.00';
-
-                    const fullDateRow = formatDateTimeRowBR(
+                    const isLastInMonth = idx === group.items.length - 1;
+                    const formattedDate = formatHistoryItemDate(
                       entry.occurredAt,
                       entry.timezone,
                     );
-                    const { dayMonth: shortDatePart, weekday: shortWeekday } =
-                      formatHistoryDateColumn(entry.occurredAt, entry.timezone);
                     const fuelLabel =
                       FUEL_TYPE_LABELS[entry.fuelType] ??
                       FUEL_TYPE_SHORT_LABELS[entry.fuelType] ??
                       entry.fuelType;
-                    const tankBadgeLabel =
-                      TANK_STATE_LABELS[entry.tankState] ??
-                      TANK_STATE_SHORT_LABELS[entry.tankState] ??
-                      entry.tankState;
-                    const isLastInMonth = idx === group.items.length - 1;
+                    const fullDateRow = formatDateTimeRowBR(
+                      entry.occurredAt,
+                      entry.timezone,
+                    );
 
                     return (
                       <Pressable
@@ -593,7 +567,8 @@ export function HistoryScreen({
                         accessibilityRole="button"
                         accessibilityLabel={`Abastecimento de ${formatCurrencyBRL(
                           entry.paidTotal,
-                        )} em ${fullDateRow}`}
+                        )}, ${fuelLabel}, em ${fullDateRow}`}
+                        accessibilityHint="Toque para ver os detalhes deste abastecimento"
                         onPress={() =>
                           router.push({
                             pathname: '/fueling/[entryId]',
@@ -601,172 +576,45 @@ export function HistoryScreen({
                           })
                         }
                         style={({ pressed }) => [
-                          styles.monthEntryRow,
+                          styles.entryRow,
                           !isLastInMonth && {
-                            borderBottomWidth: 1,
+                            borderBottomWidth: StyleSheet.hairlineWidth,
                             borderBottomColor: surfaceBorder,
                           },
-                          pressed && { opacity: 0.82 },
+                          pressed && {
+                            backgroundColor: colors.subtle,
+                            opacity: 0.85,
+                          },
                         ]}
                       >
-                        {/* Left Date Column */}
-                        <View style={styles.dateCol}>
+                        <View style={styles.entryLeftCol}>
                           <Text
-                            style={[
-                              styles.dateDayText,
-                              { color: colors.textPrimary },
-                            ]}
+                            style={[styles.entryTitle, { color: colors.textPrimary }]}
                           >
-                            {shortDatePart}
-                          </Text>
-                          {shortWeekday ? (
-                            <Text
-                              style={[
-                                styles.dateSubText,
-                                { color: colors.textSecondary },
-                              ]}
-                            >
-                              {shortWeekday}
+                            <Text style={styles.entryDateText}>{formattedDate}</Text>
+                            <Text style={[styles.entryDot, { color: colors.textSecondary }]}>
+                              {' '}•{' '}
                             </Text>
-                          ) : null}
-                        </View>
-
-                        {/* Icon Badge */}
-                        <View
-                          style={[
-                            styles.rowIconSquare,
-                            { backgroundColor: badgeSquareBg },
-                          ]}
-                        >
-                          <ReceiptLogIcon size={16} color={colors.textPrimary} />
-                        </View>
-
-                        {/* Right Content Column: Top (Fuel + PaidTotal), Middle (Liters x UnitPrice), Bottom (Odometer + Badges) */}
-                        <View style={styles.detailsCol}>
-                          <View style={styles.detailsTopLine}>
-                            <Text
-                              style={[
-                                styles.fuelTitleText,
-                                { color: colors.textPrimary },
-                              ]}
-                            >
-                              {fuelLabel}
-                              {entry.stationName ? ` • ${entry.stationName}` : ''}
-                            </Text>
-
-                            <View style={styles.rightValueCol}>
-                              <Text
-                                style={[
-                                  styles.rowPaidValue,
-                                  { color: colors.textPrimary },
-                                ]}
-                              >
-                                {formatCurrencyBRL(entry.paidTotal)}
-                              </Text>
-                              <ChevronRightIcon
-                                size={14}
-                                color={colors.accentPrimary}
-                              />
-                            </View>
-                          </View>
-
-                          <Text
-                            style={[
-                              styles.litersPriceText,
-                              { color: colors.textSecondary },
-                            ]}
-                          >
-                            {formatLitersBR(entry.liters)} ×{' '}
-                            {formatUnitPriceBR(entry.unitPrice)}
+                            <Text style={styles.entryFuelText}>{fuelLabel}</Text>
                           </Text>
 
-                          <View style={styles.metaBadgesLine}>
-                            <Text
-                              style={[
-                                styles.odometerText,
-                                { color: colors.textSecondary },
-                              ]}
-                            >
-                              {formatOdometerBR(entry.odometerKm)}
-                            </Text>
+                          <Text
+                            style={[styles.entrySubtitle, { color: colors.textSecondary }]}
+                          >
+                            {formatLitersBR(entry.liters)} × {formatUnitPriceBR(entry.unitPrice)}
+                          </Text>
+                        </View>
 
-                            <View
-                              style={[
-                                styles.tankOutlinedPill,
-                                {
-                                  borderColor: colors.borderFocus,
-                                  backgroundColor: colors.brandSoft,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.tankOutlinedText,
-                                  {
-                                    color: isDark
-                                      ? colors.borderFocus
-                                      : colors.brandPrimary,
-                                  },
-                                ]}
-                              >
-                                {tankBadgeLabel}
-                              </Text>
-                            </View>
-
-                            {cycleText ? (
-                              <View
-                                style={[
-                                  styles.badge,
-                                  { backgroundColor: colors.successSoft },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.badgeText,
-                                    { color: colors.successText },
-                                  ]}
-                                >
-                                  {cycleText}
-                                </Text>
-                              </View>
-                            ) : null}
-
-                            {hasAdjustment ? (
-                              <View
-                                style={[
-                                  styles.badge,
-                                  { backgroundColor: colors.warningSoft },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.badgeText,
-                                    { color: colors.warningText },
-                                  ]}
-                                >
-                                  Ajuste {formatCurrencyBRL(entry.adjustmentAmount)}
-                                </Text>
-                              </View>
-                            ) : null}
-
-                            {entry.historyGapBefore ? (
-                              <View
-                                style={[
-                                  styles.badge,
-                                  { backgroundColor: colors.dangerSoft },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.badgeText,
-                                    { color: colors.dangerText },
-                                  ]}
-                                >
-                                  Lacuna
-                                </Text>
-                              </View>
-                            ) : null}
-                          </View>
+                        <View style={styles.entryRightCol}>
+                          <Text
+                            style={[styles.entryAmount, { color: colors.textPrimary }]}
+                          >
+                            {formatCurrencyBRL(entry.paidTotal)}
+                          </Text>
+                          <ChevronRightIcon
+                            size={14}
+                            color={colors.accentPrimary}
+                          />
                         </View>
                       </Pressable>
                     );
@@ -1058,33 +906,6 @@ export function HistoryScreen({
 }
 
 const styles = StyleSheet.create({
-  cleanHistoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-  },
-  cleanLeftCol: {
-    gap: 4,
-  },
-  cleanDateFuelText: {
-    ...typography.bodyStrong,
-    fontSize: 16,
-  },
-  cleanLitersText: {
-    ...typography.caption,
-    fontSize: 13,
-  },
-  cleanRightCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  cleanAmountText: {
-    ...typography.cardTitle,
-    fontSize: 17,
-    fontWeight: '700',
-  },
   historyTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1218,108 +1039,73 @@ const styles = StyleSheet.create({
   sectionsColumn: {
     gap: 16,
   },
-  monthCard: {
+  monthSection: {
     borderRadius: radii.xl,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 6,
+    overflow: 'hidden',
   },
-  monthHeader: {
+  monthHeaderRow: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  monthHeaderText: {
     ...typography.cardTitle,
-    fontSize: 18,
-    marginBottom: 2,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   rowsStack: {
     gap: 0,
   },
-  monthEntryRow: {
+  entryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 56,
+    paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  dateCol: {
-    width: 54,
-    gap: 2,
-  },
-  dateDayText: {
-    ...typography.bodyStrong,
-    fontSize: 13,
-    lineHeight: 17,
-  },
-  dateSubText: {
-    ...typography.caption,
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  rowIconSquare: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailsCol: {
+  entryLeftCol: {
     flex: 1,
     minWidth: 0,
+    paddingRight: 12,
     gap: 3,
   },
-  detailsTopLine: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  fuelTitleText: {
-    flex: 1,
+  entryTitle: {
     ...typography.bodyStrong,
     fontSize: 15,
     lineHeight: 20,
   },
-  litersPriceText: {
+  entryDateText: {
+    fontWeight: '600',
+  },
+  entryDot: {
+    fontWeight: '400',
+  },
+  entryFuelText: {
+    fontWeight: '600',
+  },
+  entrySubtitle: {
     ...typography.caption,
     fontSize: 13,
     lineHeight: 18,
   },
-  metaBadgesLine: {
+  entryRightCol: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 6,
-    marginTop: 1,
+    flexShrink: 0,
   },
-  odometerText: {
-    ...typography.caption,
-    fontSize: 12,
-  },
-  tankOutlinedPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-  },
-  tankOutlinedText: {
-    ...typography.caption,
-    fontSize: 11,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radii.pill,
-  },
-  badgeText: {
-    ...typography.caption,
-    fontSize: 11,
-  },
-  rightValueCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  rowPaidValue: {
+  entryAmount: {
     ...typography.cardTitle,
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   mascotFooterRow: {
     flexDirection: 'row',

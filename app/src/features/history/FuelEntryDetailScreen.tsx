@@ -1,7 +1,9 @@
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
+  Platform,
   Image,
   Pressable,
   StyleSheet,
@@ -23,6 +25,7 @@ import {
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { ChevronLeftIcon, PencilIcon } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
+import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { LocationMap } from '@/components/location/LocationMap';
 import { EditFuelEntryScreen } from '@/features/fueling/EditFuelEntryScreen';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
@@ -54,6 +57,7 @@ export function FuelEntryDetailScreen({
   const [isEditing, setIsEditing] = useState(isEditFromUrl);
   const resolvedEntryId =
     entryIdOverride !== undefined ? entryIdOverride : entryId;
+  const isTabActive = useContext(TabActiveContext);
   const { colors, isDark } = useAppTheme();
   const { activeVehicle } = useSession();
 
@@ -144,6 +148,40 @@ export function FuelEntryDetailScreen({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [limitationNotice, setLimitationNotice] = useState<string | null>(null);
+
+  const prevActiveRef = useRef(isTabActive);
+  useEffect(() => {
+    const wasActive = prevActiveRef.current;
+    prevActiveRef.current = isTabActive;
+    if (wasActive && !isTabActive) {
+      setIsEditing(false);
+      setMenuOpen(false);
+      setLimitationNotice(null);
+    }
+  }, [isTabActive]);
+
+  const prevEntryIdRef = useRef(resolvedEntryId);
+  useEffect(() => {
+    if (prevEntryIdRef.current !== resolvedEntryId) {
+      prevEntryIdRef.current = resolvedEntryId;
+      setIsEditing(false);
+      setMenuOpen(false);
+      setLimitationNotice(null);
+    }
+  }, [resolvedEntryId]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isEditing || !isTabActive) {
+      return;
+    }
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setIsEditing(false);
+      return true;
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [isEditing, isTabActive]);
 
   const topBarContent = (
     <View style={styles.cleanDetailHeader}>
