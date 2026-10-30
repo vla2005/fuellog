@@ -92,19 +92,6 @@ function parseInputToDigits3(raw: string): string | null {
   return (intPart + fracPart).replace(/^0+/, '') || '0';
 }
 
-function sanitizeUnitPriceInput(raw: string): string {
-  if (!raw) return '';
-  const converted = raw.replace(/\./g, ',');
-  const filtered = converted.replace(/[^\d,]/g, '');
-  const parts = filtered.split(',');
-  if (parts.length === 1) {
-    return parts[0];
-  }
-  const intPart = parts[0];
-  const fracPart = parts.slice(1).join('').slice(0, 4);
-  return `${intPart},${fracPart}`;
-}
-
 interface FuelEntryDraft {
   id: string;
   liters: string;
@@ -164,6 +151,7 @@ export function NewFuelEntryScreen({
   const [entryId, setEntryId] = useState<string>(() => generateUuidV4());
   const [liters, setLiters] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
+  const unitPriceScale = Math.min(4, Math.max(2, (unitPrice.split(/[.,]/)[1] ?? '').length));
   const [paidTotal, setPaidTotal] = useState('');
   const [manualPaidTotal, setManualPaidTotal] = useState('');
   const [isManualPaidTotal, setIsManualPaidTotal] = useState(false);
@@ -586,8 +574,7 @@ export function NewFuelEntryScreen({
     }
   };
 
-  const handleUnitPriceChange = (rawText: string) => {
-    const text = sanitizeUnitPriceInput(rawText);
+  const handleUnitPriceChange = (text: string) => {
     unitPriceRef.current = text;
     setUnitPrice(text);
     if (!isLitersManuallyOverriddenRef.current && !isDiscountActiveRef.current) {
@@ -1047,13 +1034,14 @@ export function NewFuelEntryScreen({
                 >
                   R$
                 </Text>
-                <TextInput
+                <FixedScaleInput
                   accessibilityLabel="Preço por litro"
                   value={unitPrice}
                   onChangeText={handleUnitPriceChange}
                   onFocus={() => setUnitPriceFocused(true)}
                   onBlur={() => setUnitPriceFocused(false)}
                   keyboardType="decimal-pad"
+                  scale={unitPriceScale}
                   editable={!isLockedForUncertainRetry}
                   placeholder="0,00"
                   placeholderTextColor={colors.textMuted}

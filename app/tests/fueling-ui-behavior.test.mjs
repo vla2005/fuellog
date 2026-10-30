@@ -65,7 +65,7 @@ const location = loadUtility('location');
 const numericMask = loadUtility('numericMask');
 const vehicle = id => ({ id, nickname: id, allowedFuels: ['ETHANOL', 'GASOLINE_REGULAR'], brand: null, model: null, plate: null });
 
-function mountNewFuelEntry({ store = new Map(), endpoints = {} } = {}) {
+function mountNewFuelEntry({ store = new Map(), endpoints = {}, observableReturn = true } = {}) {
   let index = 0;
   let dirty = false;
   let pendingEffects = [];
@@ -155,7 +155,10 @@ function mountNewFuelEntry({ store = new Map(), endpoints = {} } = {}) {
   dependencies['./fuelingCalculations'] = loadFeatureModule('features/fueling/fuelingCalculations.ts', dependencies);
   dependencies['@/features/fueling/fuelingCalculations'] = dependencies['./fuelingCalculations'];
 
-  const screen = loadScreen('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', dependencies, true);
+  dependencies['@/components/ui/FixedScaleInput'] = {
+    FixedScaleInput: loadScreen('components/ui/FixedScaleInput.tsx', 'FixedScaleInput', dependencies, false),
+  };
+  const screen = loadScreen('features/fueling/NewFuelEntryScreen.tsx', 'NewFuelEntryScreen', dependencies, observableReturn);
   const harness = {
     session,
     store,
@@ -179,6 +182,52 @@ function mountNewFuelEntry({ store = new Map(), endpoints = {} } = {}) {
   };
   harness.render();
   return harness;
+}
+
+function findInput(node, label) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.type === 'TextInput' && node.props?.accessibilityLabel === label) return node;
+  for (const child of node.props?.children?.flat(Infinity) ?? []) {
+    const found = findInput(child, label);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('NewFuelEntryScreen: preço digita centavos como valor pago, apaga, limpa e cola sem mudar magnitude', async () => {
+  const h = mountNewFuelEntry({ observableReturn: false });
+  await h.settle();
+  const price = () => findInput(h.snapshot, 'Preço por litro');
+  for (const [key, expected] of [['5', '0,05'], ['9', '0,59'], ['9', '5,99']]) {
+    price().props.onChangeText(price().props.value + key);
+    await h.settle();
+    assert.equal(price().props.value, expected);
+  }
+  price().props.onChangeText(price().props.value.slice(0, -1));
+  await h.settle();
+  assert.equal(price().props.value, '0,59');
+  price().props.onChangeText('');
+  await h.settle();
+  assert.equal(price().props.value, '');
+  price().props.onChangeText('R$ 5,99');
+  await h.settle();
+  assert.equal(price().props.value, '5,99');
+});
+
+for (const unitPrice of ['5,4321', '5.439', '-5,00', '5,43211']) {
+  test(`NewFuelEntryScreen: campo real preserva precisão e erros do rascunho ${unitPrice}`, async () => {
+    const store = new Map([['fuellog.draft.fuel_entry.v1.user-1.veh-1', JSON.stringify({ id: randomUUID(), unitPrice })]]);
+    const h = mountNewFuelEntry({ store, observableReturn: false });
+    await h.settle();
+    const price = () => findInput(h.snapshot, 'Preço por litro');
+    assert.equal(price().props.value, unitPrice.replace('.', ','));
+    if (unitPrice === '5,4321') {
+      price().props.onChangeText('5,4329');
+      await h.settle();
+      assert.equal(price().props.value, '5,4329');
+      assert.equal(JSON.parse(store.get('fuellog.draft.fuel_entry.v1.user-1.veh-1')).unitPrice, '5,4329');
+    }
+  });
 }
 
 test('NewFuelEntryScreen: cálculo automático de litros a partir de valor pago e preço por litro', async () => {
