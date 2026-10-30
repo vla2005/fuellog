@@ -188,7 +188,7 @@ class FuellogApiIT {
         var spec = json.readTree(java.nio.file.Files.readString(java.nio.file.Path.of("..", "contracts", "openapi.json")));
         var documented = new java.util.HashSet<String>();
         spec.path("paths").properties().forEach(path -> path.getValue().properties().forEach(operation -> {
-            if (List.of("get", "post", "patch", "delete").contains(operation.getKey())) {
+            if (List.of("get", "post", "put", "patch", "delete").contains(operation.getKey())) {
                 documented.add(operation.getKey().toUpperCase(java.util.Locale.ROOT) + " /api/v1" + path.getKey());
             }
         }));

@@ -12,6 +12,7 @@ public final class IdentityDtos {
     public record Refresh(@NotBlank @Pattern(regexp="[A-Za-z0-9_-]{43}") String refresh_token) {}
     public record RegisteredUser(UUID id, String name, String email) {}
     public record Me(UUID id, String name, String email, String preferredTimezone) {}
+    public sealed interface LoginResult permits TokenResponse, TwoFactorDtos.Challenge {}
     public record TokenResponse(String access_token, String token_type, long expires_in, Instant access_expires_at,
-            String refresh_token, Instant refresh_expires_at, UUID session_id) {}
+            String refresh_token, Instant refresh_expires_at, UUID session_id) implements LoginResult {}
 }

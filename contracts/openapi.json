@@ -114,14 +114,14 @@
     },
     "/auth/login": {
       "post": {
-        "summary": "Create a session family",
+        "summary": "Verify password; create a session only when no second factor is required",
         "responses": {
           "200": {
-            "description": "Success; creation retries return current state with idempotentReplay=true.",
+            "description": "TokenResponse without 2FA, otherwise TwoFactorChallenge; these are mutually exclusive.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
+                  "$ref": "#/components/schemas/LoginResult"
                 }
               }
             },
@@ -205,7 +205,8 @@
             }
           }
         },
-        "security": []
+        "security": [],
+        "description": "Accounts without 2FA retain the existing TokenResponse contract. Accounts with 2FA receive only TwoFactorChallenge, with no access token, refresh token or usable session. Challenge expires after 5 minutes. Incorrect password, nonexistent or disabled account returns INVALID_CREDENTIALS without a challenge. Complete the second factor via POST /auth/2fa/verify."
       }
     },
     "/auth/refresh": {
@@ -461,6 +462,148 @@
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update the authenticated account name and email; preserve current sessions",
+        "description": "Name and email are required and stripped; email is lowercased as on registration. Only a changed normalized email requires currentPassword and, when enabled, secondFactorCode. Pending MFA challenges/setup are invalidated by the account version. Active factors, password, timezone and sessions are preserved. The user is always taken from authentication.",
+        "responses": {
+          "400": {
+            "description": "INVALID_REQUEST or malformed JSON.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR with fieldErrors.name/email/currentPassword. MFA_INVALID_CODE with fieldErrors.code when enabled factor is missing, invalid or replayed; the app maps code to secondFactorCode.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MFA_RATE_LIMITED: existing per-user factor limit; expected rejections persist attempt counters, while profile or email-conflict failures roll back atomically.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Updated authenticated profile; existing access and refresh sessions remain valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "409": {
+            "description": "ACCOUNT_CONFLICT with fieldErrors.email when the normalized email is already used, including concurrent claims; no profile or factor consumption commits.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfile"
               }
             }
           }
@@ -1727,6 +1870,739 @@
           }
         }
       }
+    },
+    "/me/password": {
+      "post": {
+        "summary": "Change password and revoke every session",
+        "description": "Requires the current password and a different new password (6..128 characters). If 2FA is enabled, secondFactorCode is required and accepts TOTP or one unused recovery code. All sessions, including the current session and every refresh token, are revoked after success; the app must log in again. Credential version invalidates pending MFA setups and challenges. Never log submitted credentials.",
+        "responses": {
+          "204": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST or malformed JSON.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR with fieldErrors.currentPassword/newPassword for incorrect current password, invalid length or unchanged password; no logout on validation failure. MFA_INVALID_CODE with fieldErrors.code when enabled factor is missing, invalid or replayed.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MFA_RATE_LIMITED: at most 5 attempts per fixed 5-minute window; finite temporary block, also counts successful checks. Limits persist across failed transactions and newly issued challenges.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/2fa": {
+      "get": {
+        "summary": "Read own 2FA status",
+        "description": "Returns only activation state and the count of unused recovery codes; never reveals a secret.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/2fa/setup": {
+      "post": {
+        "summary": "Prepare TOTP enrollment after password verification",
+        "description": "Only while 2FA is disabled. Pending encrypted secret is bound to authenticated user, current session and credential version, expires after 5 minutes, and does not activate 2FA. Requires the current password on every call. Issuer FuelLog; SHA1, 6 digits, 30 seconds; 160 random secret bits. QR must be rendered locally.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorSetupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST or malformed JSON.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR with fieldErrors.currentPassword for incorrect password; valid session remains active.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MFA_RATE_LIMITED: at most 5 attempts per fixed 5-minute window; finite temporary block, also counts successful checks. Limits persist across failed transactions and newly issued challenges.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MFA_ALREADY_ENABLED; cannot silently replace an active factor.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorSetup"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/2fa/enable": {
+      "post": {
+        "summary": "Confirm pending TOTP enrollment",
+        "description": "Requires an unused valid TOTP step from a pending setup in the same session, before its 5-minute deadline and matching credential version. Accepts at most one adjacent 30-second step. Enables 2FA only after verification; revokes all other sessions and refresh tokens, preserves current session, invalidates old challenges. Returns 10 single-use recovery codes once; only hashes are persisted.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorRecoveryCodes"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST or malformed JSON.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MFA_INVALID_CODE for invalid/replayed TOTP; MFA_SETUP_INVALID for absent/expired setup, another session or changed credential version.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MFA_RATE_LIMITED: at most 5 attempts per fixed 5-minute window; finite temporary block, also counts successful checks. Limits persist across failed transactions and newly issued challenges.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MFA_ALREADY_ENABLED.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorEnable"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/2fa/disable": {
+      "post": {
+        "summary": "Disable 2FA after password and factor verification",
+        "description": "Requires current password plus unused TOTP or recovery code. Revokes other sessions and refresh tokens while preserving the current reauthenticated session; removes all old secrets, pending setups, recovery codes and login challenges.",
+        "responses": {
+          "204": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST or malformed JSON.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR with fieldErrors.currentPassword for incorrect password; MFA_INVALID_CODE with fieldErrors.code for missing, invalid or replayed factor.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MFA_RATE_LIMITED: at most 5 attempts per fixed 5-minute window; finite temporary block, also counts successful checks. Limits persist across failed transactions and newly issued challenges.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MFA_NOT_ENABLED.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorDisable"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/2fa/verify": {
+      "post": {
+        "summary": "Complete password-authenticated login with 2FA",
+        "description": "Public only for exact POST /api/v1/auth/2fa/verify. Challenge is opaque, hashed at rest, single-use, valid for 5 minutes and bound to user and credential version. Accepts TOTP (SHA1/6 digits/30 seconds, at most one adjacent step, with replay protection) or one unused recovery code. Only success creates a session and issues TokenResponse. Atomic consumption under user lock prevents concurrent recovery/challenge reuse; failed password login never issues a challenge.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST or malformed JSON.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "MFA_CHALLENGE_INVALID: unknown, malformed, expired, consumed, disabled-factor challenge or changed credentials.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MFA_INVALID_CODE with fieldErrors.code: incorrect, missing or replayed code.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MFA_RATE_LIMITED: at most 5 attempts per fixed 5-minute window; finite temporary block, also counts successful checks. Limits persist across failed transactions and newly issued challenges.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; preserve input and do not automatically refresh authentication.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorVerify"
+              }
+            }
+          }
+        },
+        "security": []
+      }
     }
   },
   "components": {
@@ -2928,6 +3804,241 @@
           "paidTotal"
         ],
         "description": "Editable purchase fields without a client UUID. Same creation validation and 3/4/2 decimal scales apply. Omitted or null tankState defaults to UNKNOWN and historyGapBefore to false; optional text may be cleared. Omitted or null coordinate pair preserves the historical snapshot, including null for pre-GPS entries; a supplied non-null pair replaces it after the same range and precision validation. Never requires recapturing current location."
+      },
+      "PasswordChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "writeOnly": true,
+            "description": "Must differ from currentPassword."
+          },
+          "secondFactorCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Six ASCII TOTP digits or one unused recovery code (43 URL-safe characters).",
+            "writeOnly": true
+          }
+        }
+      },
+      "TwoFactorStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "recoveryCodesRemaining"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "recoveryCodesRemaining": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        }
+      },
+      "TwoFactorSetup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "TwoFactorSetupResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "secret",
+          "otpauthUri",
+          "expiresAt"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "pattern": "^[A-Z2-7]{32}$",
+            "description": "160 random bits in Base32; shown only during setup. Never send to an external QR service."
+          },
+          "otpauthUri": {
+            "type": "string",
+            "format": "uri",
+            "description": "otpauth://totp/FuelLog%3A{percent-encoded-email}?secret=...&issuer=FuelLog&algorithm=SHA1&digits=6&period=30; render QR locally."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TwoFactorEnable": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "writeOnly": true
+          }
+        }
+      },
+      "TwoFactorRecoveryCodes": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recoveryCodes"
+        ],
+        "properties": {
+          "recoveryCodes": {
+            "type": "array",
+            "minItems": 10,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            "description": "Shown once after enable; each contains 256 random bits, is stored only as a hash, and is single-use."
+          }
+        }
+      },
+      "TwoFactorDisable": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword",
+          "code"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Six ASCII TOTP digits or one unused recovery code (43 URL-safe characters).",
+            "writeOnly": true
+          }
+        }
+      },
+      "TwoFactorChallenge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mfaRequired",
+          "challengeToken",
+          "expiresAt"
+        ],
+        "properties": {
+          "mfaRequired": {
+            "type": "boolean",
+            "const": true
+          },
+          "challengeToken": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Opaque single-use challenge; grants no access and creates no session."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TwoFactorVerify": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "challengeToken",
+          "code"
+        ],
+        "properties": {
+          "challengeToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Six ASCII TOTP digits or one unused recovery code (43 URL-safe characters).",
+            "writeOnly": true
+          }
+        }
+      },
+      "LoginResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TokenResponse"
+          },
+          {
+            "$ref": "#/components/schemas/TwoFactorChallenge"
+          }
+        ]
+      },
+      "UpdateProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "email"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Required; 1..100 characters after stripping surrounding whitespace."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "description": "Required; strip and lowercase before validation and comparison."
+          },
+          "currentPassword": {
+            "type": "string",
+            "maxLength": 128,
+            "writeOnly": true,
+            "description": "Required only when normalized email changes; exact password, without trimming."
+          },
+          "secondFactorCode": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Required only when normalized email changes and 2FA is enabled: six ASCII TOTP digits or an unused 43-character recovery code."
+          }
+        }
       }
     }
   }

@@ -224,7 +224,7 @@ class VehicleEditingIT {
             var history=jdbc.queryForMap("select * from "+schema+".fuel_entries where id=?",entry);
             org.junit.jupiter.api.Assertions.assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
                     ()->jdbc.update("delete from "+schema+".vehicle_allowed_fuels where vehicle_id=?",vehicle));
-            var migration=org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load();
+            var migration=org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("4").load();
             assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
             assertThat(jdbc.update("delete from "+schema+".vehicle_allowed_fuels where vehicle_id=?",vehicle)).isEqualTo(1);
             assertThat(jdbc.queryForMap("select * from "+schema+".fuel_entries where id=?",entry)).isEqualTo(history);

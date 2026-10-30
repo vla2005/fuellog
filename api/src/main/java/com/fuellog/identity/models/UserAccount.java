@@ -22,6 +22,13 @@ public class UserAccount {
     public String passwordHash() { return passwordHash; }
     public Instant disabledAt() { return disabledAt; }
     public String preferredTimezone() { return preferredTimezone; }
+    public long version() { return version; }
+    public void changePassword(String hash, Instant now) { passwordHash = hash; updatedAt = now; }
+    public void updateProfile(String name, String email, Instant now) {
+        if (!this.name.equals(name) || !this.email.equals(email)) {
+            this.name = name; this.email = email; updatedAt = now;
+        }
+    }
     protected UserAccount() {}
     public UserAccount(String name, String email, String passwordHash, Instant now) {
         this.id = UUID.randomUUID(); this.name = name; this.email = email;

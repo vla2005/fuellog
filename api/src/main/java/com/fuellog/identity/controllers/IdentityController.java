@@ -19,7 +19,7 @@ public class IdentityController {
         return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(identity.register(request.name(), request.email(), request.password()));
     }
     @PostMapping("/auth/login")
-    ResponseEntity<IdentityDtos.TokenResponse> login(@Valid @RequestBody IdentityDtos.Login request) {
+    ResponseEntity<IdentityDtos.LoginResult> login(@Valid @RequestBody IdentityDtos.Login request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(identity.login(request.email(), request.password()));
     }
     @PostMapping("/auth/refresh")

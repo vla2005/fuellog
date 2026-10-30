@@ -31,13 +31,15 @@ public class IdentityService {
     private final Clock clock;
     private final TransactionTemplate transaction;
     private final String dummyPassword;
+    private final TwoFactorService twoFactor;
 
     IdentityService(UserAccountRepository users, UserSessionRepository sessions, RefreshTokenRepository tokens,
             PasswordEncoder passwords, RefreshSecrets secrets, AccessTokenService access, Clock identityClock,
-            PlatformTransactionManager manager) {
+            PlatformTransactionManager manager, TwoFactorService twoFactor) {
         this.users = users; this.sessions = sessions; this.tokens = tokens; this.passwords = passwords;
         this.secrets = secrets; this.access = access; this.clock = identityClock;
         this.transaction = new TransactionTemplate(manager);
+        this.twoFactor = twoFactor;
         dummyPassword = passwords.encode(UUID.randomUUID().toString());
     }
     public RegisteredUser register(String name, String email, String password) {
@@ -50,16 +52,28 @@ public class IdentityService {
             throw new ApiException(409, "ACCOUNT_CONFLICT", "Não foi possível cadastrar esta conta.");
         }
     }
-    public TokenResponse login(String email, String password) {
+    public LoginResult login(String email, String password) {
         return transaction.execute(status -> {
-            UserAccount user = users.findByEmail(normalize(email)).orElse(null);
+            UserAccount user = users.lockByEmail(normalize(email)).orElse(null);
             boolean matches = passwords.matches(password, user == null ? dummyPassword : user.passwordHash());
             if (!matches || user == null || user.disabledAt() != null)
                 throw new ApiException(401, "INVALID_CREDENTIALS", "E-mail ou senha inválidos.");
-            Instant now = now();
-            UserSession session = sessions.saveAndFlush(new UserSession(user.id(), now));
-            return issuePair(session, now);
+            if (twoFactor.enabled(user.id())) return twoFactor.challenge(user);
+            return createSession(user.id());
         });
+    }
+    public TokenResponse verifyTwoFactor(String challengeToken, String code) {
+        Rotation result = transaction.execute(status -> {
+            try { return new Rotation(createSession(twoFactor.verifyLoginChallenge(challengeToken, code)), null); }
+            catch (TwoFactorService.Rejected error) { return new Rotation(null, error); }
+        });
+        if (result.error != null) throw result.error;
+        return result.response;
+    }
+    private TokenResponse createSession(UUID userId) {
+        Instant now = now();
+        UserSession session = sessions.saveAndFlush(new UserSession(userId, now));
+        return issuePair(session, now);
     }
     public TokenResponse refresh(String secret) {
         String hash = secrets.hash(secret);

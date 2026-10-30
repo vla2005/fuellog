@@ -12,6 +12,30 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 class OpenApiContractTest {
+    @Test void profileUpdateDocumentsAuthenticatedContractAndConditionalCredentials() throws Exception {
+        var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
+        var operation = spec.path("paths").path("/me").path("patch");
+        assertThat(spec.path("security").get(0).has("bearerAuth")).isTrue();
+        assertThat(operation.has("security")).isFalse();
+        assertThat(operation.path("requestBody").path("required").asBoolean()).isTrue();
+        assertThat(operation.path("requestBody").path("content").path("application/json").path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/UpdateProfile");
+        var schema = spec.path("components").path("schemas").path("UpdateProfile");
+        assertThat(schema.path("required").valueStream().map(value -> value.asString()).toList()).containsExactly("name", "email");
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrderElementsOf(
+                Arrays.stream(Class.forName("com.fuellog.identity.dtos.ProfileDtos$UpdateProfile").getRecordComponents())
+                        .map(java.lang.reflect.RecordComponent::getName).toList());
+        assertThat(schema.path("properties").path("name").path("maxLength").asInt()).isEqualTo(100);
+        assertThat(schema.path("properties").path("email").path("maxLength").asInt()).isEqualTo(254);
+        assertThat(schema.path("properties").path("currentPassword").path("writeOnly").asBoolean()).isTrue();
+        assertThat(schema.path("properties").path("secondFactorCode").path("writeOnly").asBoolean()).isTrue();
+        var responses = operation.path("responses");
+        assertThat(responses.path("200").path("content").path("application/json").path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/Me");
+        assertThat(responses.path("200").path("headers").path("Cache-Control").path("description").asString()).isEqualTo("no-store");
+        for (String status : Set.of("401", "409", "422", "429")) assertThat(responses.has(status)).isTrue();
+    }
+
     @Test
     void registrationPasswordBoundsMatchTheHttpValidation() throws Exception {
         var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
@@ -36,6 +60,15 @@ class OpenApiContractTest {
                 Map.entry("RegisteredUser", "identity.dtos.IdentityDtos$RegisteredUser"),
                 Map.entry("TokenResponse", "identity.dtos.IdentityDtos$TokenResponse"),
                 Map.entry("Me", "identity.dtos.IdentityDtos$Me"),
+                Map.entry("PasswordChange", "identity.dtos.PasswordChangeDtos$ChangePassword"),
+                Map.entry("TwoFactorStatus", "identity.dtos.TwoFactorDtos$Status"),
+                Map.entry("TwoFactorSetup", "identity.dtos.TwoFactorDtos$Setup"),
+                Map.entry("TwoFactorSetupResponse", "identity.dtos.TwoFactorDtos$SetupResponse"),
+                Map.entry("TwoFactorEnable", "identity.dtos.TwoFactorDtos$Enable"),
+                Map.entry("TwoFactorRecoveryCodes", "identity.dtos.TwoFactorDtos$RecoveryCodes"),
+                Map.entry("TwoFactorDisable", "identity.dtos.TwoFactorDtos$Disable"),
+                Map.entry("TwoFactorChallenge", "identity.dtos.TwoFactorDtos$Challenge"),
+                Map.entry("TwoFactorVerify", "identity.dtos.TwoFactorDtos$Verify"),
                 Map.entry("CreateVehicle", "vehicles.dtos.VehicleDtos$Create"),
                 Map.entry("Vehicle", "vehicles.dtos.VehicleDtos$View"),
                 Map.entry("CreateFuelEntry", "fueling.dtos.FuelEntryDtos$Create"),
@@ -53,6 +86,21 @@ class OpenApiContractTest {
                     .map(java.lang.reflect.RecordComponent::getName).toList();
             assertThat(documented).as(entry.getKey()).containsExactlyInAnyOrderElementsOf(actual);
         }
+    }
+
+    @Test void loginResultIsExplicitAndSecurityMutationsDocumentNoStore() throws Exception {
+        var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
+        var login = spec.path("components").path("schemas").path("LoginResult").path("oneOf");
+        assertThat(login.valueStream().map(value -> value.path("$ref").asString()).toList())
+                .containsExactly("#/components/schemas/TokenResponse", "#/components/schemas/TwoFactorChallenge");
+        for (String path : Set.of("/me/password", "/me/2fa/setup", "/me/2fa/enable", "/me/2fa/disable", "/auth/2fa/verify")) {
+            var operation = spec.path("paths").path(path).path("post");
+            var responses = operation.path("responses");
+            assertThat(responses.path(path.endsWith("password") || path.endsWith("disable") ? "204" : "200")
+                    .path("headers").path("Cache-Control").path("description").asString()).isEqualTo("no-store");
+            assertThat(responses.has("429")).isTrue();
+        }
+        assertThat(spec.path("paths").path("/auth/2fa/verify").path("post").path("security").isEmpty()).isTrue();
     }
 
     @Test

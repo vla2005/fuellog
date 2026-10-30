@@ -32,7 +32,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableConfigurationProperties(IdentitySecurityProperties.class)
 class IdentitySecurityConfiguration {
     static boolean publicCredentials(String method, String path) {
-        return "POST".equals(method) && Set.of("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh").contains(path);
+        return "POST".equals(method) && Set.of("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/2fa/verify").contains(path);
     }
     @Bean Clock identityClock() { return Clock.systemUTC(); }
     @Bean PasswordEncoder passwordEncoder() { return Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8(); }
@@ -82,7 +82,7 @@ class IdentitySecurityConfiguration {
             throw new IllegalArgumentException("CORS origins must be explicit; wildcards are not allowed");
         var cors = new CorsConfiguration();
         cors.setAllowedOrigins(origins);
-        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "OPTIONS"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "If-Match"));
         cors.setExposedHeaders(List.of("ETag"));
         cors.setAllowCredentials(false);
