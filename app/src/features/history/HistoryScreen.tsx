@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable as GesturePressable } from 'react-native-gesture-handler';
 import {
   ActivityIndicator,
   Image,
@@ -38,6 +39,7 @@ import {
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
+import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
@@ -63,6 +65,8 @@ import {
   formatDisplayDateBR,
   formatPeriodSummaryBR,
 } from './helpers/calendarHelper';
+import { DeleteFuelEntrySheet } from './components/DeleteFuelEntrySheet';
+import { HistorySwipeRow } from './components/HistorySwipeRow';
 
 const PAGE_SIZE = 30;
 
@@ -113,6 +117,7 @@ export function HistoryScreen({
   embeddedInShell?: boolean;
 } = {}) {
   const router = useRouter();
+  const isTabActive = useContext(TabActiveContext);
   const { colors, isDark } = useAppTheme();
   const {
     status,
@@ -152,6 +157,13 @@ export function HistoryScreen({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deletingEntry, setDeletingEntry] = useState<FuelEntry | null>(null);
+  useEffect(() => { setDeletingEntry(null); }, [activeVehicle?.id, isTabActive, user?.id]);
+  useEffect(() => {
+    setEntries([]);
+    setPeriodSummary(null);
+    setCyclesByEndEntry({});
+  }, [dataVersion]);
 
   const requestSeqRef = useRef(0);
   const latestContextKeyRef = useRef('');
@@ -441,6 +453,22 @@ export function HistoryScreen({
       omitTopSafeArea={embeddedInShell}
       footer={embeddedInShell ? undefined : <FloatingDock activeTab="history" />}
     >
+      {deletingEntry && activeVehicle?.id === deletingEntry.vehicleId ? (
+        <DeleteFuelEntrySheet
+          key={deletingEntry.id}
+          entry={deletingEntry}
+          vehicleName={activeVehicle.nickname}
+          onClose={() => setDeletingEntry(null)}
+          onDeleted={(deleted) => {
+            requestSeqRef.current++;
+            latestContextKeyRef.current = '';
+            setEntries((current) => current.filter((item) => item.id !== deleted.id));
+            setPeriodSummary(null);
+            setCyclesByEndEntry({});
+            setDeletingEntry(null);
+          }}
+        />
+      ) : null}
       {/* Top Row: Wordmark on left + Mascot Avatar on right */}
       {!embeddedInShell ? (
         <View style={styles.topHeader}>
@@ -651,8 +679,11 @@ export function HistoryScreen({
                     );
 
                     return (
-                      <Pressable
-                        key={entry.id}
+                      <HistorySwipeRow key={entry.id}
+                        label={`abastecimento de ${formatCurrencyBRL(entry.paidTotal)}, em ${fullDateRow}`}
+                        onDelete={() => setDeletingEntry(entry)}
+                      >
+                      <GesturePressable
                         accessibilityRole="button"
                         accessibilityLabel={`Abastecimento de ${formatCurrencyBRL(
                           entry.paidTotal,
@@ -705,7 +736,8 @@ export function HistoryScreen({
                             color={colors.accentPrimary}
                           />
                         </View>
-                      </Pressable>
+                      </GesturePressable>
+                      </HistorySwipeRow>
                     );
                   })}
                 </View>

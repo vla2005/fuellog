@@ -270,6 +270,14 @@ export async function getFuelEntry(vehicleId: string, entryId: string): Promise<
   });
 }
 
+export async function deleteFuelEntry(vehicleId: string, entryId: string, version: number): Promise<void> {
+  await apiRequest<void>({
+    method: 'DELETE',
+    path: `/vehicles/${encodeURIComponent(vehicleId)}/fuel-entries/${encodeURIComponent(entryId)}`,
+    headers: { 'If-Match': `"${version}"` },
+  });
+}
+
 export async function updateFuelEntry(
   vehicleId: string,
   entryId: string,

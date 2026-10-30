@@ -17,6 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { BrandLockup } from '@/components/brand/BrandLockup';
 import { AppToast } from '@/components/feedback/AppToast';
@@ -193,6 +194,7 @@ export default function RootLayout() {
   }
 
   return (
+    <GestureHandlerRootView style={styles.flex}>
     <SafeAreaProvider>
       <AppThemeProvider>
         <SessionProvider>
@@ -200,6 +202,7 @@ export default function RootLayout() {
         </SessionProvider>
       </AppThemeProvider>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

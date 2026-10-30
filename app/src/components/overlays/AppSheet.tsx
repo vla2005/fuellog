@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import { CloseIcon } from '@/components/icons/AppIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenOverlayContext } from '@/components/layout/ScreenShell';
 import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { IconButton } from '@/components/ui/IconButton';
@@ -27,6 +28,7 @@ export interface AppSheetProps {
   subtitle?: string;
   onClose: () => void;
   children: React.ReactNode;
+  modal?: boolean;
 }
 
 export function AppSheet({
@@ -35,12 +37,51 @@ export function AppSheet({
   subtitle,
   onClose,
   children,
+  modal = false,
 }: AppSheetProps) {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { reduceMotion, duration, easing } = useMotionPolicy();
   const overlayContext = useContext(ScreenOverlayContext);
   const isPaneActive = useContext(TabActiveContext);
   const sheetId = useId();
+  const modalRootRef = useRef<React.ElementRef<typeof View>>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!modal || !visible || !isPaneActive || Platform.OS !== 'web') return;
+    const root = modalRootRef.current as unknown as HTMLElement | null;
+    if (!root) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const focusable = () => Array.from(root.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [tabindex="0"]',
+    )).filter((node) => node.getClientRects().length > 0);
+    const focusFirst = () => (root.querySelector<HTMLElement>('[data-testid="fuel-delete-cancel"]') ?? focusable()[0])?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+      } else if (event.key === 'Tab') {
+        const nodes = focusable();
+        const index = nodes.indexOf(document.activeElement as HTMLElement);
+        event.preventDefault();
+        nodes[(index + (event.shiftKey ? -1 : 1) + nodes.length) % nodes.length]?.focus();
+      }
+    };
+    const containFocus = (event: FocusEvent) => {
+      if (!root.contains(event.target as Node)) focusFirst();
+    };
+    focusFirst();
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('focusin', containFocus);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('focusin', containFocus);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [isPaneActive, modal, visible]);
   const translateY = useRef(new Animated.Value(24)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const motionPolicyRef = useRef({ duration, easing, reduceMotion });
@@ -98,14 +139,19 @@ export function AppSheet({
     onClose();
   };
 
-  const withDockClearance = Boolean(overlayContext?.withDockClearance);
+  const withDockClearance = !modal && Boolean(overlayContext?.withDockClearance);
 
   const sheetBody = (
     <View
+      ref={modalRootRef}
+      role={modal ? 'dialog' : undefined}
+      aria-modal={modal || undefined}
+      aria-label={modal ? title : undefined}
+      accessibilityViewIsModal={modal}
       pointerEvents="auto"
       style={[
         styles.modalRoot,
-        overlayContext ? styles.inlineOverlayRoot : null,
+        overlayContext && !modal ? styles.inlineOverlayRoot : null,
         withDockClearance ? styles.modalRootWithDock : null,
       ]}
     >
@@ -131,6 +177,7 @@ export function AppSheet({
               opacity,
               transform: [{ translateY }],
             },
+            modal ? { paddingBottom: Math.max(24, insets.bottom + 12) } : null,
           ]}
         >
           <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
@@ -165,7 +212,7 @@ export function AppSheet({
   );
 
   useEffect(() => {
-    if (Platform.OS === 'web' || !overlayContext) {
+    if (modal || Platform.OS === 'web' || !overlayContext) {
       return;
     }
     overlayContext.setNativeOverlay(
@@ -181,7 +228,7 @@ export function AppSheet({
     return null;
   }
 
-  if (Platform.OS === 'web' && overlayContext?.webHostElement) {
+  if (!modal && Platform.OS === 'web' && overlayContext?.webHostElement) {
     const ReactDOM = require('react-dom') as {
       createPortal: (
         children: React.ReactNode,
@@ -191,7 +238,7 @@ export function AppSheet({
     return ReactDOM.createPortal(sheetBody, overlayContext.webHostElement);
   }
 
-  if (Platform.OS !== 'web' && overlayContext) {
+  if (!modal && Platform.OS !== 'web' && overlayContext) {
     return null;
   }
 

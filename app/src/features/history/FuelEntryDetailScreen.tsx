@@ -35,6 +35,7 @@ import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, shadows, typography } from '@/theme/tokens';
 import { formatDateTimeFullBR } from '@/utils/date';
+import { DeleteFuelEntrySheet } from './components/DeleteFuelEntrySheet';
 import {
   formatConsumptionBR,
   formatCurrencyBRL,
@@ -59,7 +60,8 @@ export function FuelEntryDetailScreen({
     entryIdOverride !== undefined ? entryIdOverride : entryId;
   const isTabActive = useContext(TabActiveContext);
   const { colors, isDark } = useAppTheme();
-  const { activeVehicle } = useSession();
+  const { activeVehicle, dataVersion } = useSession();
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [entry, setEntry] = useState<FuelEntry | null>(null);
   const [matchingCycle, setMatchingCycle] = useState<ConsumptionCycle | null>(
@@ -99,6 +101,8 @@ export function FuelEntryDetailScreen({
     }
 
     setLoading(true);
+    setEntry(null);
+    setMatchingCycle(null);
     setErrorMessage(null);
     try {
       const [fetchedEntry, cyclesRes] = await Promise.all([
@@ -137,7 +141,7 @@ export function FuelEntryDetailScreen({
         setLoading(false);
       }
     }
-  }, [activeVehicle?.id, resolvedEntryId]);
+  }, [activeVehicle?.id, resolvedEntryId, dataVersion]);
 
   useEffect(() => {
     void loadDetail();
@@ -154,6 +158,7 @@ export function FuelEntryDetailScreen({
     const wasActive = prevActiveRef.current;
     prevActiveRef.current = isTabActive;
     if (wasActive && !isTabActive) {
+      setDeleteOpen(false);
       setIsEditing(false);
       setMenuOpen(false);
       setLimitationNotice(null);
@@ -163,6 +168,7 @@ export function FuelEntryDetailScreen({
   const prevEntryIdRef = useRef(resolvedEntryId);
   useEffect(() => {
     if (prevEntryIdRef.current !== resolvedEntryId) {
+      setDeleteOpen(false);
       prevEntryIdRef.current = resolvedEntryId;
       setIsEditing(false);
       setMenuOpen(false);
@@ -260,6 +266,21 @@ export function FuelEntryDetailScreen({
         ) : undefined
       }
     >
+      {deleteOpen && entry && activeVehicle?.id === entry.vehicleId ? (
+        <DeleteFuelEntrySheet
+          key={entry.id}
+          entry={entry}
+          vehicleName={activeVehicle.nickname}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => {
+            currentReqIdRef.current++;
+            setEntry(null);
+            setMatchingCycle(null);
+            setDeleteOpen(false);
+            router.replace('/history');
+          }}
+        />
+      ) : null}
       {embeddedInShell ? (
         <View style={styles.inlineTopBar}>{topBarContent}</View>
       ) : null}
@@ -399,6 +420,12 @@ export function FuelEntryDetailScreen({
             onPress={() => setIsEditing(true)}
             stepped
             style={{ marginTop: 12, marginBottom: 24 }}
+          />
+          <PrimaryButton
+            label="Excluir abastecimento"
+            variant="danger"
+            onPress={() => setDeleteOpen(true)}
+            style={{ marginBottom: 24 }}
           />
 
         </View>
