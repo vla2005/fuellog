@@ -11,6 +11,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name="fuel_entries")
+@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")
 public class FuelEntry {
     @Id private UUID id;
     @Column(name="vehicle_id", nullable=false, updatable=false) private UUID vehicleId;
@@ -32,6 +33,9 @@ public class FuelEntry {
     @Column(name="created_at",nullable=false,updatable=false) private Instant createdAt;
     @Column(name="updated_at",nullable=false) private Instant updatedAt;
     @Version private Long version;
+    @Column(name="deleted_at") private Instant deletedAt;
+    public boolean deleted() { return deletedAt != null; }
+    public void delete(Instant at) { deletedAt=at; }
     public UUID id() { return id; }
     public UUID vehicleId() { return vehicleId; }
     public Instant occurredAt() { return occurredAt; }

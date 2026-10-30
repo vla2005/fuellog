@@ -3,7 +3,7 @@
   "info": {
     "title": "FuelLog API",
     "version": "0.1.0",
-    "description": "Backend with identity, vehicles, fuel entries, full-tank consumption cycles and summaries. No frontend. Editing, deletion, exports, password recovery and complete account management are planned. All protected queries enforce ownership. Decimal values use strings. Consumption is null with a reason when unavailable."
+    "description": "Backend with identity, vehicles, fuel entries, full-tank consumption cycles and summaries. No frontend. Exports are planned. Fuel entries support version-checked editing and deletion with preserved idempotency and consumption gaps. All protected queries enforce ownership. Decimal values use strings. Consumption is null with a reason when unavailable."
   },
   "servers": [
     {
@@ -1651,6 +1651,88 @@
           },
           "422": {
             "description": "Domain validation failed; no update.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete an owned fuel entry",
+        "description": "Requires the current strong numeric If-Match ETag and serializes with creation and editing on the owned vehicle. Archived vehicle history may be deleted. Deleted entries disappear from get, list and purchase totals. Internal tombstones reserve the UUID: replaying POST returns 409 ENTRY_DELETED and never restores the record. Tombstone chronology invalidates consumption across the missing entry until the next full-tank baseline; later edits or backdated inserts cannot clear this deletion gap. No undo endpoint.",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "Exactly one strong numeric ETag from GET; weak tags, lists, wildcards, signs and values outside int64 are invalid.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\"(?:0|[1-9][0-9]*)\"$",
+              "example": "\"0\""
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted; empty response body. Subsequent GET/PUT/DELETE return 404."
+          },
+          "400": {
+            "description": "Invalid request format or INVALID_IF_MATCH; no update.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent, not owned, or entry does not belong to this vehicle; no ownership disclosure.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "PRECONDITION_FAILED: stale version or concurrent edit; no overwrite. Refetch and resolve.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "PRECONDITION_REQUIRED: missing If-Match.",
             "content": {
               "application/problem+json": {
                 "schema": {

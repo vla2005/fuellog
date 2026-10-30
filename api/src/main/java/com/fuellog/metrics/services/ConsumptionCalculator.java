@@ -21,6 +21,7 @@ final class ConsumptionCalculator {
         boolean gap=false;
         UnavailableReason reason=UnavailableReason.NEEDS_FULL_TANK_BASELINE;
         for (FuelHistory entry:history) {
+            if (entry.deleted()) { gap=true; reason=UnavailableReason.HISTORY_GAP; continue; }
             if (entry.historyGapBefore()) { gap=true; reason=UnavailableReason.HISTORY_GAP; }
             if (baseline != null) {
                 liters=liters.add(entry.liters()); paid=paid.add(entry.paidTotal()); fuels.add(entry.fuelType());

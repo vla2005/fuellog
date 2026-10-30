@@ -82,7 +82,7 @@ class IdentitySecurityConfiguration {
             throw new IllegalArgumentException("CORS origins must be explicit; wildcards are not allowed");
         var cors = new CorsConfiguration();
         cors.setAllowedOrigins(origins);
-        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "OPTIONS"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "If-Match"));
         cors.setExposedHeaders(List.of("ETag"));
         cors.setAllowCredentials(false);

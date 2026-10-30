@@ -42,6 +42,8 @@ public class FuelEntryService {
                 throw new ApiException(409,"IDEMPOTENCY_CONFLICT","UUID j\u00e1 utilizado com outro comando.");
             return entry.view(true);
         }
+        if (entries.wasDeleted(command.id()))
+            throw new ApiException(409,"ENTRY_DELETED","UUID de abastecimento excluído não pode ser reutilizado.");
         command.requireLocation();
         command.validateAmounts();
         if (vehicle.archivedAt() != null) throw new ApiException(409,"VEHICLE_ARCHIVED","Ve\u00edculo arquivado.");
@@ -83,6 +85,16 @@ public class FuelEntryService {
         try { return entries.saveAndFlush(entry).view(false); }
         catch (ObjectOptimisticLockingFailureException error) { throw staleVersion(); }
     }
+    @Transactional
+    public void delete(UUID vehicleId, UUID entryId, String ifMatch) {
+        vehicles.lockOwned(vehicleId);
+        FuelEntry entry=entries.findByIdAndVehicleId(entryId,vehicleId).orElseThrow(VehicleService::notFound);
+        long expected=expectedVersion(ifMatch);
+        if (!Objects.equals(entry.version(),expected)) throw staleVersion();
+        entry.delete(clock.instant());
+        try { entries.saveAndFlush(entry); }
+        catch (ObjectOptimisticLockingFailureException error) { throw staleVersion(); }
+    }
     private static long expectedVersion(String ifMatch) {
         if (ifMatch == null) throw new ApiException(428,"PRECONDITION_REQUIRED","Informe If-Match com o ETag do abastecimento.");
         if (!ifMatch.matches("\"(?:0|[1-9][0-9]*)\""))
@@ -91,7 +103,7 @@ public class FuelEntryService {
         catch (NumberFormatException error) { throw new ApiException(400,"INVALID_IF_MATCH","Vers\u00e3o fora do intervalo suportado."); }
     }
     private static ApiException staleVersion() {
-        return new ApiException(412,"PRECONDITION_FAILED","Abastecimento alterado; consulte novamente antes de editar.");
+        return new ApiException(412,"PRECONDITION_FAILED","Abastecimento alterado; consulte novamente antes de continuar.");
     }
     private static void validateHistory(FuelCommand command, Optional<FuelEntry> previous, Optional<FuelEntry> next, List<FuelEntry> ties) {
         if (previous.isPresent() && previous.get().odometerKm() > command.odometerKm() || next.isPresent() && next.get().odometerKm() < command.odometerKm())

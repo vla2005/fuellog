@@ -31,6 +31,11 @@ public class FuelEntryController {
         var view=entries.update(vehicleId,entryId,ifMatch,command);
         return ResponseEntity.ok().eTag("\""+view.version()+"\"").body(view);
     }
+    @DeleteMapping("/{entryId}") public ResponseEntity<Void> delete(@PathVariable UUID vehicleId, @PathVariable UUID entryId,
+        @RequestHeader(value="If-Match",required=false) String ifMatch) {
+        entries.delete(vehicleId,entryId,ifMatch);
+        return ResponseEntity.noContent().build();
+    }
     @GetMapping public FuelEntryDtos.Page list(@PathVariable UUID vehicleId,
         @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to,
         @RequestParam(defaultValue="America/Sao_Paulo") String timezone,

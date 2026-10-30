@@ -9,4 +9,9 @@ import java.util.UUID;
 
 /** Read-only facts used to recalculate metrics from the complete history. */
 public record FuelHistory(UUID id, Instant occurredAt, long odometerKm, FuelType fuelType,
-    BigDecimal liters, BigDecimal paidTotal, TankState tankState, boolean historyGapBefore) {}
+    BigDecimal liters, BigDecimal paidTotal, TankState tankState, boolean historyGapBefore, boolean deleted) {
+    public FuelHistory(UUID id, Instant occurredAt, long odometerKm, FuelType fuelType,
+        BigDecimal liters, BigDecimal paidTotal, TankState tankState, boolean historyGapBefore) {
+        this(id,occurredAt,odometerKm,fuelType,liters,paidTotal,tankState,historyGapBefore,false);
+    }
+}

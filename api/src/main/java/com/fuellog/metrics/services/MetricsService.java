@@ -21,7 +21,7 @@ public class MetricsService {
         var records=history.read(vehicleId);
         var period=Period.of(from,to,timezone);
         var result=calculator.calculate(records);
-        var purchases=records.stream().filter(e -> period.contains(e.occurredAt())).toList();
+        var purchases=records.stream().filter(e -> !e.deleted() && period.contains(e.occurredAt())).toList();
         BigDecimal paid=BigDecimal.ZERO, liters=BigDecimal.ZERO;
         for (FuelHistory entry:purchases) { paid=paid.add(entry.paidTotal()); liters=liters.add(entry.liters()); }
         var selected=result.cycles().stream().filter(c -> period.contains(c.endedAt())).toList();

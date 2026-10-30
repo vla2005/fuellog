@@ -153,7 +153,7 @@ class FuellogApiIT {
                 new String[]{"http://localhost:8081.evil.example", "POST", "authorization"},
                 new String[]{"http://localhost:8082", "POST", "authorization"},
                 new String[]{"null", "POST", "authorization"},
-                new String[]{"http://localhost:8081", "DELETE", "authorization"},
+                new String[]{"http://localhost:8081", "TRACE", "authorization"},
                 new String[]{"http://localhost:8081", "POST", "x-unapproved"})) {
             var response = client.send(HttpRequest.newBuilder(URI.create(base() + "/api/v1/vehicles"))
                     .header("Origin", rejected[0]).header("Access-Control-Request-Method", rejected[1])
@@ -224,6 +224,7 @@ class FuellogApiIT {
                 org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load().migrate();
                 var after=isolated.queryForMap("select * from fuel_entries where id=?",entry);
                 assertThat(after.remove("latitude")).isNull(); assertThat(after.remove("longitude")).isNull();
+                assertThat(after.remove("deleted_at")).isNull();
                 assertThat(after).isEqualTo(before);
                 for (String assignment:List.of("latitude=0","longitude=0","latitude=91,longitude=0",
                         "latitude=0,longitude=181","latitude='NaN',longitude=0")) {
