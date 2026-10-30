@@ -42,6 +42,7 @@ public class FuelEntryService {
             return entry.view(true);
         }
         command.requireLocation();
+        command.validateAmounts();
         if (vehicle.archivedAt() != null) throw new ApiException(409,"VEHICLE_ARCHIVED","Ve\u00edculo arquivado.");
         if (!vehicle.allowedFuels().contains(command.fuelType())) throw DomainValues.invalid("fuelType","Combust\u00edvel n\u00e3o permitido pelo ve\u00edculo.");
         if (command.occurredAt().isAfter(clock.instant().plusSeconds(300))) throw DomainValues.invalid("occurredAt","Data excede toler\u00e2ncia futura de cinco minutos.");
@@ -68,6 +69,8 @@ public class FuelEntryService {
         long expected=expectedVersion(ifMatch);
         if (!Objects.equals(entry.version(),expected)) throw staleVersion();
         FuelCommand command=FuelCommand.normalize(vehicleId,entryId,input);
+        // Historical adjustments remain editable until their financial values or reason change.
+        if (!entry.hasSameAmounts(command)) command.validateAmounts();
         if (command.fuelType() != entry.fuelType() && !vehicle.allowedFuels().contains(command.fuelType()))
             throw DomainValues.invalid("fuelType","Combust\u00edvel n\u00e3o permitido pelo ve\u00edculo.");
         if (command.occurredAt().isAfter(clock.instant().plusSeconds(300)))

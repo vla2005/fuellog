@@ -35,7 +35,7 @@ public record FuelCommand(UUID id, UUID vehicleId, Instant occurredAt, String ti
         BigDecimal price=DomainValues.decimal(input.unitPrice(),"unitPrice",10,4,true);
         BigDecimal paid=DomainValues.decimal(input.paidTotal(),"paidTotal",12,2,true);
         String reason=DomainValues.text(input.adjustmentReason(),"adjustmentReason",300,false);
-        if (paid.subtract(reference(liters,price)).abs().compareTo(new BigDecimal("0.05")) > 0 && reason == null)
+        if (!consistent(liters,price,paid) && paid.subtract(reference(liters,price)).abs().compareTo(new BigDecimal("0.05")) > 0 && reason == null)
             throw DomainValues.invalid("adjustmentReason","Justifique ajuste superior a R$ 0,05.");
         return new FuelCommand(input.id(),vehicleId,input.occurredAt().toInstant(),input.timezone(),input.odometerKm(),
             input.fuelType(),liters,price,paid,input.tankState() == null ? TankState.UNKNOWN : input.tankState(),
@@ -52,6 +52,18 @@ public record FuelCommand(UUID id, UUID vehicleId, Instant occurredAt, String ti
         if (latitude == null) throw DomainValues.invalid("latitude","Localiza\u00e7\u00e3o obrigat\u00f3ria para novo abastecimento.");
     }
     static BigDecimal reference(BigDecimal liters, BigDecimal price) { return liters.multiply(price).setScale(2,RoundingMode.HALF_UP); }
+    private static boolean consistent(BigDecimal liters, BigDecimal price, BigDecimal paid) {
+        return liters.compareTo(paid.divide(price,3,RoundingMode.HALF_UP)) == 0
+            || reference(liters,price).compareTo(paid) == 0;
+    }
+    public void validateAmounts() {
+        if (adjustmentReason != null) {
+            if (paidTotal.compareTo(reference(liters,unitPrice)) > 0)
+                throw DomainValues.invalid("paidTotal","Com desconto, o valor pago não pode superar o valor de referência.");
+        } else if (!consistent(liters,unitPrice,paidTotal)) {
+            throw DomainValues.invalid("liters","Litros devem corresponder ao valor pago dividido pelo preço por litro, com três casas decimais.");
+        }
+    }
     public String hash() {
         // Length prefixes prevent delimiter collisions; decimals and instants have canonical forms.
         try {

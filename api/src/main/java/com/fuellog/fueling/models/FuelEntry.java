@@ -44,6 +44,10 @@ public class FuelEntry {
     public String createRequestHash() { return createRequestHash; }
     public Long version() { return version; }
     protected FuelEntry() {}
+    public boolean hasSameAmounts(FuelCommand c) {
+        return liters.compareTo(c.liters()) == 0 && unitPrice.compareTo(c.unitPrice()) == 0
+            && paidTotal.compareTo(c.paidTotal()) == 0 && java.util.Objects.equals(adjustmentReason,c.adjustmentReason());
+    }
     public FuelEntry(FuelCommand c, boolean pendingGap) {
         id=c.id(); vehicleId=c.vehicleId(); occurredAt=c.occurredAt(); timezone=c.timezone(); odometerKm=c.odometerKm();
         fuelType=c.fuelType(); liters=c.liters(); unitPrice=c.unitPrice(); paidTotal=c.paidTotal(); tankState=c.tankState();

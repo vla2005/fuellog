@@ -1153,6 +1153,7 @@
       ],
       "get": {
         "summary": "Read owned fuel history ordered by occurredAt DESC and id DESC",
+        "description": "All supplied filters are combined before pagination and total counts. Numeric bounds are inclusive non-negative decimal strings with a dot; each minimum must be no greater than its maximum. Invalid bounds return 422. tankState remains supported for legacy consumers.",
         "responses": {
           "200": {
             "description": "Success; creation retries return current state with idempotentReplay=true.",
@@ -2995,6 +2996,7 @@
         ]
       },
       "CreateFuelEntry": {
+        "description": "Without adjustmentReason, liters must equal HALF_UP(paidTotal / unitPrice, 3) or HALF_UP(liters * unitPrice, 2) must equal paidTotal. Nonempty adjustmentReason declares a discount and requires paidTotal <= HALF_UP(liters * unitPrice, 2). Amounts remain positive decimal strings; original POST fingerprints retain replay compatibility.",
         "type": "object",
         "properties": {
           "id": {
@@ -3686,6 +3688,7 @@
         ]
       },
       "UpdateFuelEntry": {
+        "description": "Financial changes follow the CreateFuelEntry amount and discount rules. Historical amounts and adjustmentReason may be retained unchanged when editing other fields, including the date. If-Match remains mandatory; an accepted PUT preserves the original POST fingerprint.",
         "type": "object",
         "properties": {
           "occurredAt": {

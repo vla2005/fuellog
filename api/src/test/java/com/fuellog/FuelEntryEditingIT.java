@@ -122,6 +122,8 @@ class FuelEntryEditingIT {
         var invalidOdometer=update(original); invalidOdometer.put("odometerKm",-1);
         assertThat(put(access,route,"\"0\"",invalidOdometer).status()).isEqualTo(422);
         var tolerance=update(original); tolerance.put("paidTotal","59.95");
+        assertThat(put(access,route,"\"0\"",tolerance).status()).isEqualTo(422);
+        tolerance.put("adjustmentReason","Desconto");
         assertThat(put(access,route,"\"0\"",tolerance).status()).isEqualTo(200);
         var malformedPost=new LinkedHashMap<>(original); malformedPost.put("id",UUID.randomUUID().toString()); malformedPost.put("liters",10);
         var rejectedPost=request("POST",path(vehicle),access,null,malformedPost);
