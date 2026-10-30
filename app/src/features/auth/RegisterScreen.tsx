@@ -2,7 +2,6 @@ import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Image,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -12,10 +11,8 @@ import {
 } from 'react-native';
 
 import { ApiError } from '@/api/types';
-import { BrandLockup } from '@/components/brand/BrandLockup';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
-  ChevronLeftIcon,
   EyeIcon,
   LockIcon,
   MailIcon,
@@ -24,6 +21,7 @@ import {
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { AuthSceneHero } from '@/features/auth/AuthSceneHero';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
@@ -128,55 +126,33 @@ export function RegisterScreen() {
   const inputBorder = colors.borderSubtle;
 
   return (
-    <ScreenShell contentContainerStyle={styles.scrollContent}>
-      {/* Top Bar: Back button left + Wordmark centered */}
-      <View style={styles.topHeader}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Voltar para login"
-          onPress={() => {
+    <ScreenShell
+      omitTopSafeArea
+      fullBleedHero={
+        <AuthSceneHero
+          mode="register"
+          onBack={() => {
             if (router.canGoBack()) {
               router.back();
             } else {
               router.replace('/login');
             }
           }}
-          style={[
-            styles.backSquare,
-            {
-              backgroundColor: inputBg,
-              borderColor: inputBorder,
-            },
-          ]}
-        >
-          <ChevronLeftIcon size={20} color={colors.accentPrimary} />
-        </Pressable>
-        <BrandLockup mode="wordmark-only" wordmarkWidth={148} />
-        <View style={styles.headerRightSpacer} />
-      </View>
-
-      {/* Split Hero: Left title + Right Mascot sitting spot illustration */}
+        />
+      }
+      contentContainerStyle={styles.scrollContent}
+    >
       <Pressable
         onPress={Keyboard.dismiss}
         accessible={false}
-        style={styles.heroSplitRow}
+        style={styles.heroTextWrap}
       >
-        <View style={styles.heroTextCol}>
-          <Text style={[styles.heroHeadline, { color: colors.textPrimary }]}>
-            Criar conta
-          </Text>
-          <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-            Acompanhe seus gastos com precisão.
-          </Text>
-        </View>
-        <View style={styles.heroMascotCol}>
-          <Image
-            source={require('@/assets/brand/mascote_sitting.png')}
-            style={styles.mascotImage}
-            resizeMode="contain"
-            accessibilityLabel="Mascote FuelLog sentado com prancheta"
-          />
-        </View>
+        <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+          Criar conta
+        </Text>
+        <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
+          Acompanhe seus gastos com precisão.
+        </Text>
       </Pressable>
 
       {/* Form Fields directly on canvas: Nome, E-mail, Senha */}
@@ -376,51 +352,19 @@ export function RegisterScreen() {
 
 const styles = StyleSheet.create({
   scrollContent: {
-    justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingBottom: 24,
   },
-  topHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  backSquare: {
-    width: 42,
-    height: 42,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerRightSpacer: {
-    width: 42,
-  },
-  heroSplitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  heroTextWrap: {
+    paddingTop: 14,
     marginBottom: 16,
-    gap: 12,
-  },
-  heroTextCol: {
-    flex: 1,
     gap: 4,
   },
-  heroHeadline: {
+  screenTitle: {
     ...typography.screenTitle,
   },
-  heroSubtitle: {
+  screenSubtitle: {
     ...typography.body,
     fontSize: 14,
-  },
-  heroMascotCol: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mascotImage: {
-    width: 84,
-    height: 60,
   },
   formSection: {
     gap: 14,

@@ -48,6 +48,17 @@ import {
   Vehicle,
   isTwoFactorChallenge,
 } from '@/api/types';
+import {
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+
+import { AppSheet } from '@/components/overlays/AppSheet';
+import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { useAppTheme } from '@/theme/ThemeProvider';
+import { radii, typography } from '@/theme/tokens';
 import { getMonthPeriodOption, MonthPeriodOption } from '@/utils/date';
 
 export type AuthStatus =
@@ -145,6 +156,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [hasBiometricLock, setHasBiometricLock] = useState(false);
   const [isBiometricActive, setIsBiometricActive] = useState(false);
   const [biometricDeviceInfo, setBiometricDeviceInfo] = useState<BiometricDeviceInfo | null>(null);
+  const [biometricSuggestionOpen, setBiometricSuggestionOpen] = useState(false);
+  const [biometricSuggestionBusy, setBiometricSuggestionBusy] = useState(false);
+  const biometricSuggestionBusyRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChallengeRef = useRef<{
     challengeToken: string;
@@ -161,6 +175,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setActiveVehicleId(null);
     setBootError(null);
     activeChallengeRef.current = null;
+    biometricSuggestionBusyRef.current = false;
+    setBiometricSuggestionBusy(false);
+    setBiometricSuggestionOpen(false);
   }, []);
 
   const showToast = useCallback((next: Omit<ToastMessage, 'id'>) => {
@@ -342,6 +359,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       payload: LoginRequest,
       options?: { enableBiometrics?: boolean },
     ): Promise<SignInResult> => {
+      const shouldPreserveBiometrics =
+        options?.enableBiometrics !== undefined
+          ? options.enableBiometrics
+          : (isBiometricActive || hasBiometricLock);
       const epoch = bumpSessionEpoch();
       activeChallengeRef.current = null;
       const loginResult = await loginUser({
@@ -358,7 +379,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           challengeToken: loginResult.challengeToken,
           epoch,
           expiresAt: loginResult.expiresAt,
-          enableBiometrics: Boolean(options?.enableBiometrics),
+          enableBiometrics: shouldPreserveBiometrics,
         };
         return {
           mfaRequired: true,
@@ -377,7 +398,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return { mfaRequired: false };
       }
 
-      if (options?.enableBiometrics) {
+      if (shouldPreserveBiometrics) {
         try {
           const bioResult = await enableBiometricSession(epoch);
           if (getSessionEpoch() !== epoch) {
@@ -428,6 +449,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           title: 'Sessão iniciada',
           subtitle: 'Seus abastecimentos foram sincronizados.',
         });
+        if (biometricDeviceInfo?.isSupported) {
+          setBiometricSuggestionOpen(true);
+        }
       }
 
       if (getSessionEpoch() !== epoch) {
@@ -440,7 +464,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setStatus('authenticated');
       return { mfaRequired: false };
     },
-    [loadUserWorkspace, showToast],
+    [
+      loadUserWorkspace,
+      showToast,
+      biometricDeviceInfo,
+      isBiometricActive,
+      hasBiometricLock,
+    ],
   );
 
   const completeTwoFactorSignIn = useCallback(
@@ -546,6 +576,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           title: 'Sessão iniciada',
           subtitle: 'Seus abastecimentos foram sincronizados.',
         });
+        if (biometricDeviceInfo?.isSupported) {
+          setBiometricSuggestionOpen(true);
+        }
       }
 
       if (getSessionEpoch() !== expectedEpoch) {
@@ -558,7 +591,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setBootError(null);
       setStatus('authenticated');
     },
-    [loadUserWorkspace, showToast],
+    [
+      loadUserWorkspace,
+      showToast,
+      biometricDeviceInfo,
+      isBiometricActive,
+      hasBiometricLock,
+    ],
   );
 
   const handlePasswordChanged = useCallback(
@@ -578,6 +617,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       clearInMemoryUserData();
       setHasBiometricLock(false);
       setIsBiometricActive(false);
+      biometricSuggestionBusyRef.current = false;
+      setBiometricSuggestionBusy(false);
+      setBiometricSuggestionOpen(false);
       setStatus('unauthenticated');
       return true;
     },
@@ -635,6 +677,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       clearInMemoryUserData();
       setHasBiometricLock(false);
       setIsBiometricActive(false);
+      biometricSuggestionBusyRef.current = false;
+      setBiometricSuggestionBusy(false);
+      setBiometricSuggestionOpen(false);
       setStatus('unauthenticated');
     }
 
@@ -869,6 +914,61 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setHasBiometricLock(false);
   }, []);
 
+  const dismissBiometricSuggestion = useCallback(() => {
+    setBiometricSuggestionOpen(false);
+  }, []);
+
+  const acceptBiometricSuggestion = useCallback(async () => {
+    if (biometricSuggestionBusyRef.current) {
+      return;
+    }
+    biometricSuggestionBusyRef.current = true;
+    setBiometricSuggestionBusy(true);
+    const epoch = getSessionEpoch();
+
+    try {
+      const res = await enableBiometricsOnCurrentSession();
+      if (getSessionEpoch() !== epoch) {
+        return;
+      }
+      setBiometricSuggestionOpen(false);
+      if (res.success) {
+        showToast({
+          tone: 'success',
+          title: 'Biometria ativada',
+          subtitle: `Acesso por ${biometricDeviceInfo?.biometricLabel ?? 'biometria'} ativado com sucesso neste aparelho.`,
+        });
+      } else if (res.canceled) {
+        showToast({
+          tone: 'info',
+          title: 'Acesso mantido',
+          subtitle: 'A biometria não foi ativada.',
+        });
+      } else {
+        showToast({
+          tone: 'warning',
+          title: 'Aviso',
+          subtitle: res.error ?? 'Não foi possível ativar a biometria neste aparelho.',
+        });
+      }
+    } catch {
+      if (getSessionEpoch() !== epoch) {
+        return;
+      }
+      setBiometricSuggestionOpen(false);
+      showToast({
+        tone: 'warning',
+        title: 'Aviso',
+        subtitle: 'Não foi possível ativar a biometria neste aparelho.',
+      });
+    } finally {
+      if (getSessionEpoch() === epoch) {
+        biometricSuggestionBusyRef.current = false;
+        setBiometricSuggestionBusy(false);
+      }
+    }
+  }, [biometricDeviceInfo, enableBiometricsOnCurrentSession, showToast]);
+
   const activeVehicle = useMemo(() => {
     if (!vehicles.length) {
       return null;
@@ -912,6 +1012,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       unlockWithBiometrics,
       enableBiometricsOnCurrentSession,
       disableBiometricsOnCurrentSession,
+      biometricSuggestionOpen,
+      dismissBiometricSuggestion,
+      acceptBiometricSuggestion,
     }),
     [
       status,
@@ -945,10 +1048,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       unlockWithBiometrics,
       enableBiometricsOnCurrentSession,
       disableBiometricsOnCurrentSession,
+      biometricSuggestionOpen,
+      dismissBiometricSuggestion,
+      acceptBiometricSuggestion,
     ],
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>
+      {children}
+      <BiometricSuggestionModal
+        visible={biometricSuggestionOpen && status === 'authenticated'}
+        biometricDeviceInfo={biometricDeviceInfo}
+        busy={biometricSuggestionBusy}
+        onAccept={acceptBiometricSuggestion}
+        onDismiss={dismissBiometricSuggestion}
+      />
+    </SessionContext.Provider>
+  );
 }
 
 export function useSession(): SessionContextValue {
@@ -958,3 +1075,128 @@ export function useSession(): SessionContextValue {
   }
   return ctx;
 }
+
+
+function SuggestionFingerprintIcon({ size = 28, color = '#1D59F2' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2a10 10 0 0 0-8 4" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M20 6a10 10 0 0 0-4-3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M12 6a6 6 0 0 0-5.66 4" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M17.66 10A6 6 0 0 0 12 6" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M12 10a2 2 0 0 0-2 2c0 4.5-2 6-2 6" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M14 12c0 3.5-1.5 5.5-2 8" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M16 14.5c0 3-1 5.5-1 6.5" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8.5 14c-.3 1.5-.5 3-.5 4" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function SuggestionFaceIdIcon({ size = 28, color = '#1D59F2' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 8V5a1 1 0 0 1 1-1h3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M16 4h3a1 1 0 0 1 1 1v3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M20 16v3a1 1 0 0 1-1 1h-3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8 20H5a1 1 0 0 1-1-1v-3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M9 10h.01M15 10h.01" stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+      <Path d="M9.5 15a3.5 3.5 0 0 0 5 0" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M12 11v2.5" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+interface BiometricSuggestionModalProps {
+  visible: boolean;
+  biometricDeviceInfo: BiometricDeviceInfo | null;
+  busy: boolean;
+  onAccept: () => void;
+  onDismiss: () => void;
+}
+
+function BiometricSuggestionModal({
+  visible,
+  biometricDeviceInfo,
+  busy,
+  onAccept,
+  onDismiss,
+}: BiometricSuggestionModalProps) {
+  const { colors } = useAppTheme();
+  const biometricLabel = biometricDeviceInfo?.biometricLabel ?? 'biometria';
+  const isFace = biometricDeviceInfo?.biometricType === 'face';
+
+  return (
+    <AppSheet
+      visible={visible}
+      title={`Ativar ${biometricLabel}?`}
+      subtitle="Acesso rápido e seguro neste aparelho"
+      onClose={busy ? () => {} : onDismiss}
+    >
+      <View style={modalStyles.content}>
+        <View
+          style={[
+            modalStyles.iconCircle,
+            {
+              backgroundColor: colors.brandSoft,
+              borderColor: colors.brandPrimary,
+            },
+          ]}
+        >
+          {isFace ? (
+            <SuggestionFaceIdIcon size={30} color={colors.brandPrimary} />
+          ) : (
+            <SuggestionFingerprintIcon size={30} color={colors.brandPrimary} />
+          )}
+        </View>
+
+        <Text style={[modalStyles.description, { color: colors.textSecondary }]}>
+          Use sua biometria para entrar no FuelLog de forma rápida e segura nos próximos acessos, sem precisar digitar sua senha.
+        </Text>
+
+        <View style={modalStyles.actions}>
+          <PrimaryButton
+            label={`Ativar ${biometricLabel}`}
+            onPress={onAccept}
+            loading={busy}
+            stepped
+          />
+          <PrimaryButton
+            label="Agora não"
+            variant="ghost"
+            onPress={onDismiss}
+            disabled={busy}
+          />
+        </View>
+      </View>
+    </AppSheet>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  content: {
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  iconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  description: {
+    ...typography.body,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 12,
+  },
+  actions: {
+    width: '100%',
+    gap: 8,
+    marginTop: 8,
+  },
+});

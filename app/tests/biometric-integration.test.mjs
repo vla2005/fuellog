@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
-function extractCallbackFromSessionContext(callbackName) {
+function extractCallbackFromSessionContext(callbackName, { memoized = false } = {}) {
   const sourceText = readFileSync(
     new URL('../src/state/SessionContext.tsx', import.meta.url),
     'utf8',
@@ -17,6 +17,7 @@ function extractCallbackFromSessionContext(callbackName) {
   );
 
   let arrowNode = null;
+  let callbackNode = null;
   function visit(node) {
     if (
       ts.isVariableDeclaration(node) &&
@@ -26,6 +27,7 @@ function extractCallbackFromSessionContext(callbackName) {
       node.initializer.arguments.length > 0
     ) {
       arrowNode = node.initializer.arguments[0];
+      callbackNode = node.initializer;
       return;
     }
     ts.forEachChild(node, visit);
@@ -37,7 +39,7 @@ function extractCallbackFromSessionContext(callbackName) {
     `VariableDeclaration ${callbackName} com useCallback(arrow) não encontrada no AST de SessionContext.tsx`,
   );
 
-  const arrowCode = arrowNode.getText(sourceFile);
+  const arrowCode = (memoized ? callbackNode : arrowNode).getText(sourceFile);
   const transpiled = ts.transpileModule(`exports.run = ${arrowCode};`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
@@ -401,6 +403,8 @@ test('sincronização de flags em logout, senha alterada e unauthorized', async 
   let status = 'authenticated';
   let epoch = 5;
 
+  let suggestionOpen = true;
+  let suggestionBusy = true;
   const signOut = signOutFactory({
     logoutSession: async () => {},
     clearStoredTokens: async () => {},
@@ -409,6 +413,9 @@ test('sincronização de flags em logout, senha alterada e unauthorized', async 
     setIsBiometricActive: (v) => { isBiometricActive = v; },
     setStatus: (s) => { status = s; },
     showToast: () => {},
+    biometricSuggestionBusyRef: { current: true },
+    setBiometricSuggestionBusy: (v) => { suggestionBusy = v; },
+    setBiometricSuggestionOpen: (v) => { suggestionOpen = v; },
   });
 
   await signOut();
@@ -421,6 +428,8 @@ test('sincronização de flags em logout, senha alterada e unauthorized', async 
   isBiometricActive = true;
   status = 'authenticated';
 
+  suggestionOpen = true;
+  suggestionBusy = true;
   const handlePasswordChanged = passwordChangeFactory({
     getSessionEpoch: () => epoch,
     activeChallengeRef: { current: null },
@@ -429,6 +438,9 @@ test('sincronização de flags em logout, senha alterada e unauthorized', async 
     setHasBiometricLock: (v) => { hasBiometricLock = v; },
     setIsBiometricActive: (v) => { isBiometricActive = v; },
     setStatus: (s) => { status = s; },
+    biometricSuggestionBusyRef: { current: true },
+    setBiometricSuggestionBusy: (v) => { suggestionBusy = v; },
+    setBiometricSuggestionOpen: (v) => { suggestionOpen = v; },
   });
 
   const ok = await handlePasswordChanged(5);
@@ -493,5 +505,401 @@ test('cancelTwoFactorChallenge real AST: limpeza da rota após sucesso não inva
     epochAfterLogin,
     'Limpeza de rota após login bem-sucedido NÃO deve avançar epoch nem invalidar a sessão recém-publicada',
   );
+});
+
+
+test('signIn real AST sem toggle/opt-in em aparelho elegível: sugere biometria por popup após login bem-sucedido', async () => {
+  const signInFactory = extractCallbackFromSessionContext('signIn');
+
+  let currentEpoch = 1;
+  let status = 'unauthenticated';
+  let isBiometricActive = false;
+  let suggestionOpened = false;
+
+  const mockDeviceInfo = {
+    isSupported: true,
+    isEnrolled: true,
+    biometricType: 'fingerprint',
+    biometricLabel: 'Impressão digital',
+    isExpoGoIos: false,
+  };
+
+  const signIn = signInFactory({
+    bumpSessionEpoch: () => {
+      currentEpoch += 1;
+      return currentEpoch;
+    },
+    activeChallengeRef: { current: null },
+    loginUser: async () => ({ access_token: 'acc-1', refresh_token: 'ref-1' }),
+    getSessionEpoch: () => currentEpoch,
+    isTwoFactorChallenge: () => false,
+    getMe: async () => ({ id: 'usr-1', email: 'user@example.com' }),
+    loadUserWorkspace: async () => {},
+    enableBiometricSession: async () => ({ success: true, canceled: false }),
+    setHasBiometricLock: () => {},
+    setIsBiometricActive: (v) => { isBiometricActive = v; },
+    isBiometricActive: false,
+    hasBiometricLock: false,
+    showToast: () => {},
+    setUser: () => {},
+    setPrefilledLoginEmail: () => {},
+    setBootError: () => {},
+    setStatus: (s) => { status = s; },
+    biometricDeviceInfo: mockDeviceInfo,
+    setBiometricSuggestionOpen: (open) => { suggestionOpened = open; },
+  });
+
+  const res = await signIn({ email: 'user@example.com', password: 'password123' });
+
+  assert.equal(res.mfaRequired, false);
+  assert.equal(status, 'authenticated');
+  assert.equal(isBiometricActive, false, 'Biometria começa inativa até usuário aceitar sugestão');
+  assert.equal(suggestionOpened, true, 'Deve sugerir habilitar biometria por popup no aparelho elegível');
+});
+
+test('signIn real AST em aparelho NÃO elegível: NÃO sugere biometria por popup', async () => {
+  const signInFactory = extractCallbackFromSessionContext('signIn');
+
+  let currentEpoch = 1;
+  let status = 'unauthenticated';
+  let suggestionOpened = false;
+
+  const mockIneligibleDeviceInfo = {
+    isSupported: false,
+    isEnrolled: false,
+    biometricType: 'biometric',
+    biometricLabel: 'Biometria',
+    isExpoGoIos: true,
+  };
+
+  const signIn = signInFactory({
+    bumpSessionEpoch: () => {
+      currentEpoch += 1;
+      return currentEpoch;
+    },
+    activeChallengeRef: { current: null },
+    loginUser: async () => ({ access_token: 'acc-1', refresh_token: 'ref-1' }),
+    getSessionEpoch: () => currentEpoch,
+    isTwoFactorChallenge: () => false,
+    getMe: async () => ({ id: 'usr-1', email: 'user@example.com' }),
+    loadUserWorkspace: async () => {},
+    enableBiometricSession: async () => ({ success: true, canceled: false }),
+    setHasBiometricLock: () => {},
+    setIsBiometricActive: () => {},
+    isBiometricActive: false,
+    hasBiometricLock: false,
+    showToast: () => {},
+    setUser: () => {},
+    setPrefilledLoginEmail: () => {},
+    setBootError: () => {},
+    setStatus: (s) => { status = s; },
+    biometricDeviceInfo: mockIneligibleDeviceInfo,
+    setBiometricSuggestionOpen: (open) => { suggestionOpened = open; },
+  });
+
+  const res = await signIn({ email: 'user@example.com', password: 'password123' });
+
+  assert.equal(res.mfaRequired, false);
+  assert.equal(status, 'authenticated');
+  assert.equal(suggestionOpened, false, 'Aparelho não elegível NÃO deve receber sugestão de biometria');
+});
+
+test('completeTwoFactorSignIn real AST em aparelho elegível sem opt-in prévio: sugere biometria após validação 2FA', async () => {
+  const completeMfaFactory = extractCallbackFromSessionContext('completeTwoFactorSignIn');
+
+  let currentEpoch = 1;
+  let status = 'unauthenticated';
+  let isBiometricActive = false;
+  let suggestionOpened = false;
+
+  const activeChallengeRef = {
+    current: {
+      challengeToken: 'valid-challenge-token-12345',
+      epoch: 1,
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      enableBiometrics: false,
+    },
+  };
+
+  const mockDeviceInfo = {
+    isSupported: true,
+    isEnrolled: true,
+    biometricType: 'face',
+    biometricLabel: 'Face ID',
+    isExpoGoIos: false,
+  };
+
+  const completeTwoFactorSignIn = completeMfaFactory({
+    activeChallengeRef,
+    getSessionEpoch: () => currentEpoch,
+    ApiError: MockApiError,
+    verifyTwoFactor: async () => ({ access_token: 'mfa-acc', refresh_token: 'mfa-ref' }),
+    getMe: async () => ({ id: 'usr-mfa', email: 'mfa@example.com' }),
+    loadUserWorkspace: async () => {},
+    enableBiometricSession: async () => ({ success: true, canceled: false }),
+    setHasBiometricLock: () => {},
+    setIsBiometricActive: (v) => { isBiometricActive = v; },
+    showToast: () => {},
+    setUser: () => {},
+    setPrefilledLoginEmail: () => {},
+    setBootError: () => {},
+    setStatus: (s) => { status = s; },
+    biometricDeviceInfo: mockDeviceInfo,
+    setBiometricSuggestionOpen: (open) => { suggestionOpened = open; },
+  });
+
+  await completeTwoFactorSignIn('valid-challenge-token-12345', '654321');
+
+  assert.equal(status, 'authenticated');
+  assert.equal(isBiometricActive, false);
+  assert.equal(suggestionOpened, true, 'Deve sugerir habilitar biometria após concluir 2FA com sucesso');
+});
+
+test('signOut e handlePasswordChanged fecham popup de biometria', async () => {
+  const signOutFactory = extractCallbackFromSessionContext('signOut');
+  const passwordChangeFactory = extractCallbackFromSessionContext('handlePasswordChanged');
+
+  let suggestionOpen = true;
+  let suggestionBusy = true;
+
+  const signOut = signOutFactory({
+    logoutSession: async () => {},
+    clearStoredTokens: async () => {},
+    clearInMemoryUserData: () => {},
+    setHasBiometricLock: () => {},
+    setIsBiometricActive: () => {},
+    setStatus: () => {},
+    showToast: () => {},
+    biometricSuggestionBusyRef: { current: true },
+    setBiometricSuggestionBusy: (v) => { suggestionBusy = v; },
+    setBiometricSuggestionOpen: (v) => { suggestionOpen = v; },
+  });
+
+  await signOut();
+  assert.equal(suggestionOpen, false, 'signOut deve fechar popup de sugestão biométrica');
+  assert.equal(suggestionBusy, false, 'signOut deve resetar estado busy');
+
+  suggestionOpen = true;
+  suggestionBusy = true;
+  let epoch = 3;
+  const handlePasswordChanged = passwordChangeFactory({
+    getSessionEpoch: () => epoch,
+    activeChallengeRef: { current: null },
+    clearStoredTokens: async () => { epoch += 1; },
+    clearInMemoryUserData: () => {},
+    setHasBiometricLock: () => {},
+    setIsBiometricActive: () => {},
+    setStatus: () => {},
+    biometricSuggestionBusyRef: { current: true },
+    setBiometricSuggestionBusy: (v) => { suggestionBusy = v; },
+    setBiometricSuggestionOpen: (v) => { suggestionOpen = v; },
+  });
+
+  await handlePasswordChanged(3);
+  assert.equal(suggestionOpen, false, 'handlePasswordChanged deve fechar popup de sugestão biométrica');
+  assert.equal(suggestionBusy, false, 'handlePasswordChanged deve resetar estado busy');
+});
+
+
+test('signIn real AST: atualiza a closure quando a capacidade biométrica termina de carregar', async () => {
+  const create = extractCallbackFromSessionContext('signIn', { memoized: true });
+  let memo;
+  let epoch = 1;
+  let suggestionOpened = false;
+  let status = 'unauthenticated';
+
+  // Simula somente a memoização; callback e dependências vêm do código de produção.
+  const useCallback = (fn, deps) => {
+    if (!memo || deps.length !== memo.deps.length || deps.some((value, index) => !Object.is(value, memo.deps[index]))) {
+      memo = { fn, deps };
+    }
+    return memo.fn;
+  };
+  const stableScope = {
+    useCallback,
+    bumpSessionEpoch: () => ++epoch,
+    activeChallengeRef: { current: null },
+    loginUser: async () => ({ access_token: 'test-access', refresh_token: 'test-refresh' }),
+    getSessionEpoch: () => epoch,
+    isTwoFactorChallenge: () => false,
+    getMe: async () => ({ id: 'test-user', email: 'driver@example.test' }),
+    loadUserWorkspace: async () => {},
+    enableBiometricSession: async () => ({ success: true }),
+    setHasBiometricLock: () => {},
+    setIsBiometricActive: () => {},
+    showToast: () => {},
+    setUser: () => {},
+    setPrefilledLoginEmail: () => {},
+    setBootError: () => {},
+    setStatus: (next) => { status = next; },
+    setBiometricSuggestionOpen: (next) => { suggestionOpened = next; },
+    isBiometricActive: false,
+    hasBiometricLock: false,
+  };
+  const render = (info) => create({ ...stableScope, biometricDeviceInfo: info });
+  const initial = render(null);
+  assert.equal(render(null), initial, 'Sem mudança, o callback deve continuar memoizado');
+
+  const info = await Promise.resolve({ isSupported: true, biometricType: 'fingerprint' });
+  const ready = render(info);
+  assert.notEqual(ready, initial, 'A capacidade carregada precisa atualizar a closure real');
+
+  await ready({ email: 'driver@example.test', password: 'test-password' });
+  assert.equal(status, 'authenticated');
+  assert.equal(suggestionOpened, true, 'O login real deve sugerir biometria após o carregamento');
+});
+
+test('signIn real AST em aparelho com biometria já ativa: preserva proteção biométrica e NÃO sugere popup', async () => {
+  const signInFactory = extractCallbackFromSessionContext('signIn');
+
+  let currentEpoch = 1;
+  let status = 'unauthenticated';
+  let isBiometricActive = true;
+  let hasBiometricLock = false;
+  let suggestionOpened = false;
+  let enableBiometricCalled = false;
+  let capturedToast = null;
+
+  const mockDeviceInfo = {
+    isSupported: true,
+    isEnrolled: true,
+    biometricType: 'fingerprint',
+    biometricLabel: 'Impressão digital',
+    isExpoGoIos: false,
+  };
+
+  const signIn = signInFactory({
+    bumpSessionEpoch: () => {
+      currentEpoch += 1;
+      return currentEpoch;
+    },
+    activeChallengeRef: { current: null },
+    loginUser: async () => ({ access_token: 'acc-1', refresh_token: 'ref-1' }),
+    getSessionEpoch: () => currentEpoch,
+    isTwoFactorChallenge: () => false,
+    getMe: async () => ({ id: 'usr-1', email: 'user@example.com' }),
+    loadUserWorkspace: async () => {},
+    enableBiometricSession: async (epoch) => {
+      enableBiometricCalled = true;
+      return { success: true, canceled: false };
+    },
+    setHasBiometricLock: (v) => { hasBiometricLock = v; },
+    setIsBiometricActive: (v) => { isBiometricActive = v; },
+    isBiometricActive: true,
+    hasBiometricLock: false,
+    showToast: (t) => { capturedToast = t; },
+    setUser: () => {},
+    setPrefilledLoginEmail: () => {},
+    setBootError: () => {},
+    setStatus: (s) => { status = s; },
+    biometricDeviceInfo: mockDeviceInfo,
+    setBiometricSuggestionOpen: (open) => { suggestionOpened = open; },
+  });
+
+  const res = await signIn({ email: 'user@example.com', password: 'password123' });
+
+  assert.equal(res.mfaRequired, false);
+  assert.equal(status, 'authenticated');
+  assert.equal(enableBiometricCalled, true, 'Deve renovar proteção biométrica usando fluxo nativo');
+  assert.equal(isBiometricActive, true, 'Biometria deve continuar ativa');
+  assert.equal(suggestionOpened, false, 'NÃO deve exibir popup de sugestão se biometria já estava habilitada');
+  assert.match(capturedToast?.subtitle, /Biometria ativada com sucesso/);
+});
+
+test('signIn real AST em aparelho com biometria já ativa quando usuário cancela confirmação: mantém login sem falso toggle e sem popup', async () => {
+  const signInFactory = extractCallbackFromSessionContext('signIn');
+
+  let currentEpoch = 1;
+  let status = 'unauthenticated';
+  let isBiometricActive = true;
+  let hasBiometricLock = false;
+  let suggestionOpened = false;
+  let capturedToast = null;
+
+  const mockDeviceInfo = {
+    isSupported: true,
+    isEnrolled: true,
+    biometricType: 'face',
+    biometricLabel: 'Face ID',
+    isExpoGoIos: false,
+  };
+
+  const signIn = signInFactory({
+    bumpSessionEpoch: () => {
+      currentEpoch += 1;
+      return currentEpoch;
+    },
+    activeChallengeRef: { current: null },
+    loginUser: async () => ({ access_token: 'acc-1', refresh_token: 'ref-1' }),
+    getSessionEpoch: () => currentEpoch,
+    isTwoFactorChallenge: () => false,
+    getMe: async () => ({ id: 'usr-1', email: 'user@example.com' }),
+    loadUserWorkspace: async () => {},
+    enableBiometricSession: async () => ({ success: false, canceled: true }),
+    setHasBiometricLock: (v) => { hasBiometricLock = v; },
+    setIsBiometricActive: (v) => { isBiometricActive = v; },
+    isBiometricActive: true,
+    hasBiometricLock: false,
+    showToast: (t) => { capturedToast = t; },
+    setUser: () => {},
+    setPrefilledLoginEmail: () => {},
+    setBootError: () => {},
+    setStatus: (s) => { status = s; },
+    biometricDeviceInfo: mockDeviceInfo,
+    setBiometricSuggestionOpen: (open) => { suggestionOpened = open; },
+  });
+
+  const res = await signIn({ email: 'user@example.com', password: 'password123' });
+
+  assert.equal(res.mfaRequired, false);
+  assert.equal(status, 'authenticated', 'Login por senha deve prosseguir mesmo cancelando proteção biométrica');
+  assert.equal(isBiometricActive, false, 'Toggle biométrico não deve permanecer ativado falsamente');
+  assert.equal(suggestionOpened, false, 'NÃO deve sugerir popup ao cancelar');
+  assert.equal(capturedToast?.tone, 'info');
+  assert.equal(capturedToast?.subtitle, 'A biometria não foi ativada.');
+});
+
+test('acceptBiometricSuggestion real AST: impede reentrada e ignora resposta/toasts se epoch mudar durante await', async () => {
+  const acceptFactory = extractCallbackFromSessionContext('acceptBiometricSuggestion');
+
+  let currentEpoch = 1;
+  let suggestionBusy = false;
+  let suggestionOpen = true;
+  let toasts = [];
+  let enableCalls = 0;
+  const busyRef = { current: false };
+
+  let resolveEnable;
+  const enablePromise = new Promise((res) => {
+    resolveEnable = res;
+  });
+
+  const accept = acceptFactory({
+    biometricSuggestionBusyRef: busyRef,
+    setBiometricSuggestionBusy: (v) => { suggestionBusy = v; },
+    getSessionEpoch: () => currentEpoch,
+    enableBiometricsOnCurrentSession: async () => {
+      enableCalls++;
+      return await enablePromise;
+    },
+    setBiometricSuggestionOpen: (v) => { suggestionOpen = v; },
+    showToast: (t) => { toasts.push(t); },
+    biometricDeviceInfo: { biometricLabel: 'Touch ID' },
+  });
+
+  const firstCall = accept();
+  assert.equal(busyRef.current, true, 'busyRef deve ser marcado como true imediatamente');
+  assert.equal(suggestionBusy, true, 'setBiometricSuggestionBusy deve ser chamado com true');
+
+  const secondCall = accept();
+  assert.equal(enableCalls, 1, 'Reentrada deve ser ignorada imediatamente sem duplicar chamada');
+
+  currentEpoch = 2; // Simula mudança de conta / época
+
+  resolveEnable({ success: true, canceled: false });
+  await firstCall;
+  await secondCall;
+
+  assert.equal(toasts.length, 0, 'Nenhum toast deve ser emitido para época obsoleta');
 });
 

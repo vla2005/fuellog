@@ -1,24 +1,24 @@
 import { usePathname, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Image,
+  ActivityIndicator,
   Keyboard,
   Pressable,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import { ApiError } from '@/api/types';
-import { BrandLockup } from '@/components/brand/BrandLockup';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { EyeIcon, LockIcon, MailIcon } from '@/components/icons/AppIcons';
 import { OtpSixInput } from '@/components/inputs/OtpSixInput';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { AuthSceneHero } from '@/features/auth/AuthSceneHero';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
@@ -48,7 +48,6 @@ export function LoginScreen() {
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeState | null>(null);
   const [mfaCode, setMfaCode] = useState('');
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
-  const [useBiometrics, setUseBiometrics] = useState(false);
   const [biometricUnlocking, setBiometricUnlocking] = useState(false);
   const [biometricNotice, setBiometricNotice] = useState<string | null>(null);
 
@@ -66,7 +65,6 @@ export function LoginScreen() {
     setMfaChallenge(null);
     setMfaCode('');
     setUseRecoveryCode(false);
-    setUseBiometrics(false);
     setErrorMessage(null);
     setBiometricNotice(null);
     setBiometricUnlocking(false);
@@ -133,6 +131,9 @@ export function LoginScreen() {
   };
 
   const biometricLabel = biometricDeviceInfo?.biometricLabel ?? 'biometria';
+  const biometricButtonLabel = biometricDeviceInfo?.biometricLabel
+    ? `Entrar com ${biometricDeviceInfo.biometricLabel}`
+    : 'Entrar com biometria';
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -154,10 +155,7 @@ export function LoginScreen() {
 
     setSubmitting(true);
     try {
-      const result = await signIn(
-        { email: cleanEmail, password },
-        { enableBiometrics: useBiometrics && Boolean(biometricDeviceInfo?.isSupported) },
-      );
+      const result = await signIn({ email: cleanEmail, password });
 
       // Se a conta exige 2FA, entramos no fluxo de desafio MFA sem salvar tokens
       if (result.mfaRequired) {
@@ -242,22 +240,11 @@ export function LoginScreen() {
   const inputBorder = colors.borderSubtle;
 
   return (
-    <ScreenShell contentContainerStyle={styles.scrollContent}>
-      {/* Top Wordmark */}
-      <View style={styles.topHeader}>
-        <BrandLockup mode="wordmark-only" wordmarkWidth={160} />
-      </View>
-
-      {/* Hero Scene with Night Road, Mascot and Car */}
-      <View style={[styles.sceneCard, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-        <Image
-          source={require('@/assets/brand/scene_night_road.png')}
-          style={styles.sceneImage}
-          resizeMode="cover"
-          accessibilityLabel="Cena noturna com Renault, mascote e estrada"
-        />
-      </View>
-
+    <ScreenShell
+      omitTopSafeArea
+      fullBleedHero={<AuthSceneHero mode="login" />}
+      contentContainerStyle={styles.scrollContent}
+    >
       <Pressable
         onPress={Keyboard.dismiss}
         accessible={false}
@@ -370,49 +357,6 @@ export function LoginScreen() {
             <InlineNotice tone="danger" message={errorMessage} />
           ) : null}
 
-          {hasBiometricLock ? (
-            <View
-              style={[
-                styles.biometricLockCard,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: colors.borderSubtle,
-                },
-              ]}
-            >
-              <View style={styles.biometricLockHeader}>
-                <LockIcon size={22} color={colors.accentPrimary} />
-                <View style={styles.biometricLockTextCol}>
-                  <Text style={[styles.biometricLockTitle, { color: colors.textPrimary }]}>
-                    Acesso rápido
-                  </Text>
-                  <Text style={[styles.biometricLockSub, { color: colors.textSecondary }]}>
-                    Use sua biometria para entrar sem digitar senha.
-                  </Text>
-                </View>
-              </View>
-
-              {biometricNotice ? (
-                <InlineNotice tone="info" message={biometricNotice} />
-              ) : null}
-
-              <PrimaryButton
-                label={`Entrar com ${biometricLabel}`}
-                onPress={handleBiometricUnlock}
-                loading={biometricUnlocking}
-                stepped
-              />
-
-              <View style={styles.biometricDividerRow}>
-                <View style={[styles.dividerLine, { backgroundColor: colors.borderSubtle }]} />
-                <Text style={[styles.dividerText, { color: colors.textMuted }]}>
-                  ou entre com e-mail e senha
-                </Text>
-                <View style={[styles.dividerLine, { backgroundColor: colors.borderSubtle }]} />
-              </View>
-            </View>
-          ) : null}
-
           <View style={styles.fieldGroup}>
             <Text style={[styles.label, { color: colors.textPrimary }]}>E-mail</Text>
             <View
@@ -505,46 +449,6 @@ export function LoginScreen() {
             </View>
           </View>
 
-          {biometricDeviceInfo?.isSupported ? (
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityLabel="Usar biometria neste aparelho"
-              accessibilityState={{ checked: useBiometrics }}
-              onPress={() => setUseBiometrics((prev) => !prev)}
-              style={[
-                styles.biometricToggleCard,
-                {
-                  backgroundColor: inputBg,
-                  borderColor: useBiometrics ? colors.borderFocus : inputBorder,
-                },
-              ]}
-            >
-              <View style={styles.biometricToggleTextCol}>
-                <Text style={[styles.biometricToggleTitle, { color: colors.textPrimary }]}>
-                  Usar biometria neste aparelho
-                </Text>
-                <Text style={[styles.biometricToggleSubtitle, { color: colors.textSecondary }]}>
-                  Entrar com {biometricLabel} nos próximos acessos
-                </Text>
-              </View>
-              <Switch
-                value={useBiometrics}
-                onValueChange={setUseBiometrics}
-                trackColor={{ false: colors.borderSubtle, true: colors.brandPrimary }}
-                thumbColor={colors.surface}
-                accessibilityLabel="Usar biometria neste aparelho"
-              />
-            </Pressable>
-          ) : biometricDeviceInfo?.isExpoGoIos ? (
-            <View style={styles.biometricNoticeWrap}>
-              <InlineNotice
-                tone="info"
-                title="Face ID no iOS"
-                message="A autenticação por Face ID requer build de desenvolvimento (development build) e não está disponível no Expo Go."
-              />
-            </View>
-          ) : null}
-
           <PrimaryButton
             label="Entrar"
             onPress={handleSubmit}
@@ -552,6 +456,47 @@ export function LoginScreen() {
             stepped
             style={{ marginTop: 4 }}
           />
+
+          {hasBiometricLock ? (
+            <View style={styles.discreetBiometricWrap}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={biometricButtonLabel}
+                accessibilityHint="Desbloqueia o FuelLog com a biometria cadastrada neste aparelho"
+                onPress={handleBiometricUnlock}
+                disabled={biometricUnlocking}
+                style={({ pressed }) => [
+                  styles.discreetBiometricButton,
+                  pressed && { opacity: 0.75, transform: [{ scale: 0.96 }] },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.biometricCircle,
+                    {
+                      backgroundColor: colors.brandSoft,
+                      borderColor: colors.brandPrimary,
+                    },
+                  ]}
+                >
+                  {biometricUnlocking ? (
+                    <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  ) : biometricDeviceInfo?.biometricType === 'face' ? (
+                    <FaceIdIcon size={26} color={colors.brandPrimary} />
+                  ) : (
+                    <FingerprintIcon size={26} color={colors.brandPrimary} />
+                  )}
+                </View>
+                <Text style={[styles.biometricLabelText, { color: colors.textPrimary }]}>
+                  {biometricButtonLabel}
+                </Text>
+              </Pressable>
+
+              {biometricNotice ? (
+                <InlineNotice tone="info" message={biometricNotice} />
+              ) : null}
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -604,26 +549,10 @@ export function LoginScreen() {
 
 const styles = StyleSheet.create({
   scrollContent: {
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-  },
-  topHeader: {
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 14,
-  },
-  sceneCard: {
-    height: 146,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginBottom: 14,
-  },
-  sceneImage: {
-    width: '100%',
-    height: '100%',
+    paddingBottom: 24,
   },
   heroTextWrap: {
+    paddingTop: 14,
     marginBottom: 16,
     gap: 4,
   },
@@ -705,68 +634,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginTop: 2,
   },
-  biometricLockCard: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    padding: 16,
-    gap: 12,
+  discreetBiometricWrap: {
+    alignItems: 'center',
+    marginTop: 18,
     marginBottom: 4,
-  },
-  biometricLockHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
   },
-  biometricLockTextCol: {
-    flex: 1,
-    gap: 2,
-  },
-  biometricLockTitle: {
-    ...typography.bodyStrong,
-    fontSize: 16,
-  },
-  biometricLockSub: {
-    ...typography.body,
-    fontSize: 13,
-  },
-  biometricDividerRow: {
-    flexDirection: 'row',
+  discreetBiometricButton: {
     alignItems: 'center',
-    gap: 10,
-    marginTop: 4,
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    gap: 8,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    ...typography.caption,
-    fontSize: 12,
-  },
-  biometricToggleCard: {
-    flexDirection: 'row',
+  biometricCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1.5,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    gap: 12,
+    justifyContent: 'center',
   },
-  biometricToggleTextCol: {
-    flex: 1,
-    gap: 2,
-  },
-  biometricToggleTitle: {
+  biometricLabelText: {
     ...typography.bodyStrong,
     fontSize: 14,
-  },
-  biometricToggleSubtitle: {
-    ...typography.caption,
-    fontSize: 12,
-  },
-  biometricNoticeWrap: {
-    marginVertical: 2,
+    textAlign: 'center',
   },
   toggleModeText: {
     ...typography.caption,
@@ -775,3 +667,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
+
+function FingerprintIcon({ size = 26, color = '#1D59F2' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2a10 10 0 0 0-8 4" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M20 6a10 10 0 0 0-4-3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M12 6a6 6 0 0 0-5.66 4" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M17.66 10A6 6 0 0 0 12 6" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M12 10a2 2 0 0 0-2 2c0 4.5-2 6-2 6" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M14 12c0 3.5-1.5 5.5-2 8" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M16 14.5c0 3-1 5.5-1 6.5" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8.5 14c-.3 1.5-.5 3-.5 4" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function FaceIdIcon({ size = 26, color = '#1D59F2' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 8V5a1 1 0 0 1 1-1h3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M16 4h3a1 1 0 0 1 1 1v3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M20 16v3a1 1 0 0 1-1 1h-3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8 20H5a1 1 0 0 1-1-1v-3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M9 10h.01M15 10h.01" stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+      <Path d="M9.5 15a3.5 3.5 0 0 0 5 0" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M12 11v2.5" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}

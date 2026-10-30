@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -35,8 +36,18 @@ export function SettingsScreen({
 } = {}) {
   const router = useRouter();
   const { colors, preference, setPreference } = useAppTheme();
-  const { user, signOut, showToast, getCurrentSessionEpoch, isBiometricActive, biometricDeviceInfo, disableBiometricsOnCurrentSession } = useSession();
-  const [disablingBiometrics, setDisablingBiometrics] = useState(false);
+  const {
+    user,
+    signOut,
+    showToast,
+    getCurrentSessionEpoch,
+    isBiometricActive,
+    biometricDeviceInfo,
+    enableBiometricsOnCurrentSession,
+    disableBiometricsOnCurrentSession,
+  } = useSession();
+  const [biometricToggling, setBiometricToggling] = useState(false);
+  const biometricTogglingRef = useRef(false);
 
   const [activeSection, setActiveSection] = useState<'main' | 'security'>('main');
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
@@ -102,27 +113,68 @@ export function SettingsScreen({
     }
   };
 
-  const handleDisableBiometrics = async () => {
-    setDisablingBiometrics(true);
+  const handleToggleBiometrics = async (nextValue: boolean) => {
+    if (biometricTogglingRef.current) return;
+    biometricTogglingRef.current = true;
+    setBiometricToggling(true);
+    const epoch = getCurrentSessionEpoch();
+
     try {
-      await disableBiometricsOnCurrentSession();
-      showToast({
-        tone: 'info',
-        title: 'Biometria desativada',
-        subtitle: 'Você pode reativá-la ao fazer login com e-mail e senha.',
-      });
-    } catch {
+      if (nextValue) {
+        const res = await enableBiometricsOnCurrentSession();
+        if (getCurrentSessionEpoch() !== epoch) {
+          return;
+        }
+        if (res.success) {
+          showToast({
+            tone: 'success',
+            title: 'Biometria ativada',
+            subtitle: `Desbloqueio por ${biometricDeviceInfo?.biometricLabel ?? 'biometria'} ativado com sucesso.`,
+          });
+        } else if (res.canceled) {
+          showToast({
+            tone: 'info',
+            title: 'Ativação cancelada',
+            subtitle: 'A biometria não foi ativada.',
+          });
+        } else {
+          showToast({
+            tone: 'warning',
+            title: 'Não foi possível ativar',
+            subtitle: res.error ?? 'Falha ao confirmar biometria neste aparelho.',
+          });
+        }
+      } else {
+        await disableBiometricsOnCurrentSession();
+        if (getCurrentSessionEpoch() !== epoch) {
+          return;
+        }
+        showToast({
+          tone: 'info',
+          title: 'Biometria desativada',
+          subtitle: 'Você pode reativá-la quando quiser.',
+        });
+      }
+    } catch (err: unknown) {
+      if (getCurrentSessionEpoch() !== epoch) {
+        return;
+      }
+      const msg = err instanceof Error ? err.message : 'Falha ao alterar configuração biométrica.';
       showToast({
         tone: 'danger',
-        title: 'Erro ao desativar',
-        subtitle: 'Não foi possível desativar a biometria. Tente novamente.',
+        title: 'Erro',
+        subtitle: msg,
       });
     } finally {
-      setDisablingBiometrics(false);
+      if (getCurrentSessionEpoch() === epoch) {
+        biometricTogglingRef.current = false;
+        setBiometricToggling(false);
+      }
     }
   };
 
   const handleSignOut = async () => {
+    biometricTogglingRef.current = false;
     setSigningOut(true);
     try {
       await signOut();
@@ -258,24 +310,21 @@ export function SettingsScreen({
                         ? 'Indisponível no Expo Go • Requer build própria no iOS'
                         : !biometricDeviceInfo?.isSupported
                           ? (biometricDeviceInfo?.reasonNotSupported ?? 'Biometria não disponível neste aparelho')
-                          : 'Desativada • Pode ser ativada na tela de login'}
+                          : 'Desativada • Toque para ativar o desbloqueio rápido'}
                   </Text>
                 </View>
               </View>
 
-              {isBiometricActive ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Desativar biometria neste aparelho"
-                  onPress={handleDisableBiometrics}
-                  disabled={disablingBiometrics}
-                  style={styles.deactivateBtn}
-                >
-                  <Text style={[styles.deactivateBtnText, { color: colors.statusDanger }]}>
-                    {disablingBiometrics ? 'Desativando...' : 'Desativar'}
-                  </Text>
-                </Pressable>
-              ) : null}
+              <Switch
+                value={isBiometricActive}
+                onValueChange={handleToggleBiometrics}
+                disabled={!biometricDeviceInfo?.isSupported || biometricToggling}
+                trackColor={{ false: colors.borderSubtle, true: colors.brandPrimary }}
+                thumbColor={colors.surface}
+                accessibilityRole="switch"
+                accessibilityLabel="Biometria neste aparelho"
+                accessibilityState={{ checked: isBiometricActive }}
+              />
             </View>
           </View>
         </View>
