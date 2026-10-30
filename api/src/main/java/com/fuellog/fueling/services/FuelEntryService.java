@@ -1,6 +1,7 @@
 package com.fuellog.fueling.services;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
+import com.fuellog.fueling.dtos.FuelEntryFilters;
 import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.models.FuelCommand;
 import com.fuellog.fueling.models.FuelEntry;
@@ -108,7 +109,7 @@ public class FuelEntryService {
     }
     @Transactional(readOnly=true)
     public FuelEntryDtos.Page list(UUID vehicleId, LocalDate from, LocalDate to, String timezone,
-        FuelType fuelType, TankState tankState, int page, int size) {
+        FuelType fuelType, TankState tankState, FuelEntryFilters bounds, int page, int size) {
         vehicles.owned(vehicleId);
         ZoneId zone=DomainValues.zone(timezone);
         if (page < 0 || size < 1 || size > 100) throw new ApiException(400,"INVALID_PAGINATION","page >= 0 e size entre 1 e 100.");
@@ -124,6 +125,12 @@ public class FuelEntryService {
             if(end != null) predicates.add(builder.lessThan(root.get("occurredAt"),end));
             if(fuelType != null) predicates.add(builder.equal(root.get("fuelType"),fuelType));
             if(tankState != null) predicates.add(builder.equal(root.get("tankState"),tankState));
+            if(bounds.minTotalPaid() != null) predicates.add(builder.greaterThanOrEqualTo(root.get("paidTotal"),bounds.minTotalPaid()));
+            if(bounds.maxTotalPaid() != null) predicates.add(builder.lessThanOrEqualTo(root.get("paidTotal"),bounds.maxTotalPaid()));
+            if(bounds.minLiters() != null) predicates.add(builder.greaterThanOrEqualTo(root.get("liters"),bounds.minLiters()));
+            if(bounds.maxLiters() != null) predicates.add(builder.lessThanOrEqualTo(root.get("liters"),bounds.maxLiters()));
+            if(bounds.minPricePerLiter() != null) predicates.add(builder.greaterThanOrEqualTo(root.get("unitPrice"),bounds.minPricePerLiter()));
+            if(bounds.maxPricePerLiter() != null) predicates.add(builder.lessThanOrEqualTo(root.get("unitPrice"),bounds.maxPricePerLiter()));
             return builder.and(predicates.toArray(Predicate[]::new));
         };
         var result=entries.findAll(filter,PageRequest.of(page,size,Sort.by(Sort.Direction.DESC,"occurredAt","id")));

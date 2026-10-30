@@ -55,6 +55,14 @@ import {
   formatOdometerBR,
   formatUnitPriceBR,
 } from '@/utils/decimal';
+import {
+  HistoryFilterSheet,
+  type HistoryFilterValues,
+} from './components/HistoryFilterSheet';
+import {
+  formatDisplayDateBR,
+  formatPeriodSummaryBR,
+} from './helpers/calendarHelper';
 
 const PAGE_SIZE = 30;
 
@@ -117,9 +125,19 @@ export function HistoryScreen({
     dataVersion,
   } = useSession();
 
-  const [useAllPeriods, setUseAllPeriods] = useState(false);
-  const [filterFuel, setFilterFuel] = useState<FuelType | null>(null);
-  const [filterTank, setFilterTank] = useState<TankState | null>(null);
+  const [activeFilters, setActiveFilters] = useState<HistoryFilterValues>(() => ({
+    from: selectedPeriod.from,
+    to: selectedPeriod.to,
+    fuelType: null,
+    minTotalPaid: '',
+    maxTotalPaid: '',
+    minLiters: '',
+    maxLiters: '',
+    minPricePerLiter: '',
+    maxPricePerLiter: '',
+  }));
+
+
 
   const [entries, setEntries] = useState<FuelEntry[]>([]);
   const [periodSummary, setPeriodSummary] = useState<SummaryResponse | null>(
@@ -157,7 +175,11 @@ export function HistoryScreen({
       void selectVehicle(params.vehicleId);
     }
     if (params.from && params.to) {
-      setUseAllPeriods(false);
+      setActiveFilters((prev) => ({
+        ...prev,
+        from: params.from ?? null,
+        to: params.to ?? null,
+      }));
       const found = monthOptions.find((p) => p.from === params.from && p.to === params.to);
       if (found) {
         setSelectedPeriod(found);
@@ -165,11 +187,30 @@ export function HistoryScreen({
     }
   }, [params.vehicleId, params.from, params.to, monthOptions, selectVehicle, setSelectedPeriod]);
 
+  const prevSelectedPeriodRef = useRef(selectedPeriod);
+  useEffect(() => {
+    if (
+      prevSelectedPeriodRef.current.from !== selectedPeriod.from ||
+      prevSelectedPeriodRef.current.to !== selectedPeriod.to
+    ) {
+      prevSelectedPeriodRef.current = selectedPeriod;
+      setActiveFilters((prev) => ({
+        ...prev,
+        from: selectedPeriod.from,
+        to: selectedPeriod.to,
+      }));
+    }
+  }, [selectedPeriod]);
+
   const currentContextKey = `${status}:${user?.id ?? 'anon'}:${
     activeVehicle?.id ?? 'none'
-  }:${useAllPeriods ? 'ALL' : `${selectedPeriod.from}_${selectedPeriod.to}`}:${
-    filterFuel ?? 'ALL'
-  }:${filterTank ?? 'ALL'}:${dataVersion}`;
+  }:${activeFilters.from ?? 'ALL'}_${activeFilters.to ?? 'ALL'}:${
+    activeFilters.fuelType ?? 'ALL'
+  }:${activeFilters.minTotalPaid || 'NONE'}:${activeFilters.maxTotalPaid || 'NONE'}:${
+    activeFilters.minLiters || 'NONE'
+  }:${activeFilters.maxLiters || 'NONE'}:${activeFilters.minPricePerLiter || 'NONE'}:${
+    activeFilters.maxPricePerLiter || 'NONE'
+  }:${dataVersion}`;
   latestContextKeyRef.current = currentContextKey;
 
   const loadPage = useCallback(
@@ -179,8 +220,14 @@ export function HistoryScreen({
         activeVehicle?.id ?? 'none'
       }`;
       const contextSnap = `${identityScope}:${
-        useAllPeriods ? 'ALL' : `${selectedPeriod.from}_${selectedPeriod.to}`
-      }:${filterFuel ?? 'ALL'}:${filterTank ?? 'ALL'}:${dataVersion}`;
+        activeFilters.from ?? 'ALL'}_${activeFilters.to ?? 'ALL'
+      }:${activeFilters.fuelType ?? 'ALL'}:${
+        activeFilters.minTotalPaid || 'NONE'
+      }:${activeFilters.maxTotalPaid || 'NONE'}:${
+        activeFilters.minLiters || 'NONE'
+      }:${activeFilters.maxLiters || 'NONE'}:${
+        activeFilters.minPricePerLiter || 'NONE'
+      }:${activeFilters.maxPricePerLiter || 'NONE'}:${dataVersion}`;
       latestContextKeyRef.current = contextSnap;
 
       if (
@@ -218,15 +265,21 @@ export function HistoryScreen({
       }
 
       try {
-        const fromParam = useAllPeriods ? undefined : selectedPeriod.from;
-        const toParam = useAllPeriods ? undefined : selectedPeriod.to;
+        const fromParam = activeFilters.from ?? undefined;
+        const toParam = activeFilters.to ?? undefined;
 
         const [pageData, summaryData, cyclesData] = await Promise.all([
           listFuelEntries(targetVehicleId, {
             from: fromParam,
             to: toParam,
-            fuelType: filterFuel,
-            tankState: filterTank,
+            timezone: user?.preferredTimezone || 'America/Sao_Paulo',
+            fuelType: activeFilters.fuelType,
+            minTotalPaid: activeFilters.minTotalPaid || undefined,
+            maxTotalPaid: activeFilters.maxTotalPaid || undefined,
+            minLiters: activeFilters.minLiters || undefined,
+            maxLiters: activeFilters.maxLiters || undefined,
+            minPricePerLiter: activeFilters.minPricePerLiter || undefined,
+            maxPricePerLiter: activeFilters.maxPricePerLiter || undefined,
             page: targetPage,
             size: PAGE_SIZE,
           }),
@@ -297,12 +350,12 @@ export function HistoryScreen({
     [
       activeVehicle,
       dataVersion,
-      filterFuel,
-      filterTank,
-      selectedPeriod.from,
-      selectedPeriod.to,
+      activeFilters,
+
+
+
       status,
-      useAllPeriods,
+
       user,
     ],
   );
@@ -353,6 +406,34 @@ export function HistoryScreen({
         .filter(Boolean)
         .join(' ')
     : 'Selecionar veículo';
+
+  const periodPillLabel = useMemo(() => {
+    if (!activeFilters.from && !activeFilters.to) {
+      return 'Todo o histórico';
+    }
+    if (activeFilters.from && activeFilters.to) {
+      const found = monthOptions.find(
+        (opt) => opt.from === activeFilters.from && opt.to === activeFilters.to,
+      );
+      if (found) {
+        return found.label;
+      }
+      return `${formatDisplayDateBR(activeFilters.from)} — ${formatDisplayDateBR(activeFilters.to)}`;
+    }
+    return formatPeriodSummaryBR(activeFilters.from, activeFilters.to);
+  }, [activeFilters.from, activeFilters.to, monthOptions]);
+
+  const hasActiveFilters = Boolean(
+    activeFilters.from ||
+      activeFilters.to ||
+      activeFilters.fuelType !== null ||
+      activeFilters.minTotalPaid !== '' ||
+      activeFilters.maxTotalPaid !== '' ||
+      activeFilters.minLiters !== '' ||
+      activeFilters.maxLiters !== '' ||
+      activeFilters.minPricePerLiter !== '' ||
+      activeFilters.maxPricePerLiter !== '',
+  );
 
   return (
     <ScreenShell
@@ -407,9 +488,7 @@ export function HistoryScreen({
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Período: ${
-                useAllPeriods ? 'Todos os meses' : selectedPeriod.label
-              }`}
+              accessibilityLabel={`Período: ${periodPillLabel}`}
               onPress={() => setFilterSheetOpen(true)}
               style={[
                 styles.dropdownPill,
@@ -423,7 +502,7 @@ export function HistoryScreen({
                 numberOfLines={1}
                 style={[styles.dropdownPillText, { color: colors.textPrimary }]}
               >
-                {useAllPeriods ? 'Todos os meses' : selectedPeriod.label}
+                {periodPillLabel}
               </Text>
               <ChevronDownIcon size={16} color={colors.brandPrimary} />
             </Pressable>
@@ -503,14 +582,24 @@ export function HistoryScreen({
           description="Não há lançamentos para os filtros selecionados. Você pode ampliar o período para todo o histórico ou registrar um novo abastecimento."
           action={
             <View style={styles.emptyActions}>
-              {!useAllPeriods || filterFuel || filterTank ? (
+              {hasActiveFilters ? (
                 <PrimaryButton
                   label="Limpar filtros e ver tudo"
                   variant="secondary"
                   onPress={() => {
-                    setUseAllPeriods(true);
-                    setFilterFuel(null);
-                    setFilterTank(null);
+                    setActiveFilters({
+                      from: null,
+                      to: null,
+                      fuelType: null,
+                      minTotalPaid: '',
+                      maxTotalPaid: '',
+                      minLiters: '',
+                      maxLiters: '',
+                      minPricePerLiter: '',
+                      maxPricePerLiter: '',
+                    });
+
+
                   }}
                 />
               ) : null}
@@ -656,210 +745,23 @@ export function HistoryScreen({
       )}
 
       {/* Sheet: Filtros do Histórico */}
-      <AppSheet
+      <HistoryFilterSheet
         visible={filterSheetOpen}
-        title="Filtrar histórico"
-        subtitle="Combine período, combustível e estado do tanque"
         onClose={() => setFilterSheetOpen(false)}
-      >
-        <View style={styles.filterSection}>
-          <Text style={[styles.filterHeading, { color: colors.textSecondary }]}>
-            Período
-          </Text>
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: useAllPeriods }}
-            aria-checked={useAllPeriods}
-            onPress={() => setUseAllPeriods(true)}
-            style={[
-              styles.sheetRow,
-              {
-                backgroundColor: useAllPeriods
-                  ? colors.accentSoft
-                  : colors.bgSecondary,
-                borderColor: useAllPeriods
-                  ? colors.accentPrimary
-                  : colors.borderDefault,
-              },
-            ]}
-          >
-            <Text style={[styles.sheetRowText, { color: colors.textPrimary }]}>
-              Todo o histórico (sem recorte de mês)
-            </Text>
-            {useAllPeriods ? (
-              <CheckIcon size={16} color={colors.accentPrimary} />
-            ) : null}
-          </Pressable>
-
-          {monthOptions.slice(0, 6).map((opt) => {
-            const isSelected =
-              !useAllPeriods && opt.monthKey === selectedPeriod.monthKey;
-            return (
-              <Pressable
-                key={opt.monthKey}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: isSelected }}
-                aria-checked={isSelected}
-                onPress={() => {
-                  setUseAllPeriods(false);
-                  setSelectedPeriod(opt);
-                }}
-                style={[
-                  styles.sheetRow,
-                  {
-                    backgroundColor: isSelected
-                      ? colors.accentSoft
-                      : colors.bgSecondary,
-                    borderColor: isSelected
-                      ? colors.accentPrimary
-                      : colors.borderDefault,
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.sheetRowText, { color: colors.textPrimary }]}
-                >
-                  {opt.label}
-                </Text>
-                {isSelected ? (
-                  <CheckIcon size={16} color={colors.accentPrimary} />
-                ) : null}
-              </Pressable>
+        onApply={(applied) => {
+          setActiveFilters(applied);
+          if (applied.from && applied.to) {
+            const found = monthOptions.find(
+              (opt) => opt.from === applied.from && opt.to === applied.to,
             );
-          })}
-        </View>
-
-        <View style={styles.filterSection}>
-          <Text style={[styles.filterHeading, { color: colors.textSecondary }]}>
-            Combustível
-          </Text>
-          <View style={styles.filterPillsWrap}>
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ checked: filterFuel === null }}
-              aria-checked={filterFuel === null}
-              onPress={() => setFilterFuel(null)}
-              style={[
-                styles.optionPill,
-                {
-                  backgroundColor:
-                    filterFuel === null
-                      ? colors.accentPrimary
-                      : colors.bgSecondary,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.optionPillText,
-                  {
-                    color: filterFuel === null ? '#FFFFFF' : colors.textPrimary,
-                  },
-                ]}
-              >
-                Todos
-              </Text>
-            </Pressable>
-            {(activeVehicle?.allowedFuels ?? []).map((fuel) => {
-              const isSelected = filterFuel === fuel;
-              return (
-                <Pressable
-                  key={fuel}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: isSelected }}
-                  aria-checked={isSelected}
-                  onPress={() => setFilterFuel(fuel)}
-                  style={[
-                    styles.optionPill,
-                    {
-                      backgroundColor: isSelected
-                        ? colors.accentPrimary
-                        : colors.bgSecondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.optionPillText,
-                      { color: isSelected ? '#FFFFFF' : colors.textPrimary },
-                    ]}
-                  >
-                    {FUEL_TYPE_LABELS[fuel]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.filterSection}>
-          <Text style={[styles.filterHeading, { color: colors.textSecondary }]}>
-            Estado do tanque
-          </Text>
-          <View style={styles.filterPillsWrap}>
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ checked: filterTank === null }}
-              aria-checked={filterTank === null}
-              onPress={() => setFilterTank(null)}
-              style={[
-                styles.optionPill,
-                {
-                  backgroundColor:
-                    filterTank === null
-                      ? colors.accentPrimary
-                      : colors.bgSecondary,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.optionPillText,
-                  {
-                    color: filterTank === null ? '#FFFFFF' : colors.textPrimary,
-                  },
-                ]}
-              >
-                Todos
-              </Text>
-            </Pressable>
-            {(['FULL', 'PARTIAL', 'UNKNOWN'] as TankState[]).map((st) => {
-              const isSelected = filterTank === st;
-              return (
-                <Pressable
-                  key={st}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: isSelected }}
-                  aria-checked={isSelected}
-                  onPress={() => setFilterTank(st)}
-                  style={[
-                    styles.optionPill,
-                    {
-                      backgroundColor: isSelected
-                        ? colors.accentPrimary
-                        : colors.bgSecondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.optionPillText,
-                      { color: isSelected ? '#FFFFFF' : colors.textPrimary },
-                    ]}
-                  >
-                    {TANK_STATE_LABELS[st]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <PrimaryButton
-          label="Aplicar filtros"
-          onPress={() => setFilterSheetOpen(false)}
-        />
-      </AppSheet>
+            if (found) {
+              setSelectedPeriod(found);
+            }
+          }
+        }}
+        initialFilters={activeFilters}
+        allowedFuels={activeVehicle?.allowedFuels ?? []}
+      />
 
       {/* Sheet: Seletor de veículo */}
       <AppSheet

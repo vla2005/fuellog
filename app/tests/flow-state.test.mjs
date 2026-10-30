@@ -65,6 +65,13 @@ const date = loadUtility('date');
 const decimal = loadUtility('decimal');
 const location = loadUtility('location');
 const numericMask = loadUtility('numericMask');
+const calendarHelper = (() => {
+  const module = { exports: {} };
+  const output = ts.transpileModule(readFileSync(new URL('../src/features/history/helpers/calendarHelper.ts', import.meta.url), 'utf8'),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  new Function('module', 'exports', output)(module, module.exports);
+  return module.exports;
+})();
 const vehicle = id => ({ id, nickname: id, allowedFuels: ['ETHANOL'], brand: null, model: null, plate: null });
 const period = { from: '2026-10-01', to: '2026-10-31', label: 'Outubro 2026', monthKey: '2026-10' };
 const draftKey = id => `fuellog.draft.fuel_entry.v1.user.${id}`;
@@ -150,6 +157,8 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   dependencies['./useForegroundLocation'] = {
     useForegroundLocation: loadScreen('features/fueling/useForegroundLocation.ts', 'useForegroundLocation', dependencies, false, clock),
   };
+  dependencies['./components/HistoryFilterSheet'] = { HistoryFilterSheet: () => null };
+  dependencies['./helpers/calendarHelper'] = calendarHelper;
   const screen = loadScreen(relativePath, exportName, dependencies, observableReturn, clock);
   const harness = { session, store, writes, activity, navigation, openedUrls, ApiError, snapshot: null,
     render() { index = 0; dirty = false; pendingEffects = []; harness.snapshot = screen(props); const effects = pendingEffects; effects.forEach(effect => effect()); },

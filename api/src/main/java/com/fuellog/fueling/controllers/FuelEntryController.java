@@ -1,6 +1,7 @@
 package com.fuellog.fueling.controllers;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
+import com.fuellog.fueling.dtos.FuelEntryFilters;
 import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.services.FuelEntryService;
 import com.fuellog.vehicles.enums.FuelType;
@@ -34,7 +35,11 @@ public class FuelEntryController {
         @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to,
         @RequestParam(defaultValue="America/Sao_Paulo") String timezone,
         @RequestParam(required=false) FuelType fuelType, @RequestParam(required=false) TankState tankState,
+        @RequestParam(required=false) String minTotalPaid, @RequestParam(required=false) String maxTotalPaid,
+        @RequestParam(required=false) String minLiters, @RequestParam(required=false) String maxLiters,
+        @RequestParam(required=false) String minPricePerLiter, @RequestParam(required=false) String maxPricePerLiter,
         @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="30") int size) {
-        return entries.list(vehicleId,from,to,timezone,fuelType,tankState,page,size);
+        return entries.list(vehicleId,from,to,timezone,fuelType,tankState,
+            FuelEntryFilters.parse(minTotalPaid,maxTotalPaid,minLiters,maxLiters,minPricePerLiter,maxPricePerLiter),page,size);
     }
 }

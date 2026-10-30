@@ -216,6 +216,13 @@ export interface ListFuelEntriesParams {
   to?: string;
   fuelType?: FuelType | null;
   tankState?: TankState | null;
+  timezone?: string;
+  minTotalPaid?: string | null;
+  maxTotalPaid?: string | null;
+  minLiters?: string | null;
+  maxLiters?: string | null;
+  minPricePerLiter?: string | null;
+  maxPricePerLiter?: string | null;
   page?: number;
   size?: number;
 }
@@ -230,8 +237,15 @@ export async function listFuelEntries(
     query: {
       from: params.from,
       to: params.to,
+      timezone: params.timezone ?? 'America/Sao_Paulo',
       fuelType: params.fuelType ?? undefined,
       tankState: params.tankState ?? undefined,
+      minTotalPaid: params.minTotalPaid ?? undefined,
+      maxTotalPaid: params.maxTotalPaid ?? undefined,
+      minLiters: params.minLiters ?? undefined,
+      maxLiters: params.maxLiters ?? undefined,
+      minPricePerLiter: params.minPricePerLiter ?? undefined,
+      maxPricePerLiter: params.maxPricePerLiter ?? undefined,
       page: params.page ?? 0,
       size: params.size ?? 30,
     },
