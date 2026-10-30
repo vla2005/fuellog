@@ -37,8 +37,9 @@ test('OpenStreetMap real mostra tiles e marcador em Novo e Detalhe com coordenad
   await page.getByRole('button', { name: 'Novo abastecimento', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Recapturar localização atual', exact: true })).toBeVisible();
   await expectRenderedMap(page, tiles, testInfo.outputPath('map-new.png'));
-  await page.getByLabel('Litros abastecidos', { exact: true }).fill('10');
+  await page.getByLabel('Valor pago', { exact: true }).fill('50,00');
   await page.getByLabel('Preço por litro', { exact: true }).fill('5');
+  await expect(page.getByRole('button', { name: /^Litros calculados:/ })).toContainText('10,000');
   await page.getByLabel('Hodômetro atual (km inteiro)', { exact: true }).fill('1000');
   const saved = page.waitForResponse(response => response.request().method() === 'POST' && /\/fuel-entries$/.test(response.url()));
   await page.getByRole('button', { name: 'Salvar abastecimento', exact: true }).click();
@@ -47,7 +48,7 @@ test('OpenStreetMap real mostra tiles e marcador em Novo e Detalhe com coordenad
   expect(await response.json()).toMatchObject({ latitude: -23.55052, longitude: -46.633308 });
   await expect(page).toHaveURL(/\/\/?$/);
   await page.getByRole('tab', { name: 'Histórico', exact: true }).click();
-  await page.getByRole('button', { name: /^Abastecimento de R\$ 50,00 em / }).click();
+  await page.getByRole('button', { name: /^Abastecimento de R\$ 50,00, Gasolina comum, em / }).click();
   await expect(page).toHaveURL(/\/fueling\/[0-9a-f-]+$/);
   await expectRenderedMap(page, tiles, testInfo.outputPath('map-detail.png'));
 });
