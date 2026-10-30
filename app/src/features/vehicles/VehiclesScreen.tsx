@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/feedback/EmptyState';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { CarIcon, ChevronDownIcon, PlusIcon, SettingsIcon } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
+import { useAuthenticatedHeader } from '@/components/navigation/AuthenticatedTabShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -42,15 +43,32 @@ export function VehiclesScreen({
 
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const headerHeight = insets.top + 56;
-  const totalImageHeight = Math.round(windowWidth * (1355 / 1161));
-  const heroHeight = Math.max(totalImageHeight - headerHeight, 260);
-  const isIntegratedMode = !isDark;
+  const { headerHeight: measuredHeaderHeight } = useAuthenticatedHeader();
+  const headerHeight =
+    measuredHeaderHeight > 0 ? measuredHeaderHeight : Math.round(insets.top + 56);
+  const isIntegratedMode = true;
+
+  const heroImageSource = isDark
+    ? require('@/assets/brand/scene_garage_night_integrated.png')
+    : require('@/assets/brand/scene_garage_day_integrated.png');
+
+  const staticRatio = 1355 / 1161;
+  const resolvedAsset = Image.resolveAssetSource?.(heroImageSource);
+  const assetRatio =
+    resolvedAsset?.width && resolvedAsset.height
+      ? resolvedAsset.height / resolvedAsset.width
+      : staticRatio;
+  const totalImageHeight = Math.round(windowWidth * assetRatio);
+
+  // Useful visual end of scene: wheels at ~0.61*w, driveway at ~0.70*w.
+  // We cut off empty tail at 0.74*w with a smooth fade starting below wheels.
+  const usefulSceneHeight = Math.round(windowWidth * 0.74);
+  const heroHeight = Math.max(usefulSceneHeight - headerHeight, 160);
 
   const fullBleedHero = isIntegratedMode ? (
     <View style={[styles.integratedHeroContainer, { height: heroHeight }]}>
       <Image
-        source={require('@/assets/brand/scene_garage_day_integrated.png')}
+        source={heroImageSource}
         style={[
           styles.integratedHeroImage,
           {
@@ -61,12 +79,16 @@ export function VehiclesScreen({
         ]}
         resizeMode="cover"
         pointerEvents="none"
-        accessibilityLabel="Garagem diurna com carro azul e mascote"
+        accessibilityLabel={
+          isDark
+            ? 'Garagem noturna com carro azul e mascote'
+            : 'Garagem diurna com carro azul e mascote'
+        }
       />
 
-      {/* SVG Gradient over empty floor at bottom */}
+      {/* SVG Gradient over tail at bottom (compact 26px fade below wheels) */}
       <Svg
-        height={72}
+        height={26}
         width="100%"
         style={styles.heroTailGradient}
         pointerEvents="none"
@@ -74,21 +96,12 @@ export function VehiclesScreen({
         <Defs>
           <LinearGradient id="garageTailGrad" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity="0" />
-            <Stop offset="0.65" stopColor={colors.bgPrimary} stopOpacity="0.6" />
+            <Stop offset="0.6" stopColor={colors.bgPrimary} stopOpacity="0.7" />
             <Stop offset="1" stopColor={colors.bgPrimary} stopOpacity="1" />
           </LinearGradient>
         </Defs>
-        <Rect x="0" y="0" width="100%" height={72} fill="url(#garageTailGrad)" />
+        <Rect x="0" y="0" width="100%" height={26} fill="url(#garageTailGrad)" />
       </Svg>
-
-      {/* Title: Meus veículos over the sky */}
-      <View style={styles.integratedHeroContent} pointerEvents="box-none">
-        <View style={styles.heroInnerContainer}>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-            Meus veículos
-          </Text>
-        </View>
-      </View>
     </View>
   ) : undefined;
 
@@ -105,26 +118,9 @@ export function VehiclesScreen({
         </View>
       ) : null}
 
-      {!isIntegratedMode ? (
-        <>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-            Meus veículos
-          </Text>
-
-          {/* Garage scene with car and mascot (Print 2) */}
-          <View
-            style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}
-            pointerEvents="none"
-          >
-            <Image
-              source={require('@/assets/brand/scene_garage.png')}
-              style={styles.sceneImage}
-              resizeMode="cover"
-              accessibilityLabel="Garagem com carro azul e mascote"
-            />
-          </View>
-        </>
-      ) : null}
+      <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
+        Meus veículos
+      </Text>
 
       {vehicles.length === 0 ? (
         <EmptyState
@@ -272,7 +268,8 @@ const styles = StyleSheet.create({
     ...typography.screenTitle,
     fontSize: 26,
     fontWeight: '800',
-    paddingVertical: 4,
+    paddingTop: 16,
+    paddingBottom: 4,
     marginBottom: 6,
   },
   sceneContainer: {

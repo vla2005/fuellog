@@ -1,5 +1,5 @@
 import { usePathname, useRouter } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   BackHandler,
@@ -86,6 +86,19 @@ export function resolveAuthenticatedRoute(
 
 export const TabActiveContext = React.createContext<boolean>(true);
 
+export interface AuthenticatedHeaderContextValue {
+  headerHeight: number;
+}
+
+export const AuthenticatedHeaderContext =
+  createContext<AuthenticatedHeaderContextValue>({
+    headerHeight: 0,
+  });
+
+export function useAuthenticatedHeader() {
+  return useContext(AuthenticatedHeaderContext);
+}
+
 export function AuthenticatedTabShell() {
   const router = useRouter();
   const pathname = usePathname();
@@ -106,8 +119,39 @@ export function AuthenticatedTabShell() {
     resolved.view === 'fueling-new' ||
     resolved.view === 'fueling-detail' ||
     resolved.view === 'account';
+  const [headerHeight, setHeaderHeight] = useState<number>(() =>
+    Math.round(insets.top + 56),
+  );
   const isIntegratedScreen =
-    !isDark && (resolved.view === 'home' || resolved.view === 'vehicles');
+    resolved.view === 'home' || resolved.view === 'vehicles';
+
+  const headerImageSource =
+    resolved.view === 'vehicles'
+      ? isDark
+        ? require('@/assets/brand/scene_garage_night_integrated.png')
+        : require('@/assets/brand/scene_garage_day_integrated.png')
+      : isDark
+        ? require('@/assets/brand/scene_night_road_integrated.png')
+        : require('@/assets/brand/scene_day_road_integrated.png');
+
+  const isNightRoad = resolved.view === 'home' && isDark;
+  const staticRatio = isNightRoad ? 1355 / 1160 : 1355 / 1161;
+  const resolvedAsset = Image.resolveAssetSource?.(headerImageSource);
+  const assetRatio =
+    resolvedAsset && resolvedAsset.width && resolvedAsset.height
+      ? resolvedAsset.height / resolvedAsset.width
+      : staticRatio;
+  const totalImageHeight = Math.round(windowWidth * assetRatio);
+
+  const headerSkyFallback = isIntegratedScreen
+    ? isDark
+      ? resolved.view === 'vehicles'
+        ? '#000F2F'
+        : '#01163E'
+      : resolved.view === 'vehicles'
+        ? '#2BA3FD'
+        : '#51B6FD'
+    : colors.bgPrimary;
 
   const visitedViewsRef = useRef<Set<AuthenticatedViewKey>>(
     new Set([resolved.view]),
@@ -245,26 +289,26 @@ export function AuthenticatedTabShell() {
       {!isFocusedFlow ? (
         <SafeAreaView
           edges={['top', 'left', 'right']}
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            if (h > 0 && Math.abs(h - headerHeight) >= 1) {
+              setHeaderHeight(h);
+            }
+          }}
           style={[
             styles.headerSafe,
             {
-              backgroundColor: isIntegratedScreen
-                ? 'transparent'
-                : colors.bgPrimary,
+              backgroundColor: headerSkyFallback,
             },
           ]}
         >
           {isIntegratedScreen ? (
             <View style={styles.headerImageSlice} pointerEvents="none">
               <Image
-                source={
-                  resolved.view === 'vehicles'
-                    ? require('@/assets/brand/scene_garage_day_integrated.png')
-                    : require('@/assets/brand/scene_day_road_integrated.png')
-                }
+                source={headerImageSource}
                 style={{
                   width: windowWidth,
-                  height: Math.round(windowWidth * (1355 / 1161)),
+                  height: totalImageHeight,
                   position: 'absolute',
                   top: 0,
                   left: 0,
@@ -296,62 +340,62 @@ export function AuthenticatedTabShell() {
       ) : null}
 
       {/* Content Area: Only the route content slides laterally; header and bottom dock remain static */}
-      <Animated.View
-        style={[
-          styles.contentStage,
-          {
-            opacity: contentOpacity,
-            transform: [{ translateX }],
-          },
-        ]}
-      >
-        {visitedViewsRef.current.has('home') ? (
-          <TabPane active={resolved.view === 'home'}>
-            <HomeScreen embeddedInShell />
-          </TabPane>
-        ) : null}
+      <AuthenticatedHeaderContext.Provider value={{ headerHeight }}>
+        <Animated.View
+          style={[
+            styles.contentStage,
+            {
+              opacity: contentOpacity,
+              transform: [{ translateX }],
+            },
+          ]}
+        >
+          {visitedViewsRef.current.has('home') ? (
+            <TabPane active={resolved.view === 'home'}>
+              <HomeScreen embeddedInShell />
+            </TabPane>
+          ) : null}
 
-        {visitedViewsRef.current.has('history') ? (
-          <TabPane active={resolved.view === 'history'}>
-            <HistoryScreen embeddedInShell />
-          </TabPane>
-        ) : null}
+          {visitedViewsRef.current.has('history') ? (
+            <TabPane active={resolved.view === 'history'}>
+              <HistoryScreen embeddedInShell />
+            </TabPane>
+          ) : null}
 
-        {visitedViewsRef.current.has('vehicles') ? (
-          <TabPane active={resolved.view === 'vehicles'}>
-            <VehiclesScreen embeddedInShell />
-          </TabPane>
-        ) : null}
+          {visitedViewsRef.current.has('vehicles') ? (
+            <TabPane active={resolved.view === 'vehicles'}>
+              <VehiclesScreen embeddedInShell />
+            </TabPane>
+          ) : null}
 
-        {visitedViewsRef.current.has('settings') ? (
-          <TabPane active={resolved.view === 'settings'}>
-            <SettingsScreen embeddedInShell />
-          </TabPane>
-        ) : null}
+          {visitedViewsRef.current.has('settings') ? (
+            <TabPane active={resolved.view === 'settings'}>
+              <SettingsScreen embeddedInShell />
+            </TabPane>
+          ) : null}
 
-        {visitedViewsRef.current.has('fueling-new') ? (
-          <TabPane active={resolved.view === 'fueling-new'}>
-            <NewFuelEntryScreen embeddedInShell />
-          </TabPane>
-        ) : null}
+          {visitedViewsRef.current.has('fueling-new') ? (
+            <TabPane active={resolved.view === 'fueling-new'}>
+              <NewFuelEntryScreen embeddedInShell />
+            </TabPane>
+          ) : null}
 
-        {visitedViewsRef.current.has('fueling-detail') ? (
-          <TabPane active={resolved.view === 'fueling-detail'}>
-            <FuelEntryDetailScreen
-              embeddedInShell
-              entryIdOverride={lastDetailEntryIdRef.current}
-            />
+          {visitedViewsRef.current.has('fueling-detail') ? (
+            <TabPane active={resolved.view === 'fueling-detail'}>
+              <FuelEntryDetailScreen
+                embeddedInShell
+                entryIdOverride={lastDetailEntryIdRef.current}
+              />
+            </TabPane>
+          ) : null}
 
-          </TabPane>
-        ) : null}
-
-        {visitedViewsRef.current.has('account') ? (
-          <TabPane active={resolved.view === 'account'}>
-            <AccountScreen embeddedInShell />
-
-          </TabPane>
-        ) : null}
-      </Animated.View>
+          {visitedViewsRef.current.has('account') ? (
+            <TabPane active={resolved.view === 'account'}>
+              <AccountScreen embeddedInShell />
+            </TabPane>
+          ) : null}
+        </Animated.View>
+      </AuthenticatedHeaderContext.Provider>
 
       {/* Persistent Bottom Navigation: Single instance across all authenticated routes */}
       {!isFocusedFlow ? <FloatingDock activeTab={activeDockTab} /> : null}

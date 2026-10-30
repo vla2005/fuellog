@@ -116,7 +116,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
       removeItem: async key => { store.delete(key); },
     },
     'expo-router': { useRouter: () => ({ replace(path) { navigation.push(path); }, push() {} }), useLocalSearchParams: () => ({}) },
-    '@/components/navigation/AuthenticatedTabShell': { TabActiveContext: {} },
+    '@/components/navigation/AuthenticatedTabShell': { TabActiveContext: {}, useAuthenticatedHeader: () => ({ headerHeight: 56 }) },
     '@/motion/useMotionPolicy': { useMotionPolicy: () => ({ isAppActive: activity.appActive }) },
     '@/features/home/MonthlySummaryModal': {},
     '@/api/endpoints': { FUEL_TYPE_LABELS: {}, FUEL_TYPE_SHORT_LABELS: {}, TANK_STATE_LABELS: {}, TANK_STATE_SHORT_LABELS: {}, UNAVAILABLE_REASON_EXPLANATIONS: {}, ...endpoints },

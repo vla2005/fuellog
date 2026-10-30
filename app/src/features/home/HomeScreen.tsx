@@ -34,6 +34,7 @@ import {
   SettingsIcon,
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
+import { useAuthenticatedHeader } from '@/components/navigation/AuthenticatedTabShell';
 import { FloatingDock } from '@/components/navigation/FloatingDock';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -188,15 +189,32 @@ export function HomeScreen({
 
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const headerHeight = insets.top + 56;
-  const totalImageHeight = Math.round(windowWidth * (1355 / 1161));
-  const heroHeight = Math.max(totalImageHeight - headerHeight, 260);
-  const isIntegratedMode = !isDark && vehicles.length > 0;
+  const { headerHeight: measuredHeaderHeight } = useAuthenticatedHeader();
+  const headerHeight =
+    measuredHeaderHeight > 0 ? measuredHeaderHeight : Math.round(insets.top + 56);
+  const isIntegratedMode = vehicles.length > 0;
+
+  const heroImageSource = isDark
+    ? require('@/assets/brand/scene_night_road_integrated.png')
+    : require('@/assets/brand/scene_day_road_integrated.png');
+
+  const staticRatio = isDark ? 1355 / 1160 : 1355 / 1161;
+  const resolvedAsset = Image.resolveAssetSource?.(heroImageSource);
+  const assetRatio =
+    resolvedAsset && resolvedAsset.width && resolvedAsset.height
+      ? resolvedAsset.height / resolvedAsset.width
+      : staticRatio;
+  const totalImageHeight = Math.round(windowWidth * assetRatio);
+
+  // Useful visual end of scene: wheels at ~0.61*w, road shoulder at ~0.70*w.
+  // We cut off empty tail at 0.74*w with a smooth fade starting below wheels.
+  const usefulSceneHeight = Math.round(windowWidth * 0.74);
+  const heroHeight = Math.max(usefulSceneHeight - headerHeight, 160);
 
   const fullBleedHero = isIntegratedMode ? (
-    <View style={[styles.integratedHeroContainer, { minHeight: heroHeight }]}>
+    <View style={[styles.integratedHeroContainer, { height: heroHeight }]}>
       <Image
-        source={require('@/assets/brand/scene_day_road_integrated.png')}
+        source={heroImageSource}
         style={[
           styles.integratedHeroImage,
           {
@@ -207,84 +225,29 @@ export function HomeScreen({
         ]}
         resizeMode="cover"
         pointerEvents="none"
-        accessibilityLabel="Cena diurna integrada com Renault azul e mascote na estrada"
+        accessibilityLabel={
+          isDark
+            ? 'Cena noturna integrada com Renault azul e mascote na estrada'
+            : 'Cena diurna integrada com Renault azul e mascote na estrada'
+        }
       />
 
-      {/* SVG Gradient over empty tail at bottom */}
+      {/* SVG Gradient over tail at bottom (compact 26px fade below wheels) */}
       <Svg
-        height={72}
+        height={26}
         width="100%"
-        style={[
-          styles.heroTailGradient,
-          { top: totalImageHeight - headerHeight - 72 },
-        ]}
+        style={styles.heroTailGradient}
         pointerEvents="none"
       >
         <Defs>
           <LinearGradient id="roadTailGrad" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity="0" />
-            <Stop offset="0.65" stopColor={colors.bgPrimary} stopOpacity="0.6" />
+            <Stop offset="0.6" stopColor={colors.bgPrimary} stopOpacity="0.7" />
             <Stop offset="1" stopColor={colors.bgPrimary} stopOpacity="1" />
           </LinearGradient>
         </Defs>
-        <Rect x="0" y="0" width="100%" height={72} fill="url(#roadTailGrad)" />
+        <Rect x="0" y="0" width="100%" height={26} fill="url(#roadTailGrad)" />
       </Svg>
-
-      {/* Content inside the hero: top dropdown and month/spent section in normal flow */}
-      <View style={styles.integratedHeroContent} pointerEvents="box-none">
-        <View style={styles.heroInnerContainer}>
-          <View style={styles.topSelectorRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Veículo selecionado: ${
-                activeVehicle?.nickname ?? 'Selecionar veículo'
-              }`}
-              onPress={() => setVehiclePickerOpen(true)}
-              style={styles.vehicleDropdown}
-            >
-              <Text style={[styles.vehicleDropdownText, { color: colors.textPrimary }]}>
-                {activeVehicle?.nickname ?? 'Selecionar veículo'}
-              </Text>
-              <ChevronDownIcon size={20} color={colors.brandPrimary} />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Month & Spent section in normal flow */}
-        <View style={styles.heroInnerContainer}>
-          <View
-            style={[
-              styles.spentSection,
-              {
-                paddingTop: Math.max(
-                  Math.round(windowWidth * 0.82) - headerHeight,
-                  16,
-                ),
-              },
-            ]}
-          >
-            <Text style={[styles.periodText, { color: colors.textSecondary }]}>
-              {selectedPeriod.label}
-            </Text>
-            <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
-              Gasto no mês
-            </Text>
-            <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
-              {formatCurrencyBRL(summary?.paidTotal ?? '0')}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Ver resumo do mês"
-              onPress={() => setMonthlySummaryOpen(true)}
-              style={styles.linkRow}
-            >
-              <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
-                Ver resumo &gt;
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
     </View>
   ) : undefined;
 
@@ -309,8 +272,8 @@ export function HomeScreen({
         </View>
       ) : null}
 
-      {/* Vehicle Selector Dropdown: Besourão ⌄ (Only in non-integrated mode) */}
-      {!isIntegratedMode ? (
+      {/* Vehicle Selector Dropdown: Besourão ⌄ in normal flow on calm area (16-24px from transition) */}
+      {vehicles.length > 0 ? (
         <View style={styles.topSelectorRow}>
           <Pressable
             accessibilityRole="button"
@@ -359,45 +322,28 @@ export function HomeScreen({
             />
           ) : null}
 
-          {/* Pixel Art Scene: Night road with car and mascot (Only in non-integrated mode) */}
-          {!isIntegratedMode ? (
-            <>
-              <View
-                style={[styles.sceneContainer, { backgroundColor: colors.bgSecondary }]}
-                pointerEvents="none"
-              >
-                <Image
-                  source={require('@/assets/brand/scene_night_road.png')}
-                  style={styles.sceneImage}
-                  resizeMode="cover"
-                  accessibilityLabel="Cena noturna com Renault azul e mascote na estrada"
-                />
-              </View>
-
-              {/* Month & Spent Section */}
-              <View style={styles.spentSection}>
-                <Text style={[styles.periodText, { color: colors.textSecondary }]}>
-                  {selectedPeriod.label}
-                </Text>
-                <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
-                  Gasto no mês
-                </Text>
-                <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
-                  {formatCurrencyBRL(summary?.paidTotal ?? '0')}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Ver resumo do mês"
-                  onPress={() => setMonthlySummaryOpen(true)}
-                  style={styles.linkRow}
-                >
-                  <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
-                    Ver resumo &gt;
-                  </Text>
-                </Pressable>
-              </View>
-            </>
-          ) : null}
+          {/* Month & Spent Section in normal flow on calm area */}
+          <View style={styles.spentSection}>
+            <Text style={[styles.periodText, { color: colors.textSecondary }]}>
+              {selectedPeriod.label}
+            </Text>
+            <Text style={[styles.spentTitle, { color: colors.textPrimary }]}>
+              Gasto no mês
+            </Text>
+            <Text style={[styles.spentAmount, { color: colors.textPrimary }]}>
+              {formatCurrencyBRL(summary?.paidTotal ?? '0')}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Ver resumo do mês"
+              onPress={() => setMonthlySummaryOpen(true)}
+              style={styles.linkRow}
+            >
+              <Text style={[styles.linkText, { color: colors.brandPrimary }]}>
+                Ver resumo &gt;
+              </Text>
+            </Pressable>
+          </View>
 
           {/* Section: Último abastecimento */}
           <View style={[styles.latestCard, { borderTopColor: colors.borderSubtle }]}>
@@ -563,8 +509,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   topSelectorRow: {
-    paddingVertical: 4,
-    marginBottom: 6,
+    paddingTop: 16,
+    paddingBottom: 4,
+    marginBottom: 4,
   },
   vehicleDropdown: {
     flexDirection: 'row',
@@ -664,6 +611,7 @@ const styles = StyleSheet.create({
   },
   heroTailGradient: {
     position: 'absolute',
+    bottom: 0,
     left: 0,
     right: 0,
   },
