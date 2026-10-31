@@ -42,6 +42,7 @@ public class FuelEntry {
     public long odometerKm() { return odometerKm; }
     public FuelType fuelType() { return fuelType; }
     public BigDecimal liters() { return liters; }
+    public BigDecimal unitPrice() { return unitPrice; }
     public BigDecimal paidTotal() { return paidTotal; }
     public TankState tankState() { return tankState; }
     public boolean historyGapBefore() { return historyGapBefore; }

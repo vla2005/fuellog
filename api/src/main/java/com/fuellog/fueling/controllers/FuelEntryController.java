@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.net.URI;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.UUID;
 
 @RestController
@@ -43,8 +44,10 @@ public class FuelEntryController {
         @RequestParam(required=false) String minTotalPaid, @RequestParam(required=false) String maxTotalPaid,
         @RequestParam(required=false) String minLiters, @RequestParam(required=false) String maxLiters,
         @RequestParam(required=false) String minPricePerLiter, @RequestParam(required=false) String maxPricePerLiter,
+        @RequestParam(required=false) Instant occurredFrom, @RequestParam(required=false) Instant occurredTo,
+        @RequestParam(required=false) UUID entryId,
         @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="30") int size) {
         return entries.list(vehicleId,from,to,timezone,fuelType,tankState,
-            FuelEntryFilters.parse(minTotalPaid,maxTotalPaid,minLiters,maxLiters,minPricePerLiter,maxPricePerLiter),page,size);
+            FuelEntryFilters.parse(minTotalPaid,maxTotalPaid,minLiters,maxLiters,minPricePerLiter,maxPricePerLiter),page,size,occurredFrom,occurredTo,entryId);
     }
 }

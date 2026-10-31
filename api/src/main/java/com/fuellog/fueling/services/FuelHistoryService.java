@@ -20,6 +20,6 @@ public class FuelHistoryService {
     public List<FuelHistory> read(UUID vehicleId) {
         vehicles.owned(vehicleId);
         return entries.historyIncludingDeleted(vehicleId).stream()
-            .map(e -> new FuelHistory(e.id(),e.occurredAt(),e.odometerKm(),e.fuelType(),e.liters(),e.paidTotal(),e.tankState(),e.historyGapBefore(),e.deleted())).toList();
+            .map(e -> new FuelHistory(e.id(),e.occurredAt(),e.odometerKm(),e.fuelType(),e.liters(),e.paidTotal(),e.tankState(),e.historyGapBefore(),e.deleted(),e.unitPrice())).toList();
     }
 }

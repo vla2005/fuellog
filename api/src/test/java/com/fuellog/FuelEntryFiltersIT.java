@@ -31,6 +31,43 @@ class FuelEntryFiltersIT {
     @Autowired ObjectMapper json;
     private final HttpClient client=HttpClient.newHttpClient();
 
+    @Test void dashboardAggregatesBeyondHistoryPagesAndKeepsDeclaredPriceSeparate() throws Exception {
+        String owner=account(), stranger=account(), vehicle=vehicle(owner);
+        for(int i=0;i<65;i++) create(owner,vehicle,"2024-02-01T%02d:%02d:00Z".formatted(12+i/60,i%60),100+i,"1.001","5.1234","4.02","ETHANOL");
+        String endpoint="/vehicles/"+vehicle+"/dashboard?from=2024-02-01&to=2024-02-29&timezone=America/Sao_Paulo";
+        var result=request("GET",endpoint,owner,null);
+        assertThat(result.status()).isEqualTo(200);
+        var data=result.body();
+        assertThat(data.path("purchaseCount").asInt()).isEqualTo(65);
+        assertThat(data.path("paidTotal").asString()).isEqualTo("261.30");
+        assertThat(data.path("purchasedLiters").asString()).isEqualTo("65.065");
+        assertThat(data.path("weightedUnitPrice").asString()).isEqualTo("5.1234");
+        assertThat(data.path("prices").size()).isEqualTo(65);
+        assertThat(data.path("months").get(0).path("month").asString()).isEqualTo("2024-02");
+        assertThat(data.path("cycles").size()).isEqualTo(64);
+        assertThat(list(owner,vehicle,"?size=30").path("items").size()).isEqualTo(30);
+        assertThat(request("GET",endpoint,null,null).status()).isEqualTo(401);
+        assertThat(request("GET",endpoint,stranger,null).status()).isEqualTo(404);
+        assertThat(request("GET",endpoint+"&fuelType=GASOLINE_REGULAR",owner,null).body().path("purchaseCount").asInt()).isZero();
+        assertThat(request("GET",endpoint+"&fuelType=INVALID",owner,null).status()).isEqualTo(400);
+        assertThat(request("GET","/vehicles/"+vehicle+"/dashboard?from=2024-03-01&to=2024-02-29",owner,null).status()).isEqualTo(422);
+    }
+
+    @Test void exactChartSlicesComposeWithCivilDatesAndNeverBroadenOwnership() throws Exception {
+        String owner=account(), stranger=account(), vehicle=vehicle(owner);
+        var first=create(owner,vehicle,"2024-02-01T12:00:00Z",100,"10","5","50","ETHANOL");
+        var middle=create(owner,vehicle,"2024-02-01T14:00:00Z",200,"10","5","50","ETHANOL");
+        var last=create(owner,vehicle,"2024-02-01T16:00:00Z",300,"10","6","60","GASOLINE_REGULAR");
+        String exact="?from=2024-02-01&to=2024-02-01&occurredFrom=2024-02-01T12:00:00Z&occurredTo=2024-02-01T14:00:00Z";
+        assertThat(list(owner,vehicle,exact).path("totalElements").asInt()).isEqualTo(1);
+        assertThat(list(owner,vehicle,exact+"&entryId="+middle).path("items").get(0).path("id").asString()).isEqualTo(middle);
+        assertThat(list(owner,vehicle,exact+"&entryId="+last).path("totalElements").asInt()).isZero();
+        assertThat(list(owner,vehicle,"?entryId="+first).path("totalElements").asInt()).isEqualTo(1);
+        assertThat(request("GET",path(vehicle)+exact,stranger,null).status()).isEqualTo(404);
+        assertThat(request("GET",path(vehicle)+"?occurredFrom=2024-02-02T00:00:00Z&occurredTo=2024-02-01T00:00:00Z",owner,null).status()).isEqualTo(422);
+        assertThat(request("GET",path(vehicle)+"?entryId=invalid",owner,null).status()).isEqualTo(400);
+    }
+
     @Test void decimalBoundsCombineBeforePaginationAndCountUsingActualPaidTotal() throws Exception {
         String access=account(), vehicle=vehicle(access);
         String first=create(access,vehicle,"2024-02-01T12:00:00Z",100,"10.123","5.1234","40.01","GASOLINE_REGULAR");

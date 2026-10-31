@@ -77,7 +77,11 @@ class OpenApiContractTest {
                 Map.entry("FuelEntryPage", "fueling.dtos.FuelEntryDtos$Page"),
                 Map.entry("Cycle", "metrics.dtos.MetricsDtos$Cycle"),
                 Map.entry("Cycles", "metrics.dtos.MetricsDtos$Cycles"),
-                Map.entry("Summary", "metrics.dtos.MetricsDtos$Summary"));
+                Map.entry("Summary", "metrics.dtos.MetricsDtos$Summary"),
+                Map.entry("Dashboard", "metrics.dtos.MetricsDtos$Dashboard"),
+                Map.entry("DashboardMonth", "metrics.dtos.MetricsDtos$MonthlyTotal"),
+                Map.entry("DashboardFuel", "metrics.dtos.MetricsDtos$FuelSpending"),
+                Map.entry("DashboardPrice", "metrics.dtos.MetricsDtos$Price"));
         for (var entry : types.entrySet()) {
             Set<String> documented = new LinkedHashSet<>();
             spec.path("components").path("schemas").path(entry.getKey()).path("properties")

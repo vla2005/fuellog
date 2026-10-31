@@ -122,10 +122,17 @@ public class FuelEntryService {
     @Transactional(readOnly=true)
     public FuelEntryDtos.Page list(UUID vehicleId, LocalDate from, LocalDate to, String timezone,
         FuelType fuelType, TankState tankState, FuelEntryFilters bounds, int page, int size) {
+        return list(vehicleId,from,to,timezone,fuelType,tankState,bounds,page,size,null,null,null);
+    }
+    @Transactional(readOnly=true)
+    public FuelEntryDtos.Page list(UUID vehicleId, LocalDate from, LocalDate to, String timezone,
+        FuelType fuelType, TankState tankState, FuelEntryFilters bounds, int page, int size,
+        Instant occurredFrom, Instant occurredTo, UUID entryId) {
         vehicles.owned(vehicleId);
         ZoneId zone=DomainValues.zone(timezone);
         if (page < 0 || size < 1 || size > 100) throw new ApiException(400,"INVALID_PAGINATION","page >= 0 e size entre 1 e 100.");
         if (from != null && to != null && from.isAfter(to)) throw DomainValues.invalid("to","Fim anterior ao in\u00edcio.");
+        if (occurredFrom != null && occurredTo != null && occurredFrom.isAfter(occurredTo)) throw DomainValues.invalid("occurredTo","Fim anterior ao início.");
         Instant start=from == null ? null : from.atStartOfDay(zone).toInstant();
         Instant end;
         try { end=to == null ? null : to.plusDays(1).atStartOfDay(zone).toInstant(); }
@@ -133,6 +140,9 @@ public class FuelEntryService {
         Specification<FuelEntry> filter=(root,query,builder) -> {
             var predicates=new ArrayList<Predicate>();
             predicates.add(builder.equal(root.get("vehicleId"),vehicleId));
+            if(occurredFrom != null) predicates.add(builder.greaterThan(root.get("occurredAt"),occurredFrom));
+            if(occurredTo != null) predicates.add(builder.lessThanOrEqualTo(root.get("occurredAt"),occurredTo));
+            if(entryId != null) predicates.add(builder.equal(root.get("id"),entryId));
             if(start != null) predicates.add(builder.greaterThanOrEqualTo(root.get("occurredAt"),start));
             if(end != null) predicates.add(builder.lessThan(root.get("occurredAt"),end));
             if(fuelType != null) predicates.add(builder.equal(root.get("fuelType"),fuelType));

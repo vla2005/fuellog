@@ -1273,37 +1273,61 @@
           {
             "name": "minTotalPaid",
             "in": "query",
-            "schema": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$", "maxLength": 64 },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+              "maxLength": 64
+            },
             "description": "Inclusive minimum actually paid, from 0 through 9999999999.99."
           },
           {
             "name": "maxTotalPaid",
             "in": "query",
-            "schema": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$", "maxLength": 64 },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+              "maxLength": 64
+            },
             "description": "Inclusive maximum actually paid, from 0 through 9999999999.99."
           },
           {
             "name": "minLiters",
             "in": "query",
-            "schema": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$", "maxLength": 64 },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+              "maxLength": 64
+            },
             "description": "Inclusive minimum liters, from 0 through 9999999.999."
           },
           {
             "name": "maxLiters",
             "in": "query",
-            "schema": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$", "maxLength": 64 },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?$",
+              "maxLength": 64
+            },
             "description": "Inclusive maximum liters, from 0 through 9999999.999."
           },
           {
             "name": "minPricePerLiter",
             "in": "query",
-            "schema": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$", "maxLength": 64 },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$",
+              "maxLength": 64
+            },
             "description": "Inclusive minimum unit price, from 0 through 999999.9999."
           },
           {
             "name": "maxPricePerLiter",
             "in": "query",
-            "schema": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$", "maxLength": 64 },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(?:\\.[0-9]{1,4})?$",
+              "maxLength": 64
+            },
             "description": "Inclusive maximum unit price, from 0 through 999999.9999."
           },
           {
@@ -1326,6 +1350,33 @@
               "default": 30
             },
             "description": ""
+          },
+          {
+            "name": "occurredFrom",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Exclusive exact occurrence instant; intersects civil date filters. Cycle links exclude the initial full-tank baseline, matching the liters and payments used by consumption calculations."
+          },
+          {
+            "name": "occurredTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive exact final instant; intersects civil date filters."
+          },
+          {
+            "name": "entryId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Select one exact entry; ownership is still enforced and all supplied filters intersect."
           }
         ]
       },
@@ -2722,6 +2773,132 @@
         },
         "security": []
       }
+    },
+    "/vehicles/{vehicleId}/dashboard": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Read owned vehicle dashboard aggregates and complete series",
+        "description": "Reads the entire owned history, never a paginated history page. Purchases exclude tombstones and use inclusive civil dates in timezone. Months contain observed purchases only; monthly from/to intersect the requested interval. Prices are chronological individual declared prices, without smoothing or grouping. Paid totals always use actual payments. All cycles are built before date or fuel selection, including intermediate fills and tombstones; selection uses cycle end date. With fuelType, cycles must have exactly that single fuel (pure cycles); mixed cycles remain identified in the unfiltered response and are excluded from fuel-specific efficiency. Consumption is SUM(valid distance)/SUM(valid liters); cost is SUM(valid cycle paid)/SUM(valid distance). Null cycle values preserve gaps. No valid cycle returns null, never an artificial zero. Arrays are complete, with no arbitrary limit.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive first civil date."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Inclusive final civil date."
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "America/Sao_Paulo"
+            },
+            "description": "IANA timezone for date boundaries."
+          },
+          {
+            "name": "fuelType",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/FuelType"
+            },
+            "description": "Purchase fuel; efficiency includes only complete pure cycles of this fuel. Omit for all fuels including identified mixed cycles."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3114,7 +3291,7 @@
         ]
       },
       "CreateFuelEntry": {
-        "description": "Without adjustmentReason, liters must equal HALF_UP(paidTotal / unitPrice, 3) or HALF_UP(liters * unitPrice, 2) must equal paidTotal. Nonempty adjustmentReason declares a discount and requires paidTotal <= HALF_UP(liters * unitPrice, 2). Amounts remain positive decimal strings; original POST fingerprints retain replay compatibility.",
+        "description": "New UUIDs require latitude and longitude. Exact retries of pre-GPS commands may omit both only when matching their existing original fingerprint. Old clients cannot create new entries without GPS. stationName and notes remain optional for legacy compatibility.",
         "type": "object",
         "properties": {
           "id": {
@@ -3232,8 +3409,7 @@
           "paidTotal",
           "latitude",
           "longitude"
-        ],
-        "description": "New UUIDs require latitude and longitude. Exact retries of pre-GPS commands may omit both only when matching their existing original fingerprint. Old clients cannot create new entries without GPS. stationName and notes remain optional for legacy compatibility."
+        ]
       },
       "FuelEntry": {
         "type": "object",
@@ -3806,7 +3982,7 @@
         ]
       },
       "UpdateFuelEntry": {
-        "description": "Financial changes follow the CreateFuelEntry amount and discount rules. Historical amounts and adjustmentReason may be retained unchanged when editing other fields, including the date. If-Match remains mandatory; an accepted PUT preserves the original POST fingerprint.",
+        "description": "Editable purchase fields without a client UUID. Same creation validation and 3/4/2 decimal scales apply. Omitted or null tankState defaults to UNKNOWN and historyGapBefore to false; optional text may be cleared. Omitted or null coordinate pair preserves the historical snapshot, including null for pre-GPS entries; a supplied non-null pair replaces it after the same range and precision validation. Never requires recapturing current location.",
         "type": "object",
         "properties": {
           "occurredAt": {
@@ -3923,8 +4099,7 @@
           "liters",
           "unitPrice",
           "paidTotal"
-        ],
-        "description": "Editable purchase fields without a client UUID. Same creation validation and 3/4/2 decimal scales apply. Omitted or null tankState defaults to UNKNOWN and historyGapBefore to false; optional text may be cleared. Omitted or null coordinate pair preserves the historical snapshot, including null for pre-GPS entries; a supplied non-null pair replaces it after the same range and precision validation. Never requires recapturing current location."
+        ]
       },
       "PasswordChange": {
         "type": "object",
@@ -4160,6 +4335,302 @@
             "description": "Required only when normalized email changes and 2FA is enabled: six ASCII TOTP digits or an unused 43-character recovery code."
           }
         }
+      },
+      "DashboardMonth": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "purchaseCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{2}$",
+            "description": "Exact decimal string; 2 places, HALF_UP."
+          },
+          "liters": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{3}$",
+            "description": "Exact decimal string; 3 places, HALF_UP."
+          }
+        },
+        "required": [
+          "month",
+          "from",
+          "to",
+          "purchaseCount",
+          "paidTotal",
+          "liters"
+        ],
+        "additionalProperties": false
+      },
+      "DashboardFuel": {
+        "type": "object",
+        "properties": {
+          "fuelType": {
+            "$ref": "#/components/schemas/FuelType"
+          },
+          "purchaseCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{2}$",
+            "description": "Exact decimal string; 2 places, HALF_UP."
+          },
+          "liters": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{3}$",
+            "description": "Exact decimal string; 3 places, HALF_UP."
+          },
+          "percentage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d{4}$",
+                "description": "Share of actual paid total as a percentage; null when all payments total zero."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "fuelType",
+          "purchaseCount",
+          "paidTotal",
+          "liters",
+          "percentage"
+        ],
+        "additionalProperties": false
+      },
+      "DashboardPrice": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fuelType": {
+            "$ref": "#/components/schemas/FuelType"
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{4}$",
+            "description": "Declared unit price, not paidTotal/liters; financial adjustments do not change it."
+          },
+          "liters": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{3}$",
+            "description": "Exact decimal string; 3 places, HALF_UP."
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{2}$",
+            "description": "Exact decimal string; 2 places, HALF_UP."
+          }
+        },
+        "required": [
+          "entryId",
+          "occurredAt",
+          "fuelType",
+          "unitPrice",
+          "liters",
+          "paidTotal"
+        ],
+        "additionalProperties": false
+      },
+      "Dashboard": {
+        "type": "object",
+        "properties": {
+          "vehicleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "fuelType": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FuelType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purchaseCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{2}$",
+            "description": "Exact decimal string; 2 places, HALF_UP."
+          },
+          "purchasedLiters": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{3}$",
+            "description": "Exact decimal string; 3 places, HALF_UP."
+          },
+          "weightedUnitPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d{4}$",
+                "description": "SUM(declared unitPrice * liters) / SUM(liters), weighted declared price; distinct from summary.weightedPaidPrice (SUM(actual paidTotal) / SUM(liters))."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validCycleCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cycleDistanceKm": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cycleLiters": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{3}$",
+            "description": "Exact decimal string; 3 places, HALF_UP."
+          },
+          "cyclePaidTotal": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d{2}$",
+            "description": "Exact decimal string; 2 places, HALF_UP."
+          },
+          "consumptionKmPerLiter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d{2}$",
+                "description": "Exact decimal string; 2 places, HALF_UP."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replacementCostPerKm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d{4}$",
+                "description": "Exact decimal string; 4 places, HALF_UP."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailableReason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "months": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardMonth"
+            }
+          },
+          "fuels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardFuel"
+            }
+          },
+          "prices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardPrice"
+            }
+          },
+          "cycles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Cycle"
+            }
+          }
+        },
+        "required": [
+          "vehicleId",
+          "from",
+          "to",
+          "timezone",
+          "fuelType",
+          "purchaseCount",
+          "paidTotal",
+          "purchasedLiters",
+          "weightedUnitPrice",
+          "validCycleCount",
+          "cycleDistanceKm",
+          "cycleLiters",
+          "cyclePaidTotal",
+          "consumptionKmPerLiter",
+          "replacementCostPerKm",
+          "unavailableReason",
+          "months",
+          "fuels",
+          "prices",
+          "cycles"
+        ],
+        "additionalProperties": false
       }
     }
   }
