@@ -22,7 +22,7 @@ import { HistoryScreen } from '@/features/history/HistoryScreen';
 import { HomeScreen } from '@/features/home/HomeScreen';
 import { SettingsScreen } from '@/features/settings/SettingsScreen';
 import { VehiclesScreen } from '@/features/vehicles/VehiclesScreen';
-import { useMotionPolicy } from '@/motion/useMotionPolicy';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { layout } from '@/theme/tokens';
 
@@ -105,7 +105,6 @@ export function AuthenticatedTabShell() {
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const { reduceMotion, shouldAnimate, duration, easing } = useMotionPolicy();
 
   const resolved = resolveAuthenticatedRoute(pathname);
   const lastDockTabRef = useRef<DockTabKey>(
@@ -164,86 +163,7 @@ export function AuthenticatedTabShell() {
   }
 
   const transitionKey = `${resolved.view}:${resolved.detailEntryId ?? ''}`;
-  const prevTransitionKeyRef = useRef<string>(transitionKey);
-  const prevViewRef = useRef<AuthenticatedViewKey>(resolved.view);
-  const translateX = useRef(new Animated.Value(0)).current;
-  const contentOpacity = useRef(new Animated.Value(1)).current;
-  const activeAnimRef = useRef<Animated.CompositeAnimation | null>(null);
-  const motionPolicyRef = useRef({ duration, easing, reduceMotion, shouldAnimate });
-  motionPolicyRef.current = { duration, easing, reduceMotion, shouldAnimate };
-
-  useEffect(() => {
-    if (reduceMotion || !shouldAnimate) {
-      if (activeAnimRef.current) {
-        activeAnimRef.current.stop();
-        activeAnimRef.current = null;
-      }
-      translateX.setValue(0);
-      contentOpacity.setValue(1);
-    }
-  }, [contentOpacity, reduceMotion, shouldAnimate, translateX]);
-
-  useEffect(() => {
-    const prevKey = prevTransitionKeyRef.current;
-    const prevView = prevViewRef.current;
-    if (prevKey === transitionKey) {
-      return;
-    }
-    prevTransitionKeyRef.current = transitionKey;
-    prevViewRef.current = resolved.view;
-
-    if (activeAnimRef.current) {
-      activeAnimRef.current.stop();
-      activeAnimRef.current = null;
-    }
-
-    const policy = motionPolicyRef.current;
-    if (policy.reduceMotion || !policy.shouldAnimate) {
-      translateX.setValue(0);
-      contentOpacity.setValue(1);
-      return;
-    }
-
-    const direction =
-      VIEW_ORDER[resolved.view] >= VIEW_ORDER[prevView] ? 1 : -1;
-    translateX.setValue(direction * 18);
-    contentOpacity.setValue(0.92);
-
-    const anim = Animated.parallel([
-      Animated.timing(translateX, {
-        toValue: 0,
-        duration: policy.duration('standard', 0),
-        easing: policy.easing.enter,
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentOpacity, {
-        toValue: 1,
-        duration: policy.duration('micro', 0),
-        easing: policy.easing.enter,
-        useNativeDriver: true,
-      }),
-    ]);
-
-    activeAnimRef.current = anim;
-    anim.start(({ finished }) => {
-      if (activeAnimRef.current === anim) {
-        activeAnimRef.current = null;
-      }
-      if (finished) {
-        translateX.setValue(0);
-        contentOpacity.setValue(1);
-      }
-    });
-
-    return () => {
-      if (activeAnimRef.current === anim) {
-        anim.stop();
-        activeAnimRef.current = null;
-        translateX.setValue(0);
-        contentOpacity.setValue(1);
-      }
-    };
-  }, [contentOpacity, resolved.view, transitionKey, translateX]);
+  const transitionStyle = useLateralTransition(transitionKey, VIEW_ORDER[resolved.view]);
 
   // Android hardware back: retorna de fluxos empilhados (novo/detalhe) ou de abas secundárias para Início
   useEffect(() => {
@@ -341,15 +261,7 @@ export function AuthenticatedTabShell() {
 
       {/* Content Area: Only the route content slides laterally; header and bottom dock remain static */}
       <AuthenticatedHeaderContext.Provider value={{ headerHeight }}>
-        <Animated.View
-          style={[
-            styles.contentStage,
-            {
-              opacity: contentOpacity,
-              transform: [{ translateX }],
-            },
-          ]}
-        >
+        <Animated.View testID="authenticated-transition" style={[styles.contentStage, transitionStyle]}>
           {visitedViewsRef.current.has('home') ? (
             <TabPane active={resolved.view === 'home'}>
               <HomeScreen embeddedInShell />

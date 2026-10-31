@@ -200,6 +200,9 @@ export function SettingsScreen({
 
   return (
     <ScreenShell
+      transitionKey={activeSection}
+      transitionActive={!changePasswordOpen && !twoFactorOpen}
+      transitionOrder={changePasswordOpen || twoFactorOpen ? 2 : activeSection === 'security' ? 1 : 0}
       withDockClearance
       omitTopSafeArea={embeddedInShell}
       footer={embeddedInShell ? undefined : <FloatingDock activeTab="settings" />}

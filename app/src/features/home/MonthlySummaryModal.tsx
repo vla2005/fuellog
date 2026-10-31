@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Modal,
   Pressable,
@@ -28,7 +29,7 @@ import {
   ChevronLeftIcon,
 } from '@/components/icons/AppIcons';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
-import { useMotionPolicy } from '@/motion/useMotionPolicy';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
@@ -65,7 +66,7 @@ export function MonthlySummaryModal({
 }: MonthlySummaryModalProps) {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { reduceMotion } = useMotionPolicy();
+  const transitionStyle = useLateralTransition('summary', 0, visible);
   const {
     status,
     user,
@@ -198,10 +199,11 @@ export function MonthlySummaryModal({
   return (
     <Modal
       visible={visible}
-      animationType={reduceMotion ? 'none' : 'slide'}
+      animationType="none"
       transparent={false}
       onRequestClose={onClose}
     >
+      <Animated.View testID="summary-transition" style={[styles.modalScreen, transitionStyle]}>
       <SafeAreaView
         edges={['top', 'left', 'right', 'bottom']}
         style={[styles.modalScreen, { backgroundColor: colors.bgPrimary }]}
@@ -514,6 +516,7 @@ export function MonthlySummaryModal({
           )}
         </ScrollView>
       </SafeAreaView>
+      </Animated.View>
     </Modal>
   );
 }

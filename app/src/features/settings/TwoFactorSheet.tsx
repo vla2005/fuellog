@@ -456,6 +456,9 @@ export function TwoFactorSheet({
 
   return (
     <AppSheet
+      lateral
+      transitionKey={mode}
+      transitionOrder={{ status: 0, setup_password: 1, setup_qr: 2, setup_recovery: 3, disable: 1 }[mode]}
       visible={visible}
       title="Autenticação em duas etapas"
       subtitle="Proteção com Google Authenticator"

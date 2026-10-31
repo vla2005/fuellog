@@ -287,6 +287,7 @@ export function VehicleFormSheet({
 
   return (
     <AppSheet
+      lateral
       visible={visible}
       title={isEdit ? 'Editar veículo' : 'Novo veículo'}
       subtitle={

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -23,6 +24,7 @@ import {
   parseIsoDate,
   WEEKDAY_HEADERS_PT,
 } from '../helpers/calendarHelper';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
 
@@ -60,6 +62,9 @@ export function CalendarRangePicker({
   const [currentView, setCurrentView] = useState<{ year: number; monthIndex: number }>(
     initialYearMonth,
   );
+
+  const monthOrder = currentView.year * 12 + currentView.monthIndex;
+  const transitionStyle = useLateralTransition(String(monthOrder), monthOrder);
 
   const gridCells = useMemo(() => {
     return getCalendarGridDays(currentView.year, currentView.monthIndex);
@@ -179,7 +184,7 @@ export function CalendarRangePicker({
       </View>
 
       {/* Grid de Dias do Calendário */}
-      <View style={styles.gridWrap}>
+      <Animated.View testID="calendar-transition" style={[styles.gridWrap, transitionStyle]}>
         {gridCells.map((cell, idx) => {
           if (!cell) {
             return <View key={`empty-${idx}`} style={styles.daySlotEmpty} />;
@@ -232,7 +237,7 @@ export function CalendarRangePicker({
             </Pressable>
           );
         })}
-      </View>
+      </Animated.View>
 
       {/* Instrução de Ajuda */}
       <Text style={[styles.hintText, { color: colors.textSecondary }]}>

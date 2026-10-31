@@ -253,6 +253,8 @@ export function HomeScreen({
 
   return (
     <ScreenShell
+      transitionActive={!createVehicleOpen && !monthlySummaryOpen}
+      transitionOrder={createVehicleOpen || monthlySummaryOpen ? 1 : 0}
       withDockClearance
       omitTopSafeArea={embeddedInShell}
       fullBleedHero={fullBleedHero}

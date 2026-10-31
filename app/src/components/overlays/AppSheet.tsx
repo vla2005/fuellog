@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenOverlayContext } from '@/components/layout/ScreenShell';
 import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { IconButton } from '@/components/ui/IconButton';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { useMotionPolicy } from '@/motion/useMotionPolicy';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
@@ -29,6 +30,9 @@ export interface AppSheetProps {
   onClose: () => void;
   children: React.ReactNode;
   modal?: boolean;
+  lateral?: boolean;
+  transitionKey?: string;
+  transitionOrder?: number;
 }
 
 export function AppSheet({
@@ -38,12 +42,16 @@ export function AppSheet({
   onClose,
   children,
   modal = false,
+  lateral = false,
+  transitionKey = 'sheet',
+  transitionOrder = 0,
 }: AppSheetProps) {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { reduceMotion, duration, easing } = useMotionPolicy();
+  const { reduceMotion, shouldAnimate, duration, easing } = useMotionPolicy();
   const overlayContext = useContext(ScreenOverlayContext);
   const isPaneActive = useContext(TabActiveContext);
+  const lateralStyle = useLateralTransition(transitionKey, transitionOrder, lateral && visible && isPaneActive);
   const sheetId = useId();
   const modalRootRef = useRef<React.ElementRef<typeof View>>(null);
   const onCloseRef = useRef(onClose);
@@ -82,13 +90,17 @@ export function AppSheet({
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [isPaneActive, modal, visible]);
-  const translateY = useRef(new Animated.Value(24)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
   const motionPolicyRef = useRef({ duration, easing, reduceMotion });
   motionPolicyRef.current = { duration, easing, reduceMotion };
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !isPaneActive || lateral || !shouldAnimate) {
+      translateY.setValue(0);
+      opacity.setValue(1);
+      return;
+    }
     const policy = motionPolicyRef.current;
     if (policy.reduceMotion) {
       translateY.setValue(0);
@@ -117,8 +129,10 @@ export function AppSheet({
     anim.start();
     return () => {
       anim.stop();
+      translateY.setValue(0);
+      opacity.setValue(1);
     };
-  }, [opacity, translateY, visible]);
+  }, [isPaneActive, lateral, opacity, shouldAnimate, translateY, visible]);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !visible || !isPaneActive) {
@@ -168,6 +182,7 @@ export function AppSheet({
       >
         <Animated.View
           pointerEvents="auto"
+          testID={lateral ? "sheet-transition" : undefined}
           style={[
             styles.sheetCard,
             withDockClearance ? styles.sheetCardWithDock : null,
@@ -177,6 +192,7 @@ export function AppSheet({
               opacity,
               transform: [{ translateY }],
             },
+            lateral ? lateralStyle : null,
             modal ? { paddingBottom: Math.max(24, insets.bottom + 12) } : null,
           ]}
         >

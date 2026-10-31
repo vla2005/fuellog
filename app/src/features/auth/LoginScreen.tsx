@@ -241,6 +241,9 @@ export function LoginScreen() {
 
   return (
     <ScreenShell
+      transitionKey={mfaChallenge ? 'mfa' : 'login'}
+      transitionActive={!forgotPasswordOpen}
+      transitionOrder={forgotPasswordOpen ? 2 : mfaChallenge ? 1 : 0}
       omitTopSafeArea
       fullBleedHero={<AuthSceneHero mode="login" />}
       contentContainerStyle={styles.scrollContent}
@@ -527,6 +530,7 @@ export function LoginScreen() {
       ) : null}
 
       <AppSheet
+        lateral
         visible={forgotPasswordOpen}
         title="Recuperação de senha"
         subtitle="Acesso à sua conta"

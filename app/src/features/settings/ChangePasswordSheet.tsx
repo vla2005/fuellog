@@ -175,6 +175,7 @@ export function ChangePasswordSheet({
 
   return (
     <AppSheet
+      lateral
       visible={visible}
       title="Trocar senha"
       subtitle="Atualização da credencial de acesso"

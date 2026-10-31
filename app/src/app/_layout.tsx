@@ -15,7 +15,7 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { Animated, ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -23,6 +23,7 @@ import { BrandLockup } from '@/components/brand/BrandLockup';
 import { AppToast } from '@/components/feedback/AppToast';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { AuthenticatedTabShell } from '@/components/navigation/AuthenticatedTabShell';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SessionProvider, useSession } from '@/state/SessionContext';
 import { AppThemeProvider, useAppTheme } from '@/theme/ThemeProvider';
@@ -59,6 +60,16 @@ function NavigationGuardShell() {
     }
   }, [isNavigationReady, isPublicAuthRoute, router, status]);
 
+  const authTransitionStyle = useLateralTransition(
+    pathname, pathname === '/register' ? 1 : 0, isPublicAuthRoute, false,
+  );
+  const sessionTransitionStyle = useLateralTransition(
+    status === 'authenticated' ? 'authenticated' : 'public',
+    status === 'authenticated' ? 1 : 0,
+    status === 'authenticated' || status === 'unauthenticated',
+    false,
+  );
+
   const showBootOverlay = status === 'booting';
   const showConnectionOverlay =
     status === 'connection_error' && !isPublicAuthRoute;
@@ -72,6 +83,8 @@ function NavigationGuardShell() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <AppToast toast={toast} onDismiss={dismissToast} />
 
+      <Animated.View testID="session-transition" style={[styles.flex, sessionTransitionStyle]}>
+      <Animated.View testID="auth-route-transition" style={[styles.flex, authTransitionStyle]}>
       <Stack
         screenOptions={{
           headerShown: false,
@@ -89,8 +102,10 @@ function NavigationGuardShell() {
         <Stack.Screen name="fueling/new" />
         <Stack.Screen name="fueling/[entryId]" />
       </Stack>
+      </Animated.View>
 
       {showAuthenticatedShell ? <AuthenticatedTabShell /> : null}
+      </Animated.View>
 
       {showBootOverlay ? (
         <View

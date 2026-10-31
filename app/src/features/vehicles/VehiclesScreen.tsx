@@ -107,6 +107,8 @@ export function VehiclesScreen({
 
   return (
     <ScreenShell
+      transitionActive={!createOpen && !editOpen}
+      transitionOrder={createOpen || editOpen ? 1 : 0}
       withDockClearance
       omitTopSafeArea={embeddedInShell}
       fullBleedHero={fullBleedHero}

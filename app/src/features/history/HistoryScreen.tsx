@@ -449,6 +449,8 @@ export function HistoryScreen({
 
   return (
     <ScreenShell
+      transitionActive={!filterSheetOpen}
+      transitionOrder={filterSheetOpen ? 1 : 0}
       withDockClearance
       omitTopSafeArea={embeddedInShell}
       footer={embeddedInShell ? undefined : <FloatingDock activeTab="history" />}

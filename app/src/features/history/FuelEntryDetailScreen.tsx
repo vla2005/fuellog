@@ -1,6 +1,7 @@
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ActivityIndicator,
   BackHandler,
   Platform,
@@ -25,6 +26,7 @@ import {
 } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { ChevronLeftIcon } from '@/components/icons/AppIcons';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { ScreenShell } from '@/components/layout/ScreenShell';
 import { TabActiveContext } from '@/components/navigation/AuthenticatedTabShell';
 import { LocationMap } from '@/components/location/LocationMap';
@@ -58,6 +60,7 @@ export function FuelEntryDetailScreen({
   const pathname = usePathname();
   const isEditFromUrl = edit === 'true' || edit === '1' || (typeof pathname === 'string' && pathname.endsWith('/edit'));
   const [isEditing, setIsEditing] = useState(isEditFromUrl);
+  const transitionStyle = useLateralTransition(isEditing ? 'edit' : 'detail', isEditing ? 1 : 0);
   const resolvedEntryId =
     entryIdOverride !== undefined ? entryIdOverride : entryId;
   const isTabActive = useContext(TabActiveContext);
@@ -249,6 +252,7 @@ export function FuelEntryDetailScreen({
 
   if (isEditing && resolvedEntryId) {
     return (
+      <Animated.View testID="fuel-detail-transition" style={[{ flex: 1 }, transitionStyle]}>
       <EditFuelEntryScreen
         entryId={resolvedEntryId}
         initialEntry={entry}
@@ -262,10 +266,12 @@ export function FuelEntryDetailScreen({
           setIsEditing(false);
         }}
       />
+      </Animated.View>
     );
   }
 
   return (
+    <Animated.View testID="fuel-detail-transition" style={[{ flex: 1 }, transitionStyle]}>
     <ScreenShell
       withDockClearance={false}
       omitTopSafeArea={false}
@@ -450,6 +456,7 @@ export function FuelEntryDetailScreen({
         </View>
       )}
     </ScreenShell>
+    </Animated.View>
   );
 }
 

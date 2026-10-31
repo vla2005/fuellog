@@ -200,6 +200,9 @@ export function HistoryFilterSheet({
 
   return (
     <AppSheet
+      lateral
+      transitionKey={currentStep}
+      transitionOrder={currentStep === 'calendar' ? 1 : 0}
       visible={visible}
       title={currentStep === 'main' ? 'Filtrar histórico' : 'Selecionar período'}
       onClose={handleCancel}

@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,6 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { useLateralTransition } from '@/motion/useLateralTransition';
 import { layout } from '@/theme/tokens';
 
 export interface ScreenOverlayContextValue {
@@ -31,6 +33,9 @@ export interface ScreenShellProps {
   header?: React.ReactNode;
   footer?: React.ReactNode;
   fullBleedHero?: React.ReactNode;
+  transitionKey?: string;
+  transitionOrder?: number;
+  transitionActive?: boolean;
 }
 
 export function ScreenShell({
@@ -42,9 +47,13 @@ export function ScreenShell({
   header,
   footer,
   fullBleedHero,
+  transitionKey = 'screen',
+  transitionOrder = 0,
+  transitionActive = true,
 }: ScreenShellProps) {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const transitionStyle = useLateralTransition(transitionKey, transitionOrder, transitionActive);
   const [webHostElement, setWebHostElement] = useState<HTMLElement | null>(null);
   const [nativeOverlays, setNativeOverlays] = useState<
     Record<string, React.ReactNode>
@@ -95,6 +104,7 @@ export function ScreenShell({
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           {header}
+          <Animated.View testID="screen-transition" style={[styles.flex, transitionStyle]}>
           {scrollable ? (
             <ScrollView
               style={styles.flex}
@@ -144,6 +154,7 @@ export function ScreenShell({
               </View>
             </View>
           )}
+          </Animated.View>
           {Platform.OS === 'web' ? (
             <View
               ref={handleWebHostRef}
