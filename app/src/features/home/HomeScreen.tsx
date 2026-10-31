@@ -36,7 +36,7 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
   const { headerHeight: measuredHeader } = useAuthenticatedHeader();
   const headerHeight = embeddedInShell && measuredHeader ? measuredHeader : insets.top + 60;
   const selectorHeight = Math.max(48,48*fontScale);
-  const compactHeight = headerHeight + selectorHeight;
+  const compactHeight = headerHeight + selectorHeight + (isDark ? 0 : 40);
   const expandedHeight = Math.max(compactHeight, Math.min(width,620)*0.74 + insets.top);
   const scrollY = useSharedValue(0);
   const viewportHeight = useSharedValue(0);
@@ -116,7 +116,7 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
           </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/>{isDark?<Rect width="100%" height="100%" fill="url(#dashboard-tail-shadow)"/>:null}</Svg></Animated.View>
           {!embeddedInShell ? <View pointerEvents="box-none" style={[styles.standaloneHeader,{top:insets.top+16}]}><View pointerEvents="none"><BrandLockup mode="wordmark-only" wordmarkWidth={96}/></View>
             <Pressable style={styles.avatarButton} accessibilityRole="button" accessibilityLabel="Minha conta" onPress={() => router.push('/account')}><PixelMascot variant="avatar" size={24} withFrame /></Pressable></View> : null}
-          <View style={[styles.selectorContainer,{top:headerHeight-20+Math.max(0,fontScale-1)*20,paddingHorizontal:width<350?16:20,minHeight:selectorHeight}]} pointerEvents="box-none">
+          <View style={[styles.selectorContainer,{top:isDark?headerHeight-20+Math.max(0,fontScale-1)*20:headerHeight-10,paddingHorizontal:width<350?16:20,minHeight:selectorHeight}]} pointerEvents="box-none">
             <Pressable testID="dashboard-vehicle" accessibilityRole="button" accessibilityLabel={`Veículo selecionado: ${activeVehicle?.nickname ?? 'Selecionar veículo'}`}
               onPress={() => setVehicleOpen(true)} style={[styles.selector,{minHeight:selectorHeight,maxWidth:width*0.36}]}>
               <Text numberOfLines={2} style={[styles.vehicleLabel,{color:isDark?'#FFFFFF':'#111D35'}]}>{activeVehicle?.nickname ?? 'Selecionar veículo'}</Text><ChevronDownIcon size={16} color={isDark?'#FFFFFF':colors.brandPrimary}/>

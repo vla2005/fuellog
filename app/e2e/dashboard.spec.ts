@@ -189,6 +189,7 @@ test('header uses absolute offset continuously and stays compact away from the t
   await waitForArtwork(page);
   const requestsBeforeScroll=dashboardRequests;
   const header=page.getByTestId('dashboard-landscape');const scroll=page.getByTestId('dashboard-scroll');
+  await page.emulateMedia({colorScheme:'light'});
   const captureHeader=async(name:string)=>{
     const box=(await header.boundingBox())!;
     await page.screenshot({path:test.info().outputPath(name),clip:{...box,height:box.height+48}});
@@ -213,6 +214,9 @@ test('header uses absolute offset continuously and stays compact away from the t
     await page.emulateMedia({colorScheme:theme});
     await expect(header).toHaveCSS('background-color',theme==='dark'?'rgb(8, 14, 24)':'rgb(245, 243, 238)');
     await page.setViewportSize({width:390,height:844});
+    await scroll.evaluate(element=>{element.scrollTop=800;});
+    const themeCompactHeight=theme==='light'?compactHeight:compactHeight-40;
+    await expect.poll(async()=>(await header.boundingBox())!.height).toBe(themeCompactHeight);
     for(const y of [0,60,90]){
       await scroll.evaluate((element,y)=>{element.scrollTop=y;},y);
       await expect.poll(async()=>Math.round((await header.boundingBox())!.height)).toBe(Math.round(expandedHeight-y));
@@ -222,7 +226,7 @@ test('header uses absolute offset continuously and stays compact away from the t
     for(const width of [390,320]){
       await page.setViewportSize({width,height:844});
       await scroll.evaluate(element=>{element.scrollTop=800;});
-      await expect.poll(async()=>(await header.boundingBox())!.height).toBe(compactHeight);
+      await expect.poll(async()=>(await header.boundingBox())!.height).toBe(themeCompactHeight);
       await waitForArtwork(page);
       const logo=await page.getByRole('img',{name:'FuelLog',exact:true}).boundingBox();
       const avatar=await page.getByTestId('header-avatar-button').boundingBox();
@@ -231,6 +235,7 @@ test('header uses absolute offset continuously and stays compact away from the t
       expect(logo!.width).toBe(96);
       expect(vehicleLabel!.y).toBeGreaterThan(logo!.y+logo!.height);
       expect(selector!.x).toBe(logo!.x);
+      expect(selector!.height).toBeGreaterThanOrEqual(44);
       expect(avatar!.width).toBeGreaterThanOrEqual(44);expect(avatar!.height).toBeGreaterThanOrEqual(44);
       await captureHeader(`header-${theme}-${width}.png`);
     }
@@ -258,8 +263,30 @@ test('header uses absolute offset continuously and stays compact away from the t
   navigationScroll.push(await scroll.evaluate(element=>element.scrollTop));
   await writeFile(test.info().outputPath('header-navigation-scroll.json'),JSON.stringify(navigationScroll));
   expect(navigationScroll).toEqual([800,800,800]);
-  await expect.poll(async()=>(await header.boundingBox())!.height).toBe(compactHeight);
+  await expect.poll(async()=>(await header.boundingBox())!.height).toBe(compactHeight-40);
   await expect(page.getByTestId('dashboard-vehicle')).toHaveAccessibleName('Veículo selecionado: Outro veículo');
+  await page.emulateMedia({colorScheme:'light'});
+  await page.route('**/api/v1/vehicles',route=>route.fulfill({contentType:'application/json',body:JSON.stringify([
+    {...vehicle,nickname:'Captur para viagem'}, {...vehicle,id:'other-vehicle',nickname:'Outro veículo'},
+  ])}));
+  await page.reload();await expect(page.getByTestId('chart-liters')).toHaveCount(1);
+  await page.getByTestId('dashboard-vehicle').click();
+  await page.getByRole('dialog').getByRole('button',{name:'Captur para viagem',exact:true}).click();
+  await expect(page.getByTestId('dashboard-vehicle')).toHaveAccessibleName('Veículo selecionado: Captur para viagem');
+  for(const width of [390,320]){
+    await page.setViewportSize({width,height:844});
+    for(const y of [0,60,800]){
+      await scroll.evaluate((element,y)=>{element.scrollTop=y;},y);
+      await expect.poll(async()=>Math.round((await header.boundingBox())!.height)).toBe(Math.round(Math.max(compactHeight,width*0.74-y)));
+      const label=page.getByTestId('dashboard-vehicle').getByText('Captur para viagem',{exact:true});
+      const labelBox=(await label.boundingBox())!, logoBox=(await page.getByRole('img',{name:'FuelLog',exact:true}).boundingBox())!;
+      expect(labelBox.height).toBe(40);
+      expect(labelBox.y).toBeGreaterThanOrEqual(logoBox.y+logoBox.height+4);
+      expect(labelBox.y+labelBox.height).toBeLessThan((await header.boundingBox())!.height);
+      await waitForArtwork(page);
+      await captureHeader(`header-light-two-lines-${width}-${y}.png`);
+    }
+  }
 });
 
 for(const theme of ['light','dark'] as const){
