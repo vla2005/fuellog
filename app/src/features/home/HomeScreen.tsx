@@ -57,7 +57,7 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
   const landscapeStyle = useAnimatedStyle(() => ({ height:Math.max(compactHeight,expandedHeight-scrollY.value) }));
   const tailStyle = useAnimatedStyle(() => {
     const fraction=Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight));
-    const depth=32-18*fraction;
+    const depth=isDark?32-18*fraction:16-6*fraction;
     return {height:depth*2,bottom:Math.max(0,width*(0.08-0.098*fraction))-depth};
   });
   const imageSource = isDark ? require('@/assets/brand/scene_night_road_compact.png') : require('@/assets/brand/scene_day_road_compact.png');
@@ -113,7 +113,7 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
             <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity={0}/><Stop offset="0.5" stopColor={colors.bgPrimary} stopOpacity={1}/><Stop offset="1" stopColor={colors.bgPrimary} stopOpacity={0}/>
           </LinearGradient><LinearGradient id="dashboard-tail-shadow" x1="0%" y1="0%" x2="0%" y2="100%">
             <Stop offset="0" stopColor="#000000" stopOpacity={0}/><Stop offset="0.5" stopColor="#000000" stopOpacity={isDark?0.42:0.16}/><Stop offset="0.75" stopColor="#000000" stopOpacity={isDark?0.12:0.05}/><Stop offset="1" stopColor="#000000" stopOpacity={0}/>
-          </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/><Rect width="100%" height="100%" fill="url(#dashboard-tail-shadow)"/></Svg></Animated.View>
+          </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/>{isDark?<Rect width="100%" height="100%" fill="url(#dashboard-tail-shadow)"/>:null}</Svg></Animated.View>
           {!embeddedInShell ? <View pointerEvents="box-none" style={[styles.standaloneHeader,{top:insets.top+16}]}><View pointerEvents="none"><BrandLockup mode="wordmark-only" wordmarkWidth={96}/></View>
             <Pressable style={styles.avatarButton} accessibilityRole="button" accessibilityLabel="Minha conta" onPress={() => router.push('/account')}><PixelMascot variant="avatar" size={24} withFrame /></Pressable></View> : null}
           <View style={[styles.selectorContainer,{top:headerHeight-20+Math.max(0,fontScale-1)*20,paddingHorizontal:width<350?16:20,minHeight:selectorHeight}]} pointerEvents="box-none">
