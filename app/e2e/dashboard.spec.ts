@@ -206,6 +206,13 @@ test('header uses absolute offset continuously and stays compact away from the t
   for(const theme of ['light','dark'] as const){
     await page.emulateMedia({colorScheme:theme});
     await expect(header).toHaveCSS('background-color',theme==='dark'?'rgb(8, 14, 24)':'rgb(245, 243, 238)');
+    await page.setViewportSize({width:390,height:844});
+    for(const y of [0,60,90]){
+      await scroll.evaluate((element,y)=>{element.scrollTop=y;},y);
+      await expect.poll(async()=>Math.round((await header.boundingBox())!.height)).toBe(Math.round(expandedHeight-y));
+      await waitForArtwork(page);
+      await page.screenshot({path:test.info().outputPath(`header-${theme}-${y===0?'expanded':`transition-${y}`}.png`),clip:(await header.boundingBox())!});
+    }
     for(const width of [390,320]){
       await page.setViewportSize({width,height:844});
       await scroll.evaluate(element=>{element.scrollTop=800;});

@@ -55,7 +55,10 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
     if (activeTab) scrollY.value = Math.max(0,event.contentOffset.y);
   } });
   const landscapeStyle = useAnimatedStyle(() => ({ height:Math.max(compactHeight,expandedHeight-scrollY.value) }));
-  const tailStyle = useAnimatedStyle(() => ({ height:22-14*Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight)) }));
+  const tailStyle = useAnimatedStyle(() => {
+    const fraction=Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight));
+    return {height:28-16*fraction,bottom:Math.max(0,width*(0.08-0.098*fraction))};
+  });
   const imageSource = isDark ? require('@/assets/brand/scene_night_road_compact.png') : require('@/assets/brand/scene_day_road_compact.png');
   const resolved = Image.resolveAssetSource?.(imageSource);
   const expandedSceneWidth = Math.max(width,Math.min(width,620)*1.65);
@@ -105,7 +108,7 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
         </Animated.ScrollView>
         <Animated.View testID="dashboard-landscape" style={[styles.landscape,{backgroundColor:colors.bgPrimary},landscapeStyle]}>
           <Animated.Image testID="dashboard-compact-art" source={imageSource} resizeMode="cover" accessible={false} style={[styles.scene,imageStyle]} />
-          <Animated.View style={[styles.tail,tailStyle]} pointerEvents="none"><Svg height="100%" width="100%"><Defs><LinearGradient id="dashboard-tail" x1="0" y1="0" x2="0" y2="1">
+          <Animated.View style={[styles.tail,tailStyle]} pointerEvents="none"><Svg height="100%" width="100%"><Defs><LinearGradient id="dashboard-tail" x1="0%" y1="0%" x2="0%" y2="100%">
             <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity={0}/><Stop offset="1" stopColor={colors.bgPrimary} stopOpacity={1}/>
           </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/></Svg></Animated.View>
           {!embeddedInShell ? <View pointerEvents="box-none" style={[styles.standaloneHeader,{top:insets.top+16}]}><View pointerEvents="none"><BrandLockup mode="wordmark-only" wordmarkWidth={96}/></View>
