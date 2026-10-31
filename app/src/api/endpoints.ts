@@ -5,6 +5,7 @@ import {
   CreateFuelEntryRequest,
   CreateVehicleRequest,
   CyclesResponse,
+  DashboardResponse,
   FuelEntry,
   FuelEntryPage,
   FuelType,
@@ -212,6 +213,9 @@ export async function updateVehicle(
 }
 
 export interface ListFuelEntriesParams {
+  occurredFrom?: string;
+  occurredTo?: string;
+  entryId?: string;
   from?: string;
   to?: string;
   fuelType?: FuelType | null;
@@ -240,6 +244,9 @@ export async function listFuelEntries(
       timezone: params.timezone ?? 'America/Sao_Paulo',
       fuelType: params.fuelType ?? undefined,
       tankState: params.tankState ?? undefined,
+      occurredFrom: params.occurredFrom,
+      occurredTo: params.occurredTo,
+      entryId: params.entryId,
       minTotalPaid: params.minTotalPaid ?? undefined,
       maxTotalPaid: params.maxTotalPaid ?? undefined,
       minLiters: params.minLiters ?? undefined,
@@ -312,6 +319,12 @@ export async function getVehicleSummary(
       to: params.to,
     },
   });
+}
+
+export interface DashboardParams { from?: string | null; to?: string | null; timezone: string; fuelType?: FuelType | null }
+export async function getDashboard(vehicleId: string, params: DashboardParams): Promise<DashboardResponse> {
+  return apiRequest<DashboardResponse>({ method: 'GET', path: `/vehicles/${encodeURIComponent(vehicleId)}/dashboard`,
+    query: { from: params.from ?? undefined, to: params.to ?? undefined, timezone: params.timezone, fuelType: params.fuelType ?? undefined } });
 }
 
 export async function getConsumptionCycles(

@@ -94,6 +94,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     createNewVehicle: payload => endpoints.createVehicle(payload) };
   const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
   const react = {
+    createContext: value => ({ defaultValue: value }),
     createElement(type, props, ...children) {
       return typeof type === 'function' ? type({ ...props, children }) : { type, props: { ...props, children } };
     },
@@ -119,6 +120,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   react.default = react;
   class ApiError extends Error { constructor(options) { super(options.message); Object.assign(this, options); } }
   const dependencies = {
+    'react-native-reanimated': { default: {}, useSharedValue: value => react.useMemo(() => ({value}), []), useAnimatedStyle: () => ({}), useAnimatedScrollHandler: () => ({}) },
     'react-native-gesture-handler': { Pressable: 'Pressable' },
     react, 'react-native': { StyleSheet: { create: styles => styles, absoluteFill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } },
       useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
@@ -142,7 +144,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
       setItem: async (key, value) => { writes.push({ key, value: JSON.parse(value) }); store.set(key, value); },
       removeItem: async key => { store.delete(key); },
     },
-    'expo-router': { useRouter: () => ({ replace(path) { navigation.push(path); }, push() {} }), useLocalSearchParams: () => ({}) },
+    'expo-router': { useRouter: () => ({ replace(path) { navigation.push(path); }, push() {} }), useLocalSearchParams: () => ({}), useGlobalSearchParams: () => ({}) },
     '@/components/navigation/AuthenticatedTabShell': { TabActiveContext: {}, useAuthenticatedHeader: () => ({ headerHeight: 56 }) },
     '@/motion/useMotionPolicy': { useMotionPolicy: () => ({ isAppActive: activity.appActive }) },
     '@/features/home/MonthlySummaryModal': {},
@@ -165,6 +167,10 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
   dependencies['./components/HistorySwipeRow'] = { HistorySwipeRow: () => null };
   dependencies['./FuelEntryForm'] = { FuelEntryForm: () => null };
   dependencies['./helpers/calendarHelper'] = calendarHelper;
+  dependencies['./dashboard/model'] = loadFeatureModule('features/home/dashboard/model.ts', dependencies);
+  dependencies['./model'] = dependencies['./dashboard/model'];
+  dependencies['./dashboard/useDashboard'] = loadFeatureModule('features/home/dashboard/useDashboard.ts', dependencies);
+  dependencies['./dashboard/DashboardSection'] = {};
   const screen = loadScreen(relativePath, exportName, dependencies, observableReturn, clock);
   const harness = { session, store, writes, activity, navigation, openedUrls, ApiError, snapshot: null,
     render() { index = 0; dirty = false; pendingEffects = []; harness.snapshot = screen(props); const effects = pendingEffects; effects.forEach(effect => effect()); },
@@ -806,12 +812,13 @@ for (const [file, name] of [['home/HomeScreen', 'HomeScreen'], ['history/History
       occurredAt: '2026-10-20T12:00:00Z', timezone: 'America/Sao_Paulo' }], page: 0, totalPages: 1, totalElements: 1 });
     const h = mount(`features/${file}.tsx`, name, { endpoints: {
       getVehicleSummary: id => gates[id].promise,
+      getDashboard: id => gates[id].promise,
       listFuelEntries: id => gates[id].promise,
       getConsumptionCycles: async () => ({ items: [] }),
     } });
     await h.switchVehicle('B');
     gates.B.resolve(result('B')); await h.settle();
-    const visible = () => name === 'HomeScreen' ? h.snapshot.summary?.vehicleId : h.snapshot.entries[0]?.vehicleId;
+    const visible = () => name === 'HomeScreen' ? h.snapshot.summary?.data?.vehicleId : h.snapshot.entries[0]?.vehicleId;
     assert.equal(visible(), 'B');
     gates.A.resolve(result('A')); await h.settle();
     assert.equal(visible(), 'B', 'Dados exibidos devem continuar pertencendo ao veículo selecionado');

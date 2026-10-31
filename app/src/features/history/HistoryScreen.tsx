@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useGlobalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable as GesturePressable } from 'react-native-gesture-handler';
 import {
@@ -173,20 +173,31 @@ export function HistoryScreen({
   const [vehicleSheetOpen, setVehicleSheetOpen] = useState(false);
 
   const monthOptions = useMemo(() => listRecentMonthPeriods(12), []);
-  const params = useLocalSearchParams<{ vehicleId?: string; from?: string; to?: string }>();
+  const params = useGlobalSearchParams<{ vehicleId?: string; from?: string; to?: string; fuelType?: FuelType;
+    occurredFrom?: string; occurredTo?: string; entryId?: string; source?: string; selection?: string }>();
+  const [exactSlice,setExactSlice] = useState<{vehicleId?:string;userId?:string;occurredFrom?:string;occurredTo?:string;entryId?:string}>({});
+  const slice = exactSlice.vehicleId === activeVehicle?.id && exactSlice.userId === user?.id ? exactSlice : {};
+  const sliceKey = `${slice.occurredFrom ?? ''}:${slice.occurredTo ?? ''}:${slice.entryId ?? ''}`;
   const lastAppliedParamsKeyRef = useRef<string>('');
 
   useEffect(() => {
-    const key = `${params.vehicleId ?? ''}:${params.from ?? ''}:${params.to ?? ''}`;
-    if (!key || key === '::' || key === lastAppliedParamsKeyRef.current) {
+    const key = JSON.stringify([user?.id,params.vehicleId,params.from,params.to,params.fuelType,params.occurredFrom,params.occurredTo,params.entryId,params.source,params.selection]);
+    if (!isTabActive || (!params.vehicleId && !params.from && !params.to) || key === lastAppliedParamsKeyRef.current) {
       return;
     }
     lastAppliedParamsKeyRef.current = key;
+    requestSeqRef.current += 1;
 
     if (params.vehicleId) {
       void selectVehicle(params.vehicleId);
     }
-    if (params.from && params.to) {
+    if (params.source === 'dashboard') {
+      setActiveFilters({from:params.from ?? null,to:params.to ?? null,
+        fuelType:params.fuelType && params.fuelType in FUEL_TYPE_LABELS ? params.fuelType : null,
+        minTotalPaid:'',maxTotalPaid:'',minLiters:'',maxLiters:'',minPricePerLiter:'',maxPricePerLiter:''});
+      setExactSlice({vehicleId:params.vehicleId,userId:user?.id,occurredFrom:params.occurredFrom,occurredTo:params.occurredTo,entryId:params.entryId});
+    } else if (params.from && params.to) {
+      setExactSlice({});
       setActiveFilters((prev) => ({
         ...prev,
         from: params.from ?? null,
@@ -197,7 +208,7 @@ export function HistoryScreen({
         setSelectedPeriod(found);
       }
     }
-  }, [params.vehicleId, params.from, params.to, monthOptions, selectVehicle, setSelectedPeriod]);
+  }, [isTabActive,user?.id,params.vehicleId,params.from,params.to,params.fuelType,params.occurredFrom,params.occurredTo,params.entryId,params.source,params.selection,monthOptions,selectVehicle,setSelectedPeriod]);
 
   const prevSelectedPeriodRef = useRef(selectedPeriod);
   useEffect(() => {
@@ -222,7 +233,7 @@ export function HistoryScreen({
     activeFilters.minLiters || 'NONE'
   }:${activeFilters.maxLiters || 'NONE'}:${activeFilters.minPricePerLiter || 'NONE'}:${
     activeFilters.maxPricePerLiter || 'NONE'
-  }:${dataVersion}`;
+  }:${dataVersion}:${sliceKey}`;
   latestContextKeyRef.current = currentContextKey;
 
   const loadPage = useCallback(
@@ -239,7 +250,7 @@ export function HistoryScreen({
         activeFilters.minLiters || 'NONE'
       }:${activeFilters.maxLiters || 'NONE'}:${
         activeFilters.minPricePerLiter || 'NONE'
-      }:${activeFilters.maxPricePerLiter || 'NONE'}:${dataVersion}`;
+      }:${activeFilters.maxPricePerLiter || 'NONE'}:${dataVersion}:${sliceKey}`;
       latestContextKeyRef.current = contextSnap;
 
       if (
@@ -286,6 +297,7 @@ export function HistoryScreen({
             to: toParam,
             timezone: user?.preferredTimezone || 'America/Sao_Paulo',
             fuelType: activeFilters.fuelType,
+            occurredFrom:slice.occurredFrom,occurredTo:slice.occurredTo,entryId:slice.entryId,
             minTotalPaid: activeFilters.minTotalPaid || undefined,
             maxTotalPaid: activeFilters.maxTotalPaid || undefined,
             minLiters: activeFilters.minLiters || undefined,
@@ -295,7 +307,7 @@ export function HistoryScreen({
             page: targetPage,
             size: PAGE_SIZE,
           }),
-          targetPage === 0 && typeof getVehicleSummary === 'function'
+          targetPage === 0 && !slice.occurredFrom && !slice.occurredTo && !slice.entryId && !activeFilters.fuelType && typeof getVehicleSummary === 'function'
             ? getVehicleSummary(targetVehicleId, {
                 from: fromParam,
                 to: toParam,
@@ -363,6 +375,7 @@ export function HistoryScreen({
       activeVehicle,
       dataVersion,
       activeFilters,
+      sliceKey,
 
 
 
@@ -538,6 +551,12 @@ export function HistoryScreen({
             </Pressable>
           </View>
 
+          {slice.occurredFrom || slice.occurredTo || slice.entryId ? <View>
+            <Text style={[typography.caption,{color:colors.textSecondary}]}>Recorte exato do gráfico</Text>
+            <Pressable accessibilityRole="button" onPress={()=>setExactSlice({})} style={{minHeight:48,justifyContent:'center'}}>
+              <Text style={[typography.bodyStrong,{color:colors.brandPrimary}]}>Remover recorte do gráfico</Text>
+            </Pressable>
+          </View> : null}
           {/* Period Totals Bar: Total no período | Litros registrados */}
           <View style={styles.summaryBar}>
             <View style={styles.summaryCol}>
@@ -549,7 +568,7 @@ export function HistoryScreen({
               <Text
                 style={[styles.summaryValue, { color: colors.textPrimary }]}
               >
-                {formatCurrencyBRL(periodSummary?.paidTotal ?? '0.00')}
+                {periodSummary ? formatCurrencyBRL(periodSummary.paidTotal) : '—'}
               </Text>
             </View>
 
@@ -569,7 +588,7 @@ export function HistoryScreen({
               <Text
                 style={[styles.summaryValue, { color: colors.textPrimary }]}
               >
-                {formatLitersBR(periodSummary?.purchasedLiters ?? '0.000')}
+                {periodSummary ? formatLitersBR(periodSummary.purchasedLiters) : '—'}
               </Text>
             </View>
           </View>
@@ -617,6 +636,7 @@ export function HistoryScreen({
                   label="Limpar filtros e ver tudo"
                   variant="secondary"
                   onPress={() => {
+                    setExactSlice({});
                     setActiveFilters({
                       from: null,
                       to: null,
@@ -783,6 +803,7 @@ export function HistoryScreen({
         visible={filterSheetOpen}
         onClose={() => setFilterSheetOpen(false)}
         onApply={(applied) => {
+          setExactSlice({});
           setActiveFilters(applied);
           if (applied.from && applied.to) {
             const found = monthOptions.find(

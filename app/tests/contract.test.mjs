@@ -13,6 +13,7 @@ const interfaces = {
   CreateVehicleRequest: 'CreateVehicle', Vehicle: 'Vehicle',
   CreateFuelEntryRequest: 'CreateFuelEntry', FuelEntry: 'FuelEntry', FuelEntryPage: 'FuelEntryPage',
   ConsumptionCycle: 'Cycle', CyclesResponse: 'Cycles', SummaryResponse: 'Summary',
+  DashboardResponse: 'Dashboard', DashboardMonth: 'DashboardMonth', DashboardFuel: 'DashboardFuel', DashboardPrice: 'DashboardPrice',
   PasswordChangeRequest: 'PasswordChange',
   TwoFactorStatus: 'TwoFactorStatus',
   TwoFactorSetupRequest: 'TwoFactorSetup',

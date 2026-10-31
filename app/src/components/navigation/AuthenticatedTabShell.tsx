@@ -123,6 +123,7 @@ export function AuthenticatedTabShell() {
   );
   const isIntegratedScreen =
     resolved.view === 'home' || resolved.view === 'vehicles';
+  const isDashboard = resolved.view === 'home';
 
   const headerImageSource =
     resolved.view === 'vehicles'
@@ -217,12 +218,13 @@ export function AuthenticatedTabShell() {
           }}
           style={[
             styles.headerSafe,
+            isDashboard && styles.dashboardHeader,
             {
-              backgroundColor: headerSkyFallback,
+              backgroundColor: isDashboard ? 'transparent' : headerSkyFallback,
             },
           ]}
         >
-          {isIntegratedScreen ? (
+          {isIntegratedScreen && !isDashboard ? (
             <View style={styles.headerImageSlice} pointerEvents="none">
               <Image
                 source={headerImageSource}
@@ -355,6 +357,9 @@ const styles = StyleSheet.create({
   headerSafe: {
     zIndex: 30,
     overflow: 'hidden',
+  },
+  dashboardHeader: {
+    position: 'absolute', top: 0, left: 0, right: 0,
   },
   headerImageSlice: {
     ...StyleSheet.absoluteFill,

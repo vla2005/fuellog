@@ -200,6 +200,23 @@ export interface SummaryResponse {
   lastConsumptionUnavailableReason: UnavailableReason | null;
 }
 
+export interface DashboardMonth {
+  month: string; from: string; to: string; purchaseCount: number; paidTotal: string; liters: string;
+}
+export interface DashboardFuel {
+  fuelType: FuelType; purchaseCount: number; paidTotal: string; liters: string; percentage: string | null;
+}
+export interface DashboardPrice {
+  entryId: string; occurredAt: string; fuelType: FuelType; unitPrice: string; liters: string; paidTotal: string;
+}
+export interface DashboardResponse {
+  vehicleId: string; from: string | null; to: string | null; timezone: string; fuelType: FuelType | null;
+  purchaseCount: number; paidTotal: string; purchasedLiters: string; weightedUnitPrice: string | null;
+  validCycleCount: number; cycleDistanceKm: number; cycleLiters: string; cyclePaidTotal: string;
+  consumptionKmPerLiter: string | null; replacementCostPerKm: string | null; unavailableReason: UnavailableReason | null;
+  months: DashboardMonth[]; fuels: DashboardFuel[]; prices: DashboardPrice[]; cycles: ConsumptionCycle[];
+}
+
 export interface ProblemDetails {
   type?: string;
   title?: string;

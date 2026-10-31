@@ -36,6 +36,7 @@ export interface ScreenShellProps {
   transitionKey?: string;
   transitionOrder?: number;
   transitionActive?: boolean;
+  edgeToEdge?: boolean;
 }
 
 export function ScreenShell({
@@ -50,6 +51,7 @@ export function ScreenShell({
   transitionKey = 'screen',
   transitionOrder = 0,
   transitionActive = true,
+  edgeToEdge = false,
 }: ScreenShellProps) {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -132,11 +134,11 @@ export function ScreenShell({
             <View
               style={[
                 styles.flex,
-                styles.nonScrollContent,
+                !edgeToEdge && styles.nonScrollContent,
                 fullBleedHero ? styles.fullBleedScrollContent : null,
                 contentContainerStyle,
                 {
-                  paddingBottom: withDockClearance
+                  paddingBottom: edgeToEdge ? 0 : withDockClearance
                   ? Math.max(layout.bottomDockClearance, 58 + insets.bottom)
                   : Math.max(20, insets.bottom + 8),
                 },
@@ -146,7 +148,7 @@ export function ScreenShell({
               <View
                 style={[
                   styles.flex,
-                  styles.maxWidthContainer,
+                  !edgeToEdge && styles.maxWidthContainer,
                   fullBleedHero ? styles.maxWidthWithPadding : null,
                 ]}
               >
