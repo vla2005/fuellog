@@ -57,7 +57,8 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
   const landscapeStyle = useAnimatedStyle(() => ({ height:Math.max(compactHeight,expandedHeight-scrollY.value) }));
   const tailStyle = useAnimatedStyle(() => {
     const fraction=Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight));
-    return {height:28-16*fraction,bottom:Math.max(0,width*(0.08-0.098*fraction))};
+    const depth=32-18*fraction;
+    return {height:depth*2,bottom:Math.max(0,width*(0.08-0.098*fraction))-depth};
   });
   const imageSource = isDark ? require('@/assets/brand/scene_night_road_compact.png') : require('@/assets/brand/scene_day_road_compact.png');
   const resolved = Image.resolveAssetSource?.(imageSource);
@@ -107,10 +108,12 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
           </View>
         </Animated.ScrollView>
         <Animated.View testID="dashboard-landscape" style={[styles.landscape,{backgroundColor:colors.bgPrimary},landscapeStyle]}>
-          <Animated.Image testID="dashboard-compact-art" source={imageSource} resizeMode="cover" accessible={false} style={[styles.scene,imageStyle]} />
+          <View style={styles.sceneClip} pointerEvents="none"><Animated.Image testID="dashboard-compact-art" source={imageSource} resizeMode="cover" accessible={false} style={[styles.scene,imageStyle]} /></View>
           <Animated.View style={[styles.tail,tailStyle]} pointerEvents="none"><Svg height="100%" width="100%"><Defs><LinearGradient id="dashboard-tail" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity={0}/><Stop offset="1" stopColor={colors.bgPrimary} stopOpacity={1}/>
-          </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/></Svg></Animated.View>
+            <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity={0}/><Stop offset="0.5" stopColor={colors.bgPrimary} stopOpacity={1}/><Stop offset="1" stopColor={colors.bgPrimary} stopOpacity={0}/>
+          </LinearGradient><LinearGradient id="dashboard-tail-shadow" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0" stopColor="#000000" stopOpacity={0}/><Stop offset="0.5" stopColor="#000000" stopOpacity={isDark?0.42:0.16}/><Stop offset="0.75" stopColor="#000000" stopOpacity={isDark?0.12:0.05}/><Stop offset="1" stopColor="#000000" stopOpacity={0}/>
+          </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/><Rect width="100%" height="100%" fill="url(#dashboard-tail-shadow)"/></Svg></Animated.View>
           {!embeddedInShell ? <View pointerEvents="box-none" style={[styles.standaloneHeader,{top:insets.top+16}]}><View pointerEvents="none"><BrandLockup mode="wordmark-only" wordmarkWidth={96}/></View>
             <Pressable style={styles.avatarButton} accessibilityRole="button" accessibilityLabel="Minha conta" onPress={() => router.push('/account')}><PixelMascot variant="avatar" size={24} withFrame /></Pressable></View> : null}
           <View style={[styles.selectorContainer,{top:headerHeight-20+Math.max(0,fontScale-1)*20,paddingHorizontal:width<350?16:20,minHeight:selectorHeight}]} pointerEvents="box-none">
@@ -134,7 +137,7 @@ const styles=StyleSheet.create({
   flex:{flex:1},content:{width:'100%',maxWidth:460,alignSelf:'center'},intro:{paddingTop:12,paddingBottom:24,gap:6},
   pageTitle:{...typography.screenTitle,fontSize:29,lineHeight:38},subtitle:{...typography.body,fontSize:17,lineHeight:25},
   summaryTitle:{...typography.cardTitle,marginTop:20},body:{...typography.body},amount:{...typography.heroValue,fontSize:40,lineHeight:54},
-  summaryPending:{minHeight:88,justifyContent:'center'},landscape:{position:'absolute',top:0,left:0,right:0,overflow:'hidden',zIndex:5},scene:{position:'absolute'},
+  summaryPending:{minHeight:88,justifyContent:'center'},landscape:{position:'absolute',top:0,left:0,right:0,zIndex:5},sceneClip:{...StyleSheet.absoluteFill,overflow:'hidden'},scene:{position:'absolute'},
   tail:{position:'absolute',bottom:0,left:0,right:0},
   selectorContainer:{position:'absolute',left:0,right:0,width:'100%',maxWidth:460,alignSelf:'center'},selector:{minHeight:48,flexDirection:'row',alignItems:'center',gap:4,alignSelf:'flex-start',maxWidth:'55%'},
   vehicleLabel:{...typography.cardTitle,fontSize:14,lineHeight:20,flexShrink:1},standaloneHeader:{position:'absolute',left:20,right:20,minHeight:44,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},avatarButton:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center'},options:{gap:12,paddingVertical:8},

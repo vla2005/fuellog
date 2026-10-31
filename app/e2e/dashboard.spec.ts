@@ -189,6 +189,12 @@ test('header uses absolute offset continuously and stays compact away from the t
   await waitForArtwork(page);
   const requestsBeforeScroll=dashboardRequests;
   const header=page.getByTestId('dashboard-landscape');const scroll=page.getByTestId('dashboard-scroll');
+  const captureHeader=async(name:string)=>{
+    const box=(await header.boundingBox())!;
+    await page.screenshot({path:test.info().outputPath(name),clip:{...box,height:box.height+48}});
+    if(name.endsWith('-expanded.png')||name.endsWith('-390.png'))
+      await page.screenshot({path:test.info().outputPath(name.replace('.png','-screen.png'))});
+  };
   const expandedHeight=(await header.boundingBox())!.height;
   await scroll.evaluate(element=>{element.scrollTop=800;});
   await expect.poll(async()=>(await header.boundingBox())!.height).toBeLessThan(expandedHeight-100);
@@ -198,7 +204,7 @@ test('header uses absolute offset continuously and stays compact away from the t
     await scroll.evaluate((element,y)=>{element.scrollTop=y;},y);
     await expect.poll(async()=>Math.round((await header.boundingBox())!.height)).toBe(Math.round(Math.max(compactHeight,expandedHeight-y)));
     heights.push((await header.boundingBox())!.height);
-    if(y===60||y===90)await page.screenshot({path:test.info().outputPath(`header-transition-${y}.png`),clip:(await header.boundingBox())!});
+    if(y===60||y===90)await captureHeader(`header-transition-${y}.png`);
   }
   expect(heights[1]-heights[2]).toBeCloseTo(30,0);expect(heights[4]).toBe(heights[5]);
   expect(dashboardRequests).toBe(requestsBeforeScroll);
@@ -211,7 +217,7 @@ test('header uses absolute offset continuously and stays compact away from the t
       await scroll.evaluate((element,y)=>{element.scrollTop=y;},y);
       await expect.poll(async()=>Math.round((await header.boundingBox())!.height)).toBe(Math.round(expandedHeight-y));
       await waitForArtwork(page);
-      await page.screenshot({path:test.info().outputPath(`header-${theme}-${y===0?'expanded':`transition-${y}`}.png`),clip:(await header.boundingBox())!});
+      await captureHeader(`header-${theme}-${y===0?'expanded':`transition-${y}`}.png`);
     }
     for(const width of [390,320]){
       await page.setViewportSize({width,height:844});
@@ -226,7 +232,7 @@ test('header uses absolute offset continuously and stays compact away from the t
       expect(vehicleLabel!.y).toBeGreaterThan(logo!.y+logo!.height);
       expect(selector!.x).toBe(logo!.x);
       expect(avatar!.width).toBeGreaterThanOrEqual(44);expect(avatar!.height).toBeGreaterThanOrEqual(44);
-      await page.screenshot({path:test.info().outputPath(`header-${theme}-${width}.png`),clip:(await header.boundingBox())!});
+      await captureHeader(`header-${theme}-${width}.png`);
     }
   }
   expect(await page.getByTestId('dashboard-vehicle').evaluate(element=>{
