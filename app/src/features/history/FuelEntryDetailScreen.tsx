@@ -66,10 +66,12 @@ export function FuelEntryDetailScreen({
   const isTabActive = useContext(TabActiveContext);
   const { colors, isDark } = useAppTheme();
   const { width: windowWidth } = useWindowDimensions();
-  const { activeVehicle, dataVersion } = useSession();
+  const { activeVehicle, dataVersion, user } = useSession();
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  const [entry, setEntry] = useState<FuelEntry | null>(null);
+  const scope = `${user?.id}:${activeVehicle?.id}:${resolvedEntryId}`;
+  const [loadedEntry, setLoadedEntry] = useState<{ scope: string; entry: FuelEntry } | null>(null);
+  const entry = loadedEntry?.scope === scope ? loadedEntry.entry : null;
   const [matchingCycle, setMatchingCycle] = useState<ConsumptionCycle | null>(
     null,
   );
@@ -91,15 +93,15 @@ export function FuelEntryDetailScreen({
     const reqId = ++currentReqIdRef.current;
     const currentVehicleId = activeVehicle?.id ?? null;
     const currentEntryId = resolvedEntryId ?? null;
-    const scopeKey = `${currentVehicleId ?? 'none'}:${currentEntryId ?? 'none'}`;
+    const scopeKey = scope;
 
     if (lastEntryScopeRef.current !== scopeKey) {
       lastEntryScopeRef.current = scopeKey;
-      setEntry(null);
+      setLoadedEntry(null);
       setMatchingCycle(null);
     }
 
-    if (!currentVehicleId || !currentEntryId) {
+    if (!user || !currentVehicleId || !currentEntryId) {
       if (!isDisposedRef.current && currentReqIdRef.current === reqId) {
         setLoading(false);
       }
@@ -107,7 +109,6 @@ export function FuelEntryDetailScreen({
     }
 
     setLoading(true);
-    setEntry(null);
     setMatchingCycle(null);
     setErrorMessage(null);
     try {
@@ -120,7 +121,7 @@ export function FuelEntryDetailScreen({
         return;
       }
 
-      setEntry(fetchedEntry);
+      setLoadedEntry({ scope: scopeKey, entry: fetchedEntry });
       if (cyclesRes?.items) {
         const found = cyclesRes.items.find(
           (c) =>
@@ -135,6 +136,7 @@ export function FuelEntryDetailScreen({
       if (isDisposedRef.current || currentReqIdRef.current !== reqId) {
         return;
       }
+      setLoadedEntry(null);
       if (err instanceof ApiError) {
         setErrorMessage(err.message);
       } else {
@@ -147,7 +149,7 @@ export function FuelEntryDetailScreen({
         setLoading(false);
       }
     }
-  }, [activeVehicle?.id, resolvedEntryId, dataVersion]);
+  }, [activeVehicle?.id, resolvedEntryId, dataVersion, user?.id, scope]);
 
   useEffect(() => {
     void loadDetail();
@@ -258,7 +260,7 @@ export function FuelEntryDetailScreen({
         initialEntry={entry}
         embeddedInShell={embeddedInShell}
         onSaved={(updated) => {
-          setEntry(updated);
+          setLoadedEntry({ scope, entry: updated });
           setIsEditing(false);
           void loadDetail();
         }}
@@ -314,7 +316,7 @@ export function FuelEntryDetailScreen({
           onClose={() => setDeleteOpen(false)}
           onDeleted={() => {
             currentReqIdRef.current++;
-            setEntry(null);
+            setLoadedEntry(null);
             setMatchingCycle(null);
             setDeleteOpen(false);
             router.replace('/history');
@@ -325,7 +327,7 @@ export function FuelEntryDetailScreen({
         <View style={styles.inlineTopBar}>{topBarContent}</View>
       ) : null}
 
-      {loading && !entry ? (
+      {(loading || lastEntryScopeRef.current !== scope) && !entry ? (
         <View
           style={[
             styles.loadingCard,

@@ -28,7 +28,11 @@ export function EditFuelEntryScreen({
   const currentScope = useRef(scope);
   currentScope.current = scope;
   const sequence = useRef(0);
-  const [loaded, setLoaded] = useState<{ scope: string; entry: FuelEntry; revision: number } | null>(null);
+  const [loaded, setLoaded] = useState<{ scope: string; entry: FuelEntry; revision: number } | null>(() =>
+    user && initialEntry?.id === entryId && initialEntry.vehicleId === activeVehicle?.id
+      ? { scope, entry: initialEntry, revision: 0 }
+      : null,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -44,10 +48,10 @@ export function EditFuelEntryScreen({
   useEffect(() => {
     let active = true;
     setLoadError(null);
-    setLoaded(null);
-    if (initialEntry?.id === entryId && initialEntry.vehicleId === activeVehicle?.id) {
+    if (user && initialEntry?.id === entryId && initialEntry.vehicleId === activeVehicle?.id) {
       setLoaded({ scope, entry: initialEntry, revision: sequence.current });
     } else {
+      setLoaded(null);
       void reload().catch((err: unknown) => {
         if (active) setLoadError(err instanceof ApiError ? err.message : 'Não foi possível carregar o abastecimento para edição.');
       });

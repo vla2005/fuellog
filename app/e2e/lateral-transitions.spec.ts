@@ -48,7 +48,7 @@ async function mockApi(page: Page, authenticated = true) {
   });
 }
 
-type Frame = { x: number; y: number; opacity: number; headerX?: number; dockX?: number; routeX: number; shellX: number };
+type Frame = { x: number; y: number; opacity: number; headerX?: number; dockX?: number; routeX: number; shellX: number; content: string; inputs: string[]; effectiveOpacity: number };
 let captureIndex = 0;
 
 async function frames(page: Page, id: string, action: () => Promise<unknown>): Promise<Frame[]> {
@@ -70,7 +70,12 @@ async function frames(page: Page, id: string, action: () => Promise<unknown>): P
             const transform = element && getComputedStyle(element).transform;
             return new DOMMatrixReadOnly(!transform || transform === 'none' ? undefined : transform).m41;
           };
-          result.push({ x: matrix.m41, y: matrix.m42, opacity: Number(style.opacity),
+          let effectiveOpacity = 1;
+          for (let ancestor: HTMLElement | null = node; ancestor; ancestor = ancestor.parentElement) {
+            effectiveOpacity *= Number(getComputedStyle(ancestor).opacity);
+          }
+          result.push({ x: matrix.m41, y: matrix.m42, opacity: Number(style.opacity), effectiveOpacity,
+            content: node.innerText, inputs: Array.from(node.querySelectorAll('input')).map(input => input.value),
             headerX: header?.getBoundingClientRect().x, dockX: dock?.getBoundingClientRect().x,
             routeX: offset('auth-route-transition'), shellX: offset('authenticated-transition') });
         }
@@ -99,9 +104,54 @@ function expectSlide(result: Frame[], direction = 1) {
   expect(result.length).toBeGreaterThan(5);
   expect(result.some(frame => direction * frame.x > 1)).toBe(true);
   expect(result.some(frame => Math.abs(frame.x) > 0.1 && Math.abs(frame.x) < 16)).toBe(true);
-  expect(result.every(frame => frame.y === 0 && frame.opacity >= 0.91)).toBe(true);
+  expect(result.every(frame => frame.y === 0 && frame.opacity === 1 && frame.effectiveOpacity === 1)).toBe(true);
   expect(Math.abs(result.at(-1)!.x)).toBeLessThan(0.01);
   expect(result.at(-1)!.opacity).toBe(1);
+  expect(result.every(frame => frame.content.trim().length > 0)).toBe(true);
+}
+
+async function paintedFrames(page: Page, label: string, action: () => Promise<unknown>) {
+  const cdp = await page.context().newCDPSession(page);
+  const captures: string[] = [];
+  const acknowledgements: Promise<unknown>[] = [];
+  cdp.on('Page.screencastFrame', event => {
+    captures.push(event.data);
+    acknowledgements.push(cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId }));
+  });
+  await cdp.send('Page.startScreencast', { format: 'png', maxWidth: 390, maxHeight: 844, everyNthFrame: 1 });
+  try {
+    await action();
+  } finally {
+    await cdp.send('Page.stopScreencast');
+    await Promise.all(acknowledgements);
+    await cdp.detach();
+  }
+  expect(captures.length).toBeGreaterThan(2);
+  // Measure text/field edges inside the body, excluding the fixed header/dock.
+  const edges = await page.evaluate(async captures => Promise.all(captures.map(async data => {
+    const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(24, 230, image.width - 48, 400);
+    let edges = 0;
+    for (let y = 0; y < pixels.height; y++) for (let x = 1; x < pixels.width; x++) {
+      const offset = (y * pixels.width + x) * 4;
+      const difference = Math.abs(pixels.data[offset] - pixels.data[offset - 4])
+        + Math.abs(pixels.data[offset + 1] - pixels.data[offset - 3])
+        + Math.abs(pixels.data[offset + 2] - pixels.data[offset - 2]);
+      if (difference > 96) edges++;
+    }
+    image.close();
+    return edges;
+  })), captures);
+  for (const index of [0, Math.floor(captures.length / 2), captures.length - 1]) {
+    await test.info().attach(`${label}-paint-${index}`, { body: Buffer.from(captures[index], 'base64'), contentType: 'image/png' });
+  }
+  await test.info().attach(`${label}-paint-edges`, { body: JSON.stringify(edges), contentType: 'application/json' });
+  expect(edges.every(count => count > 150), 'Every painted body contains visible text/fields, never blank background').toBe(true);
 }
 
 test.describe('Transições laterais com mocks', () => {
@@ -161,14 +211,134 @@ test.describe('Transições laterais com mocks', () => {
     await expect(page.getByRole('button', { name: /^Abastecimento de/ })).toBeVisible();
     expectSlide(await frames(page, 'authenticated-transition', () => page.getByRole('button', { name: /^Abastecimento de/ }).click()));
     await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
-    expectSlide(await frames(page, 'fuel-detail-transition', () => click(page.getByRole('menuitem', { name: /Editar/ }))));
+    await page.evaluate(() => {
+      (window as any).editLoadingCommits = [];
+      (window as any).editObserver = new MutationObserver(records => {
+        for (const record of records) for (const node of record.addedNodes) {
+          if (node.textContent?.includes('Carregando abastecimento...')) {
+            (window as any).editLoadingCommits.push(node.textContent);
+          }
+        }
+      });
+      (window as any).editObserver.observe(document.body, { subtree: true, childList: true });
+    });
+    const opening = await frames(page, 'fuel-detail-transition', () => click(page.getByRole('menuitem', { name: /Editar/ })));
+    const loadingCommits = await page.evaluate(() => {
+      (window as any).editObserver.disconnect();
+      return (window as any).editLoadingCommits;
+    });
+    await test.info().attach('edit-loading-commits', { body: JSON.stringify(loadingCommits), contentType: 'application/json' });
+    expect(loadingCommits, 'Cached entry must never commit a loading screen').toEqual([]);
+    expect(opening[0].x, 'The populated edit must start displaced on its first painted frame').toBeGreaterThan(1);
+    expect(opening.every(frame => frame.content.includes('Editar abastecimento') && frame.inputs.includes('50,00'))).toBe(true);
+    expectSlide(opening);
     const paid = page.getByLabel('Valor pago', { exact: true });
     const paidNode = await paid.elementHandle();
     const typing = await frames(page, 'fuel-detail-transition', () => paid.fill('61,99'));
     expect(typing.every(frame => frame.x === 0 && frame.opacity === 1)).toBe(true);
     expect(await paidNode!.evaluate(node => (node as HTMLInputElement).value)).toBe('61,99');
     await expect(page.getByRole('button', { name: /Cancelar edição|Cancelar|Voltar/, exact: true }).first()).toBeVisible();
-    expectSlide(await frames(page, 'fuel-detail-transition', () => click(page.getByRole('button', { name: /Cancelar edição|Cancelar|Voltar/, exact: true }).first())), -1);
+    const returning = await frames(page, 'fuel-detail-transition', () => click(page.getByRole('button', { name: /Cancelar edição|Cancelar|Voltar/, exact: true }).first()));
+    expectSlide(returning, -1);
+    expect(returning[0].x).toBeLessThan(-1);
+    expect(returning.every(frame => !/Carregando|Editar abastecimento/.test(frame.content))).toBe(true);
+  });
+
+  test('edição no tema escuro mantém conteúdo pintado na abertura, retorno e troca rápida', async ({ page }) => {
+    await mockApi(page);
+    await page.addInitScript(() => localStorage.setItem('fuellog:theme-preference:v1', 'dark'));
+    await page.goto(`/fueling/${entry.id}`);
+    await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+    await paintedFrames(page, 'dark-edit-open', async () => {
+      expectSlide(await frames(page, 'fuel-detail-transition', () => click(page.getByRole('menuitem', { name: /Editar/ }))));
+    });
+    await expect(page.getByLabel('Valor pago', { exact: true })).toHaveValue('50,00');
+    const cancel = () => page.getByRole('button', { name: /Cancelar edição|Cancelar|Voltar/, exact: true }).first();
+    await paintedFrames(page, 'dark-edit-return', async () => {
+      expectSlide(await frames(page, 'fuel-detail-transition', () => click(cancel())), -1);
+    });
+    await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+    await expect(page.getByRole('menuitem', { name: /Editar/ })).toBeVisible();
+    const rapid = await frames(page, 'fuel-detail-transition', () => page.evaluate(() => new Promise<void>(resolve => {
+      (document.querySelector('[role="menuitem"][aria-label="Editar abastecimento"]') as HTMLElement).click();
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        (document.querySelector('[aria-label="Cancelar edição"]') as HTMLElement).click();
+        resolve();
+      }));
+    })));
+    expect(rapid.some(frame => frame.x > 1)).toBe(true);
+    expectSlide(rapid, -1);
+    expect(rapid.every(frame => !/Carregando/.test(frame.content))).toBe(true);
+  });
+
+  test('salvar edição preserva registro enquanto revalida e descarta se GET confirmar exclusão', async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/fueling/${entry.id}`);
+    await page.getByRole('button', { name: 'Opções do abastecimento' }).click();
+    await page.getByRole('menuitem', { name: /Editar/ }).click();
+    await expect(page.getByLabel('Valor pago', { exact: true })).toHaveValue('50,00');
+    let release!: () => void;
+    const revalidation = new Promise<void>(resolve => { release = resolve; });
+    await page.route(`**/fuel-entries/${entry.id}`, async route => {
+      if (route.request().method() === 'GET') {
+        await revalidation;
+        await route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ detail: 'Registro excluído', status: 404 }) });
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...entry, version: 2 }) });
+      }
+    });
+    try {
+      const saved = await frames(page, 'fuel-detail-transition', () => click(page.getByRole('button', { name: 'Salvar alterações' })));
+      expectSlide(saved, -1);
+      const detail = saved.filter(frame => !frame.content.includes('Editar abastecimento'));
+      expect(detail.length).toBeGreaterThan(5);
+      expect(detail.every(frame => frame.content.includes('R$ 50,00') && !/Carregando/.test(frame.content))).toBe(true);
+    } finally {
+      release();
+    }
+    await expect(page.getByText('Registro indisponível', { exact: true })).toBeVisible();
+    await expect(page.getByText('R$ 50,00', { exact: true })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Opções do abastecimento' })).toBeDisabled();
+  });
+
+  test('trocar registro mostra carregamento real sem pintar erro ou dados do escopo anterior', async ({ page }) => {
+    await mockApi(page);
+    const second = { ...entry, id: 'second-entry', paidTotal: '75.00', version: 3 };
+    await page.route('**/fuel-entries?**', route => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ items: [entry, second], totalPages: 1, totalElements: 2, page: 0, size: 20 }) }));
+    let release!: () => void;
+    const loading = new Promise<void>(resolve => { release = resolve; });
+    await page.route(`**/fuel-entries/${second.id}`, async route => {
+      await loading;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(second) });
+    });
+    await page.goto('/history');
+    const rows = page.getByRole('button', { name: /^Abastecimento de/ });
+    await expect(rows).toHaveCount(2);
+    await rows.first().click();
+    const detail = page.getByTestId('fuel-detail-transition');
+    await expect(detail.getByText('R$ 50,00', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Voltar', exact: true }).click();
+    await page.evaluate(() => {
+      (window as any).scopeErrorCommits = [];
+      (window as any).scopeObserver = new MutationObserver(records => {
+        for (const record of records) for (const node of record.addedNodes) {
+          if (node.textContent?.includes('Registro indisponível')) (window as any).scopeErrorCommits.push(node.textContent);
+        }
+      });
+      (window as any).scopeObserver.observe(document.body, { subtree: true, childList: true });
+    });
+    try {
+      await rows.nth(1).click();
+      await expect(detail.getByText('Carregando registro...', { exact: true })).toBeVisible();
+      await expect(detail.getByText('R$ 50,00', { exact: true })).toHaveCount(0);
+      expect(await page.evaluate(() => (window as any).scopeErrorCommits)).toEqual([]);
+    } finally {
+      await page.evaluate(() => (window as any).scopeObserver.disconnect());
+      release();
+    }
+    await expect(detail.getByText('R$ 75,00', { exact: true })).toBeVisible();
   });
 
   test('rotas públicas, voltar do navegador, recuperação e desafio 2FA', async ({ page }) => {
@@ -187,7 +357,9 @@ test.describe('Transições laterais com mocks', () => {
   test('veículos, resumo, conta e novo abastecimento usam lateral sem animar campos', async ({ page }) => {
     await mockApi(page);
     await page.goto('/vehicles');
-    expectSlide(await frames(page, 'sheet-transition', () => click(page.getByRole('button', { name: 'Editar veículo' }))));
+    const vehicleOpening = await frames(page, 'sheet-transition', () => click(page.getByRole('button', { name: 'Editar veículo' })));
+    expectSlide(vehicleOpening);
+    expect(vehicleOpening.every(frame => frame.inputs.includes('Uno'))).toBe(true);
     const model = page.getByTestId('vehicle-model-input');
     await model.fill('Rascunho');
     const modelNode = await model.elementHandle();
@@ -195,6 +367,10 @@ test.describe('Transições laterais com mocks', () => {
     expect(typing.every(frame => frame.x === 0 && frame.opacity === 1)).toBe(true);
     expect(await modelNode!.evaluate(node => (node as HTMLInputElement).value)).toBe('Rascunho preservado');
     expectSlide(await frames(page, 'screen-transition', () => click(page.getByRole('button', { name: 'Fechar', exact: true }))), -1);
+    const reopenedVehicle = await frames(page, 'sheet-transition', () => click(page.getByRole('button', { name: 'Editar veículo' })));
+    expectSlide(reopenedVehicle);
+    expect(reopenedVehicle.every(frame => frame.inputs.includes('Uno') && !frame.inputs.includes('Rascunho preservado'))).toBe(true);
+    await page.getByRole('button', { name: 'Fechar', exact: true }).click();
     expectSlide(await frames(page, 'sheet-transition', () => click(page.getByRole('button', { name: 'Novo veículo', exact: true }))));
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('tab', { name: 'Início', exact: true }).click();
