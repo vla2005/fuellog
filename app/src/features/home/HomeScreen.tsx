@@ -34,9 +34,9 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
   const { width,fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { headerHeight: measuredHeader } = useAuthenticatedHeader();
-  const headerHeight = embeddedInShell && measuredHeader ? measuredHeader : insets.top + 56;
+  const headerHeight = embeddedInShell && measuredHeader ? measuredHeader : insets.top + 60;
   const selectorHeight = Math.max(48,48*fontScale);
-  const compactHeight = headerHeight + selectorHeight + 24;
+  const compactHeight = headerHeight + selectorHeight;
   const expandedHeight = Math.max(compactHeight, Math.min(width,620)*0.74 + insets.top);
   const scrollY = useSharedValue(0);
   const viewportHeight = useSharedValue(0);
@@ -51,25 +51,23 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
   const [vehicleOpen,setVehicleOpen] = useState(false);
   const [createOpen,setCreateOpen] = useState(false);
   useEffect(() => { setVehicleOpen(false); setCreateOpen(false); },[scope,activeTab]);
-  const onScroll = useAnimatedScrollHandler({ onScroll: event => { scrollY.value = Math.max(0,event.contentOffset.y); } });
+  const onScroll = useAnimatedScrollHandler({ onScroll: event => {
+    if (activeTab) scrollY.value = Math.max(0,event.contentOffset.y);
+  } });
   const landscapeStyle = useAnimatedStyle(() => ({ height:Math.max(compactHeight,expandedHeight-scrollY.value) }));
-  const skyStyle = useAnimatedStyle(() => ({ opacity:Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight)) }));
-  const imageSource = isDark ? require('@/assets/brand/scene_night_road_integrated.png') : require('@/assets/brand/scene_day_road_integrated.png');
+  const tailStyle = useAnimatedStyle(() => ({ height:22-14*Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight)) }));
+  const imageSource = isDark ? require('@/assets/brand/scene_night_road_compact.png') : require('@/assets/brand/scene_day_road_compact.png');
   const resolved = Image.resolveAssetSource?.(imageSource);
-  const sceneWidth = Math.min(width,620);
-  const sceneHeight = sceneWidth * (resolved?.height && resolved?.width ? resolved.height/resolved.width : 1355/1161);
+  const expandedSceneWidth = Math.max(width,Math.min(width,620)*1.65);
+  const sceneRatio = resolved?.height && resolved?.width ? resolved.height/resolved.width : 2/3;
   const imageStyle = useAnimatedStyle(() => {
     const fraction=Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight));
-    const scale=1-fraction*0.20;
+    // One opaque scene keeps the skyline and subjects continuous while reframing.
+    const imageWidth=expandedSceneWidth+(width-expandedSceneWidth)*fraction;
     const height=Math.max(compactHeight,expandedHeight-scrollY.value);
-    return {width:sceneWidth*scale,height:sceneHeight*scale,left:(width-sceneWidth)/2+(sceneWidth-sceneWidth*scale),
-      top:height-sceneWidth*(0.74-0.07*fraction)*scale};
-  });
-  const backgroundImageStyle = useAnimatedStyle(() => {
-    const fraction=Math.min(1,scrollY.value/Math.max(1,expandedHeight-compactHeight));
-    const scale=1-fraction*0.20;
-    return {width:sceneWidth*scale,height:sceneHeight*scale,left:(width-sceneWidth)/2,
-      top:Math.max(compactHeight,expandedHeight-scrollY.value)-sceneWidth*(0.74-0.07*fraction)*scale};
+    return {width:imageWidth,height:imageWidth*sceneRatio,
+      right:0,
+      top:height-imageWidth*sceneRatio-width*(0.08-0.098*fraction)};
   });
   const motion = useMemo(() => ({ scrollY,viewportHeight,expandedHeight,compactHeight,dockHeight:Math.max(layout.bottomDockClearance,insets.bottom+76),
     active:activeTab && isAppActive,reduceMotion,played,touchObservers }),[expandedHeight,compactHeight,activeTab,isAppActive,reduceMotion,played,touchObservers,insets.bottom,scrollY,viewportHeight]);
@@ -105,20 +103,17 @@ export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: bool
             </>}
           </View>
         </Animated.ScrollView>
-        <Animated.View testID="dashboard-landscape" style={[styles.landscape,{backgroundColor:isDark?'#01163E':'#51B6FD'},landscapeStyle]}>
-          <Animated.Image source={imageSource} resizeMode="cover" accessible={false} style={[styles.scene,backgroundImageStyle]} />
-          <Animated.Image source={imageSource} resizeMode="cover" accessible={false} style={[styles.scene,imageStyle]} />
-          <Animated.View pointerEvents="none" style={[styles.sky,{height:headerHeight,backgroundColor:isDark?'#01163E':'#51B6FD'},skyStyle]} />
-          <Svg height={22} width="100%" style={styles.tail} pointerEvents="none"><Defs><LinearGradient id="dashboard-tail" x1="0" y1="0" x2="0" y2="1">
+        <Animated.View testID="dashboard-landscape" style={[styles.landscape,{backgroundColor:colors.bgPrimary},landscapeStyle]}>
+          <Animated.Image testID="dashboard-compact-art" source={imageSource} resizeMode="cover" accessible={false} style={[styles.scene,imageStyle]} />
+          <Animated.View style={[styles.tail,tailStyle]} pointerEvents="none"><Svg height="100%" width="100%"><Defs><LinearGradient id="dashboard-tail" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0" stopColor={colors.bgPrimary} stopOpacity={0}/><Stop offset="1" stopColor={colors.bgPrimary} stopOpacity={1}/>
-          </LinearGradient></Defs><Rect width="100%" height={22} fill="url(#dashboard-tail)"/></Svg>
-          {!embeddedInShell ? <View style={[styles.standaloneHeader,{top:insets.top}]}><BrandLockup mode="wordmark-only" wordmarkWidth={146}/>
-            <Pressable accessibilityRole="button" accessibilityLabel="Minha conta" onPress={() => router.push('/account')}><PixelMascot variant="avatar" size={32} withFrame /></Pressable></View> : null}
-          <View style={[styles.selectorContainer,{top:headerHeight,paddingHorizontal:width<350?16:20,minHeight:selectorHeight}]} pointerEvents="box-none">
+          </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#dashboard-tail)"/></Svg></Animated.View>
+          {!embeddedInShell ? <View pointerEvents="box-none" style={[styles.standaloneHeader,{top:insets.top+16}]}><View pointerEvents="none"><BrandLockup mode="wordmark-only" wordmarkWidth={96}/></View>
+            <Pressable style={styles.avatarButton} accessibilityRole="button" accessibilityLabel="Minha conta" onPress={() => router.push('/account')}><PixelMascot variant="avatar" size={24} withFrame /></Pressable></View> : null}
+          <View style={[styles.selectorContainer,{top:headerHeight-20+Math.max(0,fontScale-1)*20,paddingHorizontal:width<350?16:20,minHeight:selectorHeight}]} pointerEvents="box-none">
             <Pressable testID="dashboard-vehicle" accessibilityRole="button" accessibilityLabel={`Veículo selecionado: ${activeVehicle?.nickname ?? 'Selecionar veículo'}`}
-              onPress={() => setVehicleOpen(true)} style={[styles.selector,{maxWidth:width*0.36}]}>
-              <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill,{borderRadius:6,backgroundColor:isDark?'#01163E':'#51B6FD'},skyStyle]} />
-              <Text numberOfLines={2} style={[styles.vehicleLabel,{color:isDark?'#FFFFFF':'#111D35'}]}>{activeVehicle?.nickname ?? 'Selecionar veículo'}</Text><ChevronDownIcon size={20} color={isDark?'#FFFFFF':colors.brandPrimary}/>
+              onPress={() => setVehicleOpen(true)} style={[styles.selector,{minHeight:selectorHeight,maxWidth:width*0.36}]}>
+              <Text numberOfLines={2} style={[styles.vehicleLabel,{color:isDark?'#FFFFFF':'#111D35'}]}>{activeVehicle?.nickname ?? 'Selecionar veículo'}</Text><ChevronDownIcon size={16} color={isDark?'#FFFFFF':colors.brandPrimary}/>
             </Pressable>
           </View>
         </Animated.View>
@@ -137,7 +132,7 @@ const styles=StyleSheet.create({
   pageTitle:{...typography.screenTitle,fontSize:29,lineHeight:38},subtitle:{...typography.body,fontSize:17,lineHeight:25},
   summaryTitle:{...typography.cardTitle,marginTop:20},body:{...typography.body},amount:{...typography.heroValue,fontSize:40,lineHeight:54},
   summaryPending:{minHeight:88,justifyContent:'center'},landscape:{position:'absolute',top:0,left:0,right:0,overflow:'hidden',zIndex:5},scene:{position:'absolute'},
-  sky:{position:'absolute',top:0,left:0,right:0},tail:{position:'absolute',bottom:0,left:0,right:0},
-  selectorContainer:{position:'absolute',left:0,right:0,width:'100%',maxWidth:460,alignSelf:'center'},selector:{minHeight:48,flexDirection:'row',alignItems:'center',gap:8,alignSelf:'flex-start',maxWidth:'55%'},
-  vehicleLabel:{...typography.cardTitle,flexShrink:1},standaloneHeader:{position:'absolute',left:20,right:20,minHeight:56,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},options:{gap:12,paddingVertical:8},
+  tail:{position:'absolute',bottom:0,left:0,right:0},
+  selectorContainer:{position:'absolute',left:0,right:0,width:'100%',maxWidth:460,alignSelf:'center'},selector:{minHeight:48,flexDirection:'row',alignItems:'center',gap:4,alignSelf:'flex-start',maxWidth:'55%'},
+  vehicleLabel:{...typography.cardTitle,fontSize:14,lineHeight:20,flexShrink:1},standaloneHeader:{position:'absolute',left:20,right:20,minHeight:44,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},avatarButton:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center'},options:{gap:12,paddingVertical:8},
 });

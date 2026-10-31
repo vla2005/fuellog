@@ -79,6 +79,16 @@ async function showChart(page: Page, id: string) {
 }
 async function waitForArtwork(page:Page){
   await page.waitForFunction(()=>Array.from(document.images).filter(image=>image.src).every(image=>image.complete&&image.naturalWidth>0),undefined,{timeout:30000});
+  await page.evaluate(async()=>{
+    await document.fonts.ready;
+    const urls=new Set<string>();
+    for(const element of document.querySelectorAll('*')){
+      for(const match of getComputedStyle(element).backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g))urls.add(match[1]);
+    }
+    await Promise.all([...urls].map(src=>new Promise<void>((resolve,reject)=>{
+      const image=new Image();image.onload=()=>resolve();image.onerror=()=>reject(new Error(`Artwork failed: ${src}`));image.src=src;
+    })));
+  });
   await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
 }
 
@@ -172,7 +182,12 @@ test('late responses from an old filter and vehicle never repaint current chart'
 });
 
 test('header uses absolute offset continuously and stays compact away from the top',async({page})=>{
+  let dashboardRequests=0;
+  page.on('request',request=>{if(new URL(request.url()).pathname.endsWith('/dashboard'))dashboardRequests++;});
   await dashboardApi(page);await page.goto('/');await expect(page.getByTestId('chart-liters')).toHaveCount(1);
+  await expect(page.getByTestId('dashboard-month-total')).toHaveText('R$ 2.250,00');
+  await waitForArtwork(page);
+  const requestsBeforeScroll=dashboardRequests;
   const header=page.getByTestId('dashboard-landscape');const scroll=page.getByTestId('dashboard-scroll');
   const expandedHeight=(await header.boundingBox())!.height;
   await scroll.evaluate(element=>{element.scrollTop=800;});
@@ -183,17 +198,55 @@ test('header uses absolute offset continuously and stays compact away from the t
     await scroll.evaluate((element,y)=>{element.scrollTop=y;},y);
     await expect.poll(async()=>Math.round((await header.boundingBox())!.height)).toBe(Math.round(Math.max(compactHeight,expandedHeight-y)));
     heights.push((await header.boundingBox())!.height);
+    if(y===60||y===90)await page.screenshot({path:test.info().outputPath(`header-transition-${y}.png`),clip:(await header.boundingBox())!});
   }
   expect(heights[1]-heights[2]).toBeCloseTo(30,0);expect(heights[4]).toBe(heights[5]);
+  expect(dashboardRequests).toBe(requestsBeforeScroll);
   await writeFile(test.info().outputPath('header-offsets.json'),JSON.stringify(heights));
-  await waitForArtwork(page);await showChart(page,'consumption');
-  await page.screenshot({path:test.info().outputPath('header-light-compact.png')});
-  await page.setViewportSize({width:320,height:740});await showChart(page,'consumption');
-  await page.screenshot({path:test.info().outputPath('header-light-320.png')});
-  await page.emulateMedia({colorScheme:'dark'});
-  await expect(header).toHaveCSS('background-color','rgb(1, 22, 62)');
-  await waitForArtwork(page);
-  await page.screenshot({path:test.info().outputPath('header-dark-320.png')});
+  for(const theme of ['light','dark'] as const){
+    await page.emulateMedia({colorScheme:theme});
+    await expect(header).toHaveCSS('background-color',theme==='dark'?'rgb(8, 14, 24)':'rgb(245, 243, 238)');
+    for(const width of [390,320]){
+      await page.setViewportSize({width,height:844});
+      await scroll.evaluate(element=>{element.scrollTop=800;});
+      await expect.poll(async()=>(await header.boundingBox())!.height).toBe(compactHeight);
+      await waitForArtwork(page);
+      const logo=await page.getByRole('img',{name:'FuelLog',exact:true}).boundingBox();
+      const avatar=await page.getByTestId('header-avatar-button').boundingBox();
+      const selector=await page.getByTestId('dashboard-vehicle').boundingBox();
+      const vehicleLabel=await page.getByTestId('dashboard-vehicle').getByText(vehicle.nickname,{exact:true}).boundingBox();
+      expect(logo!.width).toBe(96);
+      expect(vehicleLabel!.y).toBeGreaterThan(logo!.y+logo!.height);
+      expect(selector!.x).toBe(logo!.x);
+      expect(avatar!.width).toBeGreaterThanOrEqual(44);expect(avatar!.height).toBeGreaterThanOrEqual(44);
+      await page.screenshot({path:test.info().outputPath(`header-${theme}-${width}.png`),clip:(await header.boundingBox())!});
+    }
+  }
+  expect(await page.getByTestId('dashboard-vehicle').evaluate(element=>{
+    const box=element.getBoundingClientRect();return element.contains(document.elementFromPoint(box.x+5,box.y+2));
+  })).toBe(true);
+  await page.getByTestId('dashboard-vehicle').click({position:{x:5,y:2}});
+  await page.getByRole('button',{name:'Outro veículo',exact:true}).click();
+  await expect(page.getByTestId('dashboard-vehicle')).toHaveAccessibleName('Veículo selecionado: Outro veículo');
+  const navigationScroll:number[]=[await scroll.evaluate(element=>element.scrollTop)];
+  await page.getByTestId('header-avatar-button').click();
+  await expect(page).toHaveURL(/\/account$/);
+  await expect(page.getByText('Conta',{exact:true})).toBeVisible();
+  await page.getByTestId('account-back-button').click();
+  navigationScroll.push(await scroll.evaluate(element=>element.scrollTop));
+  for(const tab of ['Histórico','Veículos','Ajustes']){
+    await page.getByRole('tab',{name:tab,exact:true}).click();
+    await expect(page.getByTestId('header-avatar-button')).toBeVisible();
+    await expect.poll(async()=>(await page.getByRole('img',{name:'FuelLog',exact:true}).boundingBox())!.width).toBe(146);
+    await waitForArtwork(page);
+  }
+  await page.getByRole('tab',{name:'Início',exact:true}).click();
+  await expect.poll(async()=>(await page.getByRole('img',{name:'FuelLog',exact:true}).boundingBox())!.width).toBe(96);
+  navigationScroll.push(await scroll.evaluate(element=>element.scrollTop));
+  await writeFile(test.info().outputPath('header-navigation-scroll.json'),JSON.stringify(navigationScroll));
+  expect(navigationScroll).toEqual([800,800,800]);
+  await expect.poll(async()=>(await header.boundingBox())!.height).toBe(compactHeight);
+  await expect(page.getByTestId('dashboard-vehicle')).toHaveAccessibleName('Veículo selecionado: Outro veículo');
 });
 
 for(const theme of ['light','dark'] as const){

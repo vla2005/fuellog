@@ -209,6 +209,7 @@ export function AuthenticatedTabShell() {
       {/* Persistent Top Header: Only on main tabs */}
       {!isFocusedFlow ? (
         <SafeAreaView
+          pointerEvents={isDashboard ? 'box-none' : 'auto'}
           edges={['top', 'left', 'right']}
           onLayout={(e) => {
             const h = Math.round(e.nativeEvent.layout.height);
@@ -239,9 +240,10 @@ export function AuthenticatedTabShell() {
               />
             </View>
           ) : null}
-          <View style={styles.headerContainer}>
-            <View style={styles.headerInner}>
-              <BrandLockup mode="wordmark-only" wordmarkWidth={146} />
+          <View pointerEvents={isDashboard ? 'box-none' : 'auto'} style={[styles.headerContainer, isDashboard && styles.dashboardHeaderContainer,
+            isDashboard && { paddingHorizontal: windowWidth < 350 ? 16 : 20 }]}>
+            <View pointerEvents={isDashboard ? 'box-none' : 'auto'} style={styles.headerInner}>
+              <View pointerEvents={isDashboard ? 'none' : 'auto'}><BrandLockup mode="wordmark-only" wordmarkWidth={isDashboard ? 96 : 146} /></View>
 
               <Pressable
                 accessibilityRole="button"
@@ -252,9 +254,9 @@ export function AuthenticatedTabShell() {
                     router.push('/account');
                   }
                 }}
-                style={styles.headerMascotButton}
+                style={[styles.headerMascotButton, isDashboard && styles.dashboardAvatarButton]}
               >
-                <PixelMascot variant="avatar" size={32} withFrame />
+                <PixelMascot variant="avatar" size={isDashboard ? 24 : 32} withFrame />
               </Pressable>
             </View>
           </View>
@@ -378,6 +380,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  dashboardHeaderContainer: {
+    paddingTop: 16,
+    paddingBottom: 0,
+  },
+  dashboardAvatarButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
   },
   headerMascotButton: {
     alignItems: 'flex-end',
