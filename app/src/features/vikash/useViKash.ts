@@ -3,7 +3,7 @@ import { getViKashCatalog, getViKashStatus } from '@/api/endpoints';
 import { ApiError, ViKashCatalog, ViKashStatus } from '@/api/types';
 import { useSession } from '@/state/SessionContext';
 
-export function useViKash(active = true) {
+export function useViKash(active = true, withCatalog = true) {
   const { user, getCurrentSessionEpoch } = useSession();
   const [status, setStatus] = useState<ViKashStatus | null>(null);
   const [catalog, setCatalog] = useState<ViKashCatalog | null>(null);
@@ -19,14 +19,14 @@ export function useViKash(active = true) {
       const next = await getViKashStatus();
       if (!valid()) return;
       setStatus(next); setCatalog(null);
-      if (next.status === 'CONNECTED') {
+      if (next.status === 'CONNECTED' && withCatalog) {
         const options = await getViKashCatalog();
         if (valid()) setCatalog(options);
       }
     } catch (err) {
       if (valid()) setError(err instanceof ApiError ? err.message : 'ViKash indisponível. Tente novamente.');
     } finally { if (valid()) setLoading(false); }
-  }, [active, user?.id, getCurrentSessionEpoch]);
+  }, [active, withCatalog, user?.id, getCurrentSessionEpoch]);
   useEffect(() => {
     setStatus(null); setCatalog(null); setError(null);
     void reload();

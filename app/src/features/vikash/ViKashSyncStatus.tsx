@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { getViKashRemoteStatus, retryViKashEntry } from '@/api/endpoints';
 import { ApiError, FuelEntry, ViKashRemoteStatus } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
-import { useAppTheme } from '@/theme/ThemeProvider';
-import { radii, typography } from '@/theme/tokens';
 import { viKashStatusLabel } from './viKashStatusText';
+import { ViKashBrand } from './ViKashBrand';
+import { viKashColors, viKashStyles } from './viKashTheme';
 
 const REASONS: Record<string, string> = {
   PRECONDITION_FAILED: 'O lançamento mudou no ViKash. Revise antes de substituir.',
@@ -21,7 +21,6 @@ const REASONS: Record<string, string> = {
 };
 
 export function ViKashSyncStatus({ entry, reload }: { entry: FuelEntry; reload: () => Promise<void> }) {
-  const { colors } = useAppTheme();
   const { getCurrentSessionEpoch } = useSession();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false), mounted = useRef(true);
@@ -39,9 +38,10 @@ export function ViKashSyncStatus({ entry, reload }: { entry: FuelEntry; reload: 
     finally { busyRef.current = false; if (mounted.current && epoch === getCurrentSessionEpoch()) setBusy(false); }
   };
   const conflict = state.status === 'ACTION_REQUIRED' && ['PRECONDITION_FAILED', 'VERSION_CONFLICT', 'STALE_VERSION', 'ACTIVE'].includes(state.code ?? '');
-  return <View style={[styles.card, { borderColor: colors.borderDefault, backgroundColor: colors.bgElevated }]} testID="vikash-sync-status">
-    <Text accessibilityLiveRegion="polite" style={[styles.title, { color: colors.textPrimary }]}>{viKashStatusLabel(state.status, state.code)}</Text>
-    <Text style={[styles.body, { color: colors.textSecondary }]}>{REASONS[state.code ?? ''] ?? (state.status === 'PENDING' || state.status === 'ERROR'
+  return <View style={viKashStyles.panel} testID="vikash-sync-status">
+    <ViKashBrand />
+    <Text accessibilityLiveRegion="polite" style={[viKashStyles.strong, { color: state.status === 'SENT' ? viKashColors.success : viKashColors.amber }]}>{viKashStatusLabel(state.status, state.code)}</Text>
+    <Text style={viKashStyles.body}>{REASONS[state.code ?? ''] ?? (state.status === 'PENDING' || state.status === 'ERROR'
       ? 'O abastecimento está salvo no FuelLog. O envio usa o valor pago e mantém o mesmo identificador em cada tentativa.'
       : 'Estado do envio financeiro deste abastecimento.')}</Text>
     {error ? <InlineNotice tone="warning" message={error} /> : null}
@@ -53,16 +53,16 @@ export function ViKashSyncStatus({ entry, reload }: { entry: FuelEntry; reload: 
       if (mounted.current && epoch === getCurrentSessionEpoch()) { setRemote(result); setReviewOpen(true); }
     })} /> : null}
     <AppSheet visible={reviewOpen} modal title="Conflito no ViKash" onClose={() => !busy && setReviewOpen(false)}>
-      <Text style={[styles.body, { color: colors.textPrimary }]}>{remote?.status === 'ACTIVE'
+      <View style={viKashStyles.panel}>
+      <ViKashBrand />
+      <Text style={viKashStyles.body}>{remote?.status === 'ACTIVE'
         ? 'O lançamento mudou no ViKash. Manter preserva esse lançamento. Enviar a versão FuelLog solicita a substituição pelos dados deste abastecimento, respeitando faturas pagas.'
         : 'O lançamento está ausente, excluído ou cancelado no ViKash. Ele não será recriado automaticamente.'}</Text>
       <PrimaryButton label="Manter lançamento no ViKash" variant="secondary" onPress={() => setReviewOpen(false)} disabled={busy} />
       {remote?.status === 'ACTIVE' ? <PrimaryButton label="Enviar versão FuelLog" loading={busy} onPress={() => void run(async () => {
         await retryViKashEntry(entry.id, 'OVERWRITE', remote.etag); setReviewOpen(false); await reload();
       })} /> : null}
+      </View>
     </AppSheet>
   </View>;
 }
-const styles = StyleSheet.create({
-  card: { padding: 16, gap: 12, borderWidth: 1, borderRadius: radii.lg }, title: { ...typography.sectionTitle }, body: { ...typography.body },
-});

@@ -158,6 +158,8 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/location': location, '@/utils/uuid': { generateUuidV4: randomUUID },
     '@/features/vikash/useViKash': { useViKash: () => ({ status: null, catalog: null, error: null, loading: false, reload: async () => {} }) },
     '@/features/vikash/ViKashEntrySection': { ViKashEntrySection: () => null },
+    '@/features/vikash/ViKashBrand': { ViKashBrand: () => null },
+    '@/features/vikash/viKashTheme': { viKashStyles: { panel: {}, body: {} } },
     '@/features/vikash/viKashChoices': { choicesError: () => null },
     '@/utils/numericMask': numericMask, '../../utils/numericMask': numericMask,
   };

@@ -29,6 +29,7 @@ import { radii, typography } from '@/theme/tokens';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { TwoFactorSheet } from './TwoFactorSheet';
 import { ViKashSettings } from '@/features/vikash/ViKashSettings';
+import { ViKashMenuCard } from '@/features/vikash/ViKashMenuCard';
 
 export function SettingsScreen({
   embeddedInShell = false,
@@ -429,15 +430,8 @@ export function SettingsScreen({
 
             <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-            <Pressable accessibilityRole="button" accessibilityLabel="Integrações, ViKash" onPress={() => setActiveSection('vikash')} style={styles.menuItem}>
-              <View style={styles.menuLeftCol}>
-                <View style={styles.menuTextGroup}>
-                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>Integrações</Text>
-                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>Conectar ao ViKash</Text>
-                </View>
-              </View>
-              <ChevronRightIcon size={18} color={colors.brandPrimary} />
-            </Pressable>
+            <Text style={[styles.menuItemTitle, { color: colors.textPrimary, marginTop: 20 }]}>Integrações</Text>
+            <ViKashMenuCard active={activeSection === 'main'} onPress={() => setActiveSection('vikash')} />
             <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
             {/* Sair da conta (Red text & icon) */}

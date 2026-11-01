@@ -76,6 +76,8 @@ import { useForegroundLocation } from './useForegroundLocation';
 import { formatEntryDateForInput, parseDateTimeInTimezone } from './fuelEditDateHelper';
 import { useViKash } from '@/features/vikash/useViKash';
 import { ViKashEntrySection } from '@/features/vikash/ViKashEntrySection';
+import { ViKashBrand } from '@/features/vikash/ViKashBrand';
+import { viKashStyles } from '@/features/vikash/viKashTheme';
 import { choicesError, sameChoices } from '@/features/vikash/viKashChoices';
 
 function formatDigitsToDisplay3(digits: string): string {
@@ -1685,9 +1687,12 @@ export function FuelEntryForm({
 
       {/* Sheet: Seletor de veículo */}
       <AppSheet visible={viKashCancellation !== null} modal title="Desativar envio ao ViKash?" onClose={() => setViKashCancellation(null)}>
-        <Text style={[typography.body, { color: colors.textPrimary }]}>Ao salvar as alterações, será registrado um pedido de cancelamento do lançamento no ViKash. Autorização expirada, parcelas ou faturas pagas podem impedir o cancelamento. Nada muda antes de salvar.</Text>
+        <View style={viKashStyles.panel}>
+        <ViKashBrand />
+        <Text style={viKashStyles.body}>Ao salvar as alterações, será registrado um pedido de cancelamento do lançamento no ViKash. Autorização expirada, parcelas ou faturas pagas podem impedir o cancelamento. Nada muda antes de salvar.</Text>
         <PrimaryButton label="Manter envio ao ViKash" variant="secondary" onPress={() => setViKashCancellation(null)} />
         <PrimaryButton label="Desativar envio ao salvar" variant="danger" onPress={() => { setViKashSelection(viKashCancellation); setViKashCancellation(null); }} />
+        </View>
       </AppSheet>
       <AppSheet
         visible={vehicleSheetOpen}

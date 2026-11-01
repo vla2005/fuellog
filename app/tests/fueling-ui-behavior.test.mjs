@@ -148,6 +148,8 @@ function mountNewFuelEntry({ store = new Map(), endpoints = {}, observableReturn
     '@/utils/uuid': { generateUuidV4: uuid },
     '@/features/vikash/useViKash': { useViKash: () => ({ status: null, catalog: null, error: null, loading: false, reload: async () => {} }) },
     '@/features/vikash/ViKashEntrySection': { ViKashEntrySection: () => null },
+    '@/features/vikash/ViKashBrand': { ViKashBrand: () => null },
+    '@/features/vikash/viKashTheme': { viKashStyles: { panel: {}, body: {} } },
     '@/features/vikash/viKashChoices': { choicesError: () => null },
     '@/utils/numericMask': numericMask,
     '../../utils/numericMask': numericMask,
