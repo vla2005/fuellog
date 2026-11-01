@@ -21,7 +21,6 @@ public class Vehicle {
     @Column(name="tank_capacity_liters", precision=8, scale=3) private BigDecimal tankCapacityLiters;
     @Column(name="current_odometer_km") private Long currentOdometerKm;
     @Column(name="archived_at") private Instant archivedAt;
-    @Column(name="pending_history_gap_after") private Instant pendingHistoryGapAfter;
     @Column(name="created_at", nullable=false, updatable=false) private Instant createdAt;
     @Column(name="updated_at", nullable=false) private Instant updatedAt;
     @Version private Long version;
@@ -45,8 +44,6 @@ public class Vehicle {
     public UUID id() { return id; }
     public Instant archivedAt() { return archivedAt; }
     public Set<FuelType> allowedFuels() { return Collections.unmodifiableSet(allowedFuels); }
-    public Instant pendingHistoryGapAfter() { return pendingHistoryGapAfter; }
-    public void consumePendingGap() { pendingHistoryGapAfter=null; }
     public void update(VehicleDtos.Update command) {
         model=nickname=command.model();
         allowedFuels.clear(); allowedFuels.addAll(command.allowedFuels());

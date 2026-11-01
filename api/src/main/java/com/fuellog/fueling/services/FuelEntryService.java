@@ -2,7 +2,6 @@ package com.fuellog.fueling.services;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
 import com.fuellog.fueling.dtos.FuelEntryFilters;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.models.FuelCommand;
 import com.fuellog.fueling.models.FuelEntry;
 import com.fuellog.fueling.repositories.FuelEntryRepository;
@@ -16,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import java.sql.SQLException;
+import java.math.BigDecimal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
@@ -52,10 +52,8 @@ public class FuelEntryService {
         var previous=entries.findFirstByVehicleIdAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(vehicleId,command.occurredAt());
         var next=entries.findFirstByVehicleIdAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(vehicleId,command.occurredAt());
         validateHistory(command,previous,next,entries.findByVehicleIdAndOccurredAt(vehicleId,command.occurredAt()));
-        boolean pendingGap=vehicle.pendingHistoryGapAfter() != null && !command.occurredAt().isBefore(vehicle.pendingHistoryGapAfter());
-        if (pendingGap) vehicle.consumePendingGap();
         try {
-            return entries.saveAndFlush(new FuelEntry(command,pendingGap)).view(false);
+            return entries.saveAndFlush(new FuelEntry(command)).view(false);
         } catch (DataIntegrityViolationException error) {
             // Different vehicle locks cannot serialize a shared client UUID; roll back this transaction.
             for (Throwable cause=error; cause != null; cause=cause.getCause()) {
@@ -109,8 +107,7 @@ public class FuelEntryService {
         if (previous.isPresent() && previous.get().odometerKm() > command.odometerKm() || next.isPresent() && next.get().odometerKm() < command.odometerKm())
             throw DomainValues.invalid("odometerKm","Hod\u00f4metro deve ficar entre os vizinhos cronol\u00f3gicos.");
         for (FuelEntry same:ties) {
-            if (same.odometerKm() != command.odometerKm() || same.tankState() == TankState.FULL || command.tankState() == TankState.FULL
-                || same.historyGapBefore() || command.historyGapBefore())
+            if (same.odometerKm() != command.odometerKm())
                 throw DomainValues.invalid("occurredAt","Ordem amb\u00edgua no mesmo instante; corrija a hora.");
         }
     }
@@ -121,16 +118,16 @@ public class FuelEntryService {
     }
     @Transactional(readOnly=true)
     public FuelEntryDtos.Page list(UUID vehicleId, LocalDate from, LocalDate to, String timezone,
-        FuelType fuelType, TankState tankState, FuelEntryFilters bounds, int page, int size) {
-        return list(vehicleId,from,to,timezone,fuelType,tankState,bounds,page,size,null,null,null);
+        FuelType fuelType, FuelEntryFilters bounds, int page, int size) {
+        return list(vehicleId,from,to,timezone,fuelType,bounds,page,size,null,null,null);
     }
     @Transactional(readOnly=true)
     public FuelEntryDtos.Page list(UUID vehicleId, LocalDate from, LocalDate to, String timezone,
-        FuelType fuelType, TankState tankState, FuelEntryFilters bounds, int page, int size,
+        FuelType fuelType, FuelEntryFilters bounds, int page, int size,
         Instant occurredFrom, Instant occurredTo, UUID entryId) {
         vehicles.owned(vehicleId);
         ZoneId zone=DomainValues.zone(timezone);
-        if (page < 0 || size < 1 || size > 100) throw new ApiException(400,"INVALID_PAGINATION","page >= 0 e size entre 1 e 100.");
+        if (page < 0 || size < 1 || size > 20) throw new ApiException(400,"INVALID_PAGINATION","page >= 0 e size entre 1 e 20.");
         if (from != null && to != null && from.isAfter(to)) throw DomainValues.invalid("to","Fim anterior ao in\u00edcio.");
         if (occurredFrom != null && occurredTo != null && occurredFrom.isAfter(occurredTo)) throw DomainValues.invalid("occurredTo","Fim anterior ao início.");
         Instant start=from == null ? null : from.atStartOfDay(zone).toInstant();
@@ -146,7 +143,6 @@ public class FuelEntryService {
             if(start != null) predicates.add(builder.greaterThanOrEqualTo(root.get("occurredAt"),start));
             if(end != null) predicates.add(builder.lessThan(root.get("occurredAt"),end));
             if(fuelType != null) predicates.add(builder.equal(root.get("fuelType"),fuelType));
-            if(tankState != null) predicates.add(builder.equal(root.get("tankState"),tankState));
             if(bounds.minTotalPaid() != null) predicates.add(builder.greaterThanOrEqualTo(root.get("paidTotal"),bounds.minTotalPaid()));
             if(bounds.maxTotalPaid() != null) predicates.add(builder.lessThanOrEqualTo(root.get("paidTotal"),bounds.maxTotalPaid()));
             if(bounds.minLiters() != null) predicates.add(builder.greaterThanOrEqualTo(root.get("liters"),bounds.minLiters()));
@@ -156,6 +152,12 @@ public class FuelEntryService {
             return builder.and(predicates.toArray(Predicate[]::new));
         };
         var result=entries.findAll(filter,PageRequest.of(page,size,Sort.by(Sort.Direction.DESC,"occurredAt","id")));
-        return new FuelEntryDtos.Page(result.getContent().stream().map(e -> e.view(false)).toList(),page,size,result.getTotalElements(),result.getTotalPages());
+        var months=entries.monthlyTotals(filter,zone.getId());
+        var paidTotal=months.stream().map(m -> m.paidTotal()).reduce(BigDecimal.ZERO,BigDecimal::add);
+        var purchasedLiters=months.stream().map(m -> m.purchasedLiters()).reduce(BigDecimal.ZERO,BigDecimal::add);
+        var summary=new FuelEntryDtos.Summary(paidTotal.setScale(2).toPlainString(),purchasedLiters.setScale(3).toPlainString());
+        var monthlyCounts=months.stream().map(m -> new FuelEntryDtos.MonthlyCount(m.month(),m.purchaseCount())).toList();
+        return new FuelEntryDtos.Page(result.getContent().stream().map(e -> e.view(false)).toList(),page,size,
+            result.getTotalElements(),result.getTotalPages(),summary,monthlyCounts);
     }
 }

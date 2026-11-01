@@ -42,7 +42,7 @@ class FuelEntryEditingIT {
         var before=get(access,route);
         String hash=jdbc.queryForObject("select create_request_hash from fuel_entries where id=?",String.class,id(original));
         var update=update(original); update.put("liters","10.123"); update.put("unitPrice","6.1234");
-        update.put("paidTotal","60.00"); update.put("adjustmentReason"," desconto "); update.put("notes","Corrigido");
+        update.put("paidTotal","60.00"); update.put("adjustmentReason"," desconto ");
         var edited=put(access,route,before.etag(),update);
         assertThat(edited.status()).as("%s",edited.body()).isEqualTo(200);
         assertThat(edited.etag()).isNotEqualTo(before.etag());
@@ -60,7 +60,7 @@ class FuelEntryEditingIT {
         var replay=request("POST",path(vehicle),access,null,original);
         assertThat(replay.status()).isEqualTo(200);
         assertThat(replay.body().path("idempotentReplay").asBoolean()).isTrue();
-        assertThat(replay.body().path("notes").asString()).isEqualTo("Corrigido");
+        assertThat(replay.body().path("paidTotal").asString()).isEqualTo("60.00");
         assertThat(replay.etag()).isEqualTo(edited.etag());
         var changedPost=new LinkedHashMap<>(original); changedPost.put("paidTotal","59.99");
         assertThat(request("POST",path(vehicle),access,null,changedPost).status()).isEqualTo(409);
@@ -86,7 +86,7 @@ class FuelEntryEditingIT {
     @Test void missingMalformedAndStaleEtagsNeverOverwrite() throws Exception {
         String access=account(), vehicle=vehicle(access);
         var original=entry("2026-10-10T12:00:00Z",100); String route=create(access,vehicle,original);
-        var input=update(original); input.put("notes","must not persist");
+        var input=update(original); input.put("odometerKm",101);
         assertThat(put(access,route,null,input).body().path("code").asString()).isEqualTo("PRECONDITION_REQUIRED");
         assertThat(put(access,route,null,input).status()).isEqualTo(428);
         for (String tag:List.of("0","W/\"0\"","*","\"-1\"","\"00\"","\"0\", \"1\"","\"9223372036854775808\"")) {
@@ -97,7 +97,7 @@ class FuelEntryEditingIT {
         var stale=put(access,route,"\"1\"",input);
         assertThat(stale.status()).isEqualTo(412);
         assertThat(stale.body().path("code").asString()).isEqualTo("PRECONDITION_FAILED");
-        assertThat(get(access,route).body().path("notes").isNull()).isTrue();
+        assertThat(get(access,route).body().path("odometerKm").asInt()).isEqualTo(100);
         assertThat(get(access,route).etag()).isEqualTo("\"0\"");
     }
 
@@ -158,15 +158,14 @@ class FuelEntryEditingIT {
         assertThat(get(access,lastRoute).body()).isEqualTo(beforeLast);
     }
 
-    @Test void tiesPreserveExistingPartialFullAndGapRules() throws Exception {
+    @Test void tiesAllowEqualReadingsAndRejectDifferentOdometers() throws Exception {
         String access=account(), vehicle=vehicle(access);
         var first=entry("2026-10-10T12:00:00Z",100);
         var second=entry("2026-10-11T12:00:00Z",100);
-        first.put("tankState","PARTIAL"); second.put("tankState","PARTIAL");
         create(access,vehicle,first); String route=create(access,vehicle,second);
         var input=update(second); input.put("occurredAt",first.get("occurredAt"));
         var tied=put(access,route,"\"0\"",input); assertThat(tied.status()).isEqualTo(200);
-        for (var invalid:List.of(Map.entry("tankState","FULL"),Map.entry("historyGapBefore",true),Map.entry("odometerKm",101))) {
+        for (var invalid:List.of(Map.entry("odometerKm",101))) {
             var changed=new LinkedHashMap<>(input); changed.put(invalid.getKey(),invalid.getValue());
             var rejected=put(access,route,tied.etag(),changed);
             assertThat(rejected.status()).isEqualTo(422);
@@ -177,10 +176,12 @@ class FuelEntryEditingIT {
     @Test void concurrentPutsHaveOneWinnerAndCreateSharesTheVehicleLock() throws Exception {
         String access=account(), vehicle=vehicle(access);
         var original=entry("2026-10-10T12:00:00Z",100); String route=create(access,vehicle,original);
-        var a=update(original); a.put("notes","A"); var b=update(original); b.put("notes","B");
+        var a=update(original); a.put("odometerKm",101); var b=update(original); b.put("odometerKm",102);
         assertThat(parallel(()->put(access,route,"\"0\"",a).status(),()->put(access,route,"\"0\"",b).status()))
             .containsExactlyInAnyOrder(200,412);
         assertThat(get(access,route).body().path("version").asLong()).isEqualTo(1);
+        int committedOdometer=get(access,route).body().path("odometerKm").asInt();
+        assertThat(committedOdometer).isIn(101,102);
         var edited=update(original); edited.put("odometerKm",300);
         var inserted=entry("2026-10-11T12:00:00Z",200);
         assertThat(parallel(()->put(access,route,"\"1\"",edited).status(),
@@ -189,44 +190,34 @@ class FuelEntryEditingIT {
         var history=get(access,path(vehicle)).body().path("items");
         if (history.size()==2) {
             assertThat(history.get(0).path("odometerKm").asInt()).isEqualTo(200);
-            assertThat(history.get(1).path("odometerKm").asInt()).isEqualTo(100);
+            assertThat(history.get(1).path("odometerKm").asInt()).isEqualTo(committedOdometer);
         } else assertThat(history.get(0).path("odometerKm").asInt()).isEqualTo(300);
     }
 
-    @Test void metricsAndConsumptionRecalculateFromEditedMoneyVolumeTankAndGap() throws Exception {
+    @Test void metricsRecalculateFromEditedMoneyAndVolume() throws Exception {
         String access=account(), vehicle=vehicle(access);
         create(access,vehicle,entry("2026-10-10T12:00:00Z",10000));
-        var partial=entry("2026-10-12T12:00:00Z",10200); partial.put("tankState","PARTIAL");
+        var partial=entry("2026-10-12T12:00:00Z",10200);
         String route=create(access,vehicle,partial);
         create(access,vehicle,entry("2026-10-14T12:00:00Z",10500));
         String summary="/vehicles/"+vehicle+"/summary";
-        assertThat(get(access,summary).body().path("periodConsumptionKmPerLiter").asString()).isEqualTo("25.00");
         var input=update(partial); input.put("liters","20"); input.put("paidTotal","120");
         var edited=put(access,route,"\"0\"",input); assertThat(edited.status()).isEqualTo(200);
         var metrics=get(access,summary).body();
         assertThat(metrics.path("paidTotal").asString()).isEqualTo("240.00");
         assertThat(metrics.path("purchasedLiters").asString()).isEqualTo("40.000");
-        assertThat(metrics.path("cycleLiters").asString()).isEqualTo("30.000");
-        assertThat(metrics.path("periodConsumptionKmPerLiter").asString()).isEqualTo("16.67");
-        input.put("historyGapBefore",true);
-        var gap=put(access,route,edited.etag(),input); assertThat(gap.status()).isEqualTo(200);
-        assertThat(get(access,summary).body().path("periodConsumptionKmPerLiter").isNull()).isTrue();
-        input.put("historyGapBefore",false); input.put("tankState","FULL");
-        assertThat(put(access,route,gap.etag(),input).status()).isEqualTo(200);
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isEqualTo(2);
+        assertThat(metrics.path("weightedPaidPrice").asString()).isEqualTo("6.0000");
     }
 
-    @Test void historicalCorrectionsPreserveLegacyGpsAndDoNotConsumePendingGap() throws Exception {
+    @Test void historicalCorrectionsPreserveLegacyGpsOnArchivedVehicles() throws Exception {
         String access=account(), vehicle=vehicle(access);
         var original=entry("2026-10-10T12:00:00Z",100); String route=create(access,vehicle,original);
         jdbc.update("update fuel_entries set latitude=null,longitude=null where id=?",id(original));
-        jdbc.update("update vehicles set archived_at=now(),pending_history_gap_after='2026-10-09T12:00:00Z' where id=?",UUID.fromString(vehicle));
-        var input=update(original); input.put("notes","Histórico");
+        jdbc.update("update vehicles set archived_at=now() where id=?",UUID.fromString(vehicle));
+        var input=update(original);
         var edited=put(access,route,"\"0\"",input); assertThat(edited.status()).isEqualTo(200);
         assertThat(edited.body().path("latitude").isNull()).isTrue();
         assertThat(edited.body().path("longitude").isNull()).isTrue();
-        assertThat(edited.body().path("historyGapBefore").asBoolean()).isFalse();
-        assertThat(jdbc.queryForObject("select pending_history_gap_after is not null from vehicles where id=?",Boolean.class,UUID.fromString(vehicle))).isTrue();
     }
 
     @Test void replacingHistoricalGpsRequiresAValidPairAndNullPreservesIt() throws Exception {
@@ -251,7 +242,7 @@ class FuelEntryEditingIT {
         String access=account(), vehicle=vehicle(access);
         var original=entry("2026-10-10T12:00:00Z",100); String route=create(access,vehicle,original);
         jdbc.update("delete from vehicle_allowed_fuels where vehicle_id=? and fuel_type='GASOLINE_REGULAR'",UUID.fromString(vehicle));
-        var input=update(original); input.put("notes","Corrigir sem mudar combustível histórico");
+        var input=update(original);
         var preserved=put(access,route,"\"0\"",input);
         assertThat(preserved.status()).as("%s",preserved.body()).isEqualTo(200);
         assertThat(preserved.body().path("fuelType").asString()).isEqualTo("GASOLINE_REGULAR");
@@ -294,7 +285,6 @@ class FuelEntryEditingIT {
         input.put("id",UUID.randomUUID().toString()); input.put("occurredAt",when); input.put("timezone","America/Sao_Paulo");
         input.put("odometerKm",odometer); input.put("fuelType","GASOLINE_REGULAR");
         input.put("liters","10"); input.put("unitPrice","6"); input.put("paidTotal","60");
-        input.put("tankState","FULL"); input.put("historyGapBefore",false);
         input.put("latitude",new BigDecimal("-23.55052")); input.put("longitude",new BigDecimal("-46.633308")); return input;
     }
     private Map<String,Object> update(Map<String,Object> original) {

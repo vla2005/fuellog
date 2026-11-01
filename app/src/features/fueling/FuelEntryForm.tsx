@@ -805,13 +805,9 @@ export function FuelEntryForm({
           liters: preserveOriginalAmounts ? originalEntry.liters : parsedLiters.normalizedDot!,
           unitPrice: preserveOriginalAmounts ? originalEntry.unitPrice : parsedUnitPrice.normalizedDot!,
           paidTotal: preserveOriginalAmounts ? originalEntry.paidTotal : parsedPaid.normalizedDot!,
-          tankState: originalEntry.tankState,
-          historyGapBefore: originalEntry.historyGapBefore,
           adjustmentReason: preserveOriginalAmounts && adjustmentReason === (originalEntry.adjustmentReason ?? '')
             ? originalEntry.adjustmentReason
             : hasDiscount ? cleanReason : initialDiscount ? null : originalEntry.adjustmentReason,
-          stationName: originalEntry.stationName,
-          notes: originalEntry.notes,
           latitude: originalEntry.latitude,
           longitude: originalEntry.longitude,
         };
@@ -855,11 +851,7 @@ export function FuelEntryForm({
         paidTotal: parsedPaid.normalizedDot!,
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
-        tankState: 'UNKNOWN',
-        historyGapBefore: false,
         adjustmentReason: cleanReason,
-        stationName: null,
-        notes: null,
       };
     }
 
@@ -2222,31 +2214,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     flexShrink: 0,
   },
-  tankSection: {
-    gap: 6,
-  },
-  tankHeading: {
-    ...typography.bodyStrong,
-    fontSize: 15,
-  },
-  gapRow: {
-    minHeight: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  gapCheckbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gapLabel: {
-    ...typography.body,
-    fontSize: 14,
-  },
   moreDetailsCardRow: {
     minHeight: 46,
     borderRadius: radii.md,
@@ -2284,16 +2251,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     ...typography.body,
-    ...Platform.select({
-      web: {
-        outlineStyle: 'none',
-        outlineWidth: 0,
-      } as any,
-    }),
-  },
-  notesInput: {
-    minHeight: 72,
-    textAlignVertical: 'top',
     ...Platform.select({
       web: {
         outlineStyle: 'none',

@@ -46,16 +46,12 @@ test('UpdateFuelEntryRequest: chaves conferem com a especificação OpenAPI / DT
   const expectedKeys = [
     'adjustmentReason',
     'fuelType',
-    'historyGapBefore',
     'latitude',
     'liters',
     'longitude',
-    'notes',
     'odometerKm',
     'occurredAt',
     'paidTotal',
-    'stationName',
-    'tankState',
     'timezone',
     'unitPrice',
   ].sort();
@@ -95,11 +91,11 @@ test('updateFuelEntry: envia PUT para a mesma URL com If-Match forte entre aspas
         paidTotal: capturedBody.paidTotal,
         referenceTotal: '61.99',
         adjustmentAmount: '-1.99',
-        tankState: capturedBody.tankState,
-        historyGapBefore: capturedBody.historyGapBefore,
+
+
         adjustmentReason: capturedBody.adjustmentReason,
-        stationName: capturedBody.stationName,
-        notes: capturedBody.notes,
+
+
         version: originalVersion + 1,
         idempotentReplay: false,
         latitude: capturedBody.latitude,
@@ -124,11 +120,11 @@ test('updateFuelEntry: envia PUT para a mesma URL com If-Match forte entre aspas
       liters: '10.123',
       unitPrice: '6.1234',
       paidTotal: '60.00',
-      tankState: 'FULL',
-      historyGapBefore: false,
+
+
       adjustmentReason: 'desconto especial',
-      stationName: 'Posto Shell Histórico',
-      notes: 'Nota original preservada',
+
+
       latitude: -23.55052,
       longitude: -46.633308,
     };
@@ -145,8 +141,6 @@ test('updateFuelEntry: envia PUT para a mesma URL com If-Match forte entre aspas
     assert.equal(capturedBody.unitPrice, '6.1234');
     assert.equal(capturedBody.paidTotal, '60.00');
     assert.equal(capturedBody.odometerKm, 12500);
-    assert.equal(capturedBody.stationName, 'Posto Shell Histórico');
-    assert.equal(capturedBody.notes, 'Nota original preservada');
     assert.equal(capturedBody.latitude, -23.55052);
     assert.equal(capturedBody.longitude, -46.633308);
     assert.equal(capturedBody.id, undefined);
@@ -534,7 +528,7 @@ test('412 PRECONDITION_FAILED e recarga da versão mais recente: populateFromEnt
     unitPrice: '5.4300',
     odometerKm: 120500,
     version: 1,
-    stationName: 'Posto Antigo',
+
     latitude: -23.55052,
     longitude: -46.633308,
   };
@@ -561,11 +555,11 @@ test('412 PRECONDITION_FAILED e recarga da versão mais recente: populateFromEnt
           paidTotal: '190.80',
           referenceTotal: '190.80',
           adjustmentAmount: '0.00',
-          tankState: 'PARTIAL',
-          historyGapBefore: true,
+
+
           adjustmentReason: null,
-          stationName: 'Posto Concorrente Atualizado',
-          notes: 'Alterado externamente',
+
+
           version: 2,
           latitude: -23.56000,
           longitude: -46.64000,
@@ -607,9 +601,9 @@ test('412 PRECONDITION_FAILED e recarga da versão mais recente: populateFromEnt
           liters: '35.1',
           unitPrice: '5.43',
           paidTotal: '190.59',
-          tankState: 'FULL',
-          historyGapBefore: false,
-          stationName: formState.stationName,
+
+
+
           latitude: formState.latitude,
           longitude: formState.longitude,
         });
@@ -637,17 +631,16 @@ test('412 PRECONDITION_FAILED e recarga da versão mais recente: populateFromEnt
       unitPrice: latest.unitPrice,
       odometerKm: latest.odometerKm,
       version: latest.version,
-      stationName: latest.stationName,
+
       latitude: latest.latitude,
       longitude: latest.longitude,
-      tankState: latest.tankState,
-      historyGapBefore: latest.historyGapBefore,
-      notes: latest.notes,
+
+
+
     };
 
     assert.equal(formState.version, 2);
     assert.equal(formState.odometerKm, 121000);
-    assert.equal(formState.stationName, 'Posto Concorrente Atualizado');
     assert.equal(formState.latitude, -23.56000);
     assert.equal(formState.longitude, -46.64000);
     assert.equal(lScale, 3);
@@ -662,17 +655,16 @@ test('412 PRECONDITION_FAILED e recarga da versão mais recente: populateFromEnt
       liters: formState.liters,
       unitPrice: formState.unitPrice,
       paidTotal: '190.80',
-      tankState: formState.tankState,
-      historyGapBefore: formState.historyGapBefore,
-      stationName: formState.stationName,
-      notes: formState.notes,
+
+
+
+
       latitude: formState.latitude,
       longitude: formState.longitude,
     });
 
     assert.equal(saved.version, 3);
     assert.equal(saved.odometerKm, 121000);
-    assert.equal(saved.stationName, 'Posto Concorrente Atualizado');
     assert.equal(saved.latitude, -23.56000);
   } finally {
     globalThis.fetch = originalFetch;

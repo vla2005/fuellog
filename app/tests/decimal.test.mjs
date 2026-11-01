@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   calculateAdjustment,
   calculateReferenceTotal,
-  formatConsumptionBR,
   parsePositiveDecimalInput,
 } from '../src/utils/decimal.ts';
 
@@ -52,11 +51,4 @@ test('referência arredondada a zero ainda exige motivo para ajuste de seis cent
   assert.equal(result.diffCents, 6n);
   assert.equal(result.adjustmentDot, '0.06');
   assert.equal(result.requiresReason, true);
-});
-
-test('consumo indisponível continua nulo', () => {
-  assert.equal(formatConsumptionBR(null), null);
-  assert.equal(formatConsumptionBR(undefined), null);
-  assert.equal(formatConsumptionBR(''), null);
-  assert.equal(formatConsumptionBR('9.88'), '9,88 km/L');
 });

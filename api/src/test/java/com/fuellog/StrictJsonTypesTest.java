@@ -1,7 +1,6 @@
 package com.fuellog;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.vehicles.dtos.VehicleDtos;
 import com.fuellog.vehicles.enums.FuelType;
 
@@ -52,19 +51,11 @@ class StrictJsonTypesTest {
     void enumNamesCannotBeReplacedByTheirJavaOrdinal() {
         assertThatThrownBy(() -> mapper.readValue("{\"allowedFuels\":[0]}", VehicleDtos.Create.class))
                 .isInstanceOf(JacksonException.class);
-        for (String field : List.of("fuelType", "tankState")) {
+        for (String field : List.of("fuelType")) {
             for (String value : List.of("0", "\"0\"")) {
                 assertThatThrownBy(() -> mapper.readValue("{\"" + field + "\":" + value + "}", FuelEntryDtos.Create.class))
                         .isInstanceOf(JacksonException.class);
             }
-        }
-    }
-
-    @Test
-    void continuityRequiresAJsonBoolean() {
-        for (String value : List.of("0", "2", "0.5", "\"false\"", "\"true\"")) {
-            assertThatThrownBy(() -> mapper.readValue("{\"historyGapBefore\":" + value + "}", FuelEntryDtos.Create.class))
-                    .isInstanceOf(JacksonException.class);
         }
     }
 
@@ -86,10 +77,8 @@ class StrictJsonTypesTest {
         var vehicle = mapper.readValue("{\"modelYear\":2020,\"allowedFuels\":[\"GASOLINE_REGULAR\"]}", VehicleDtos.Create.class);
         assertThat(vehicle.modelYear()).isEqualTo(2020);
         assertThat(vehicle.allowedFuels()).containsExactly(FuelType.GASOLINE_REGULAR);
-        var entry = mapper.readValue("{\"fuelType\":\"GASOLINE_REGULAR\",\"tankState\":\"FULL\",\"historyGapBefore\":false,\"liters\":\"35.000\"}", FuelEntryDtos.Create.class);
+        var entry = mapper.readValue("{\"fuelType\":\"GASOLINE_REGULAR\",\"liters\":\"35.000\"}", FuelEntryDtos.Create.class);
         assertThat(entry.fuelType()).isEqualTo(FuelType.GASOLINE_REGULAR);
-        assertThat(entry.tankState()).isEqualTo(TankState.FULL);
-        assertThat(entry.historyGapBefore()).isFalse();
         assertThat(entry.liters()).isEqualTo("35.000");
     }
 }

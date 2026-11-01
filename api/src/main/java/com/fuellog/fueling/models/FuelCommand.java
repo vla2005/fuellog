@@ -1,7 +1,6 @@
 package com.fuellog.fueling.models;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.platform.validation.DomainValues;
 import com.fuellog.vehicles.enums.FuelType;
 
@@ -13,13 +12,11 @@ import java.time.*;
 import java.util.*;
 
 public record FuelCommand(UUID id, UUID vehicleId, Instant occurredAt, String timezone, long odometerKm,
-    FuelType fuelType, BigDecimal liters, BigDecimal unitPrice, BigDecimal paidTotal, TankState tankState,
-    boolean historyGapBefore, String adjustmentReason, String stationName, String notes,
+    FuelType fuelType, BigDecimal liters, BigDecimal unitPrice, BigDecimal paidTotal, String adjustmentReason,
     BigDecimal latitude, BigDecimal longitude) {
     public static FuelCommand normalize(UUID vehicleId, UUID entryId, FuelEntryDtos.Update input) {
         return normalize(vehicleId,new FuelEntryDtos.Create(entryId,input.occurredAt(),input.timezone(),input.odometerKm(),
-            input.fuelType(),input.liters(),input.unitPrice(),input.paidTotal(),input.tankState(),input.historyGapBefore(),
-            input.adjustmentReason(),input.stationName(),input.notes(),input.latitude(),input.longitude()));
+            input.fuelType(),input.liters(),input.unitPrice(),input.paidTotal(),input.adjustmentReason(),input.latitude(),input.longitude()));
     }
     public static FuelCommand normalize(UUID vehicleId, FuelEntryDtos.Create input) {
         if (input.id() == null) throw DomainValues.invalid("id","UUID do cliente obrigat\u00f3rio.");
@@ -38,9 +35,7 @@ public record FuelCommand(UUID id, UUID vehicleId, Instant occurredAt, String ti
         if (!consistent(liters,price,paid) && paid.subtract(reference(liters,price)).abs().compareTo(new BigDecimal("0.05")) > 0 && reason == null)
             throw DomainValues.invalid("adjustmentReason","Justifique ajuste superior a R$ 0,05.");
         return new FuelCommand(input.id(),vehicleId,input.occurredAt().toInstant(),input.timezone(),input.odometerKm(),
-            input.fuelType(),liters,price,paid,input.tankState() == null ? TankState.UNKNOWN : input.tankState(),
-            Boolean.TRUE.equals(input.historyGapBefore()),reason,
-            DomainValues.text(input.stationName(),"stationName",120,false),DomainValues.text(input.notes(),"notes",1000,false),latitude,longitude);
+            input.fuelType(),liters,price,paid,reason,latitude,longitude);
     }
     private static BigDecimal coordinate(BigDecimal value, String field, int maximum) {
         if (value == null) return null;
@@ -69,9 +64,10 @@ public record FuelCommand(UUID id, UUID vehicleId, Instant occurredAt, String ti
         try {
             var bytes=new ByteArrayOutputStream();
             var out=new DataOutputStream(bytes);
+            // Keep legacy empty-field slots so original app commands replay after edits and migration.
             Object[] values={id,vehicleId,occurredAt,timezone,odometerKm,fuelType,liters.stripTrailingZeros().toPlainString(),
-                unitPrice.stripTrailingZeros().toPlainString(),paidTotal.stripTrailingZeros().toPlainString(),tankState,
-                historyGapBefore,adjustmentReason,stationName,notes};
+                unitPrice.stripTrailingZeros().toPlainString(),paidTotal.stripTrailingZeros().toPlainString(),"UNKNOWN",
+                false,adjustmentReason,null,null};
             for (Object value:values) {
                 if(value == null) out.writeInt(-1);
                 else { byte[] data=value.toString().getBytes(StandardCharsets.UTF_8); out.writeInt(data.length); out.write(data); }

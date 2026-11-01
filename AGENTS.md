@@ -43,7 +43,7 @@ Agrupe etapas do Antigravity para evitar trocas desnecessárias; status fica com
 - Novas migrações Flyway; não edite as aplicadas. Sem `ddl-auto=update` permanente. BigDecimal/NUMERIC para precisão.
 - Valide entradas, autorização e posse no servidor, inclusive métricas/exportações. UUID não autoriza acesso. Senhas com hash; segredos fora de código, logs e bundle.
 - Preserve autenticação do plano: access curto, refresh duradouro com rotação/revogação, validação central em toda rota protegida e usuário do contexto autenticado. Refresh no app coordenado, sem loops.
-- Preserve campos e regras de abastecimento, total efetivamente pago, validação retroativa entre vizinhos, reenvios e conflitos. Consumo usa ciclos válidos entre cheios, incluindo intermediários e excluindo o volume inicial; não invente indicadores incompletos.
+- Preserve campos e regras de abastecimento, total efetivamente pago, validação retroativa entre vizinhos, reenvios e conflitos. Métricas agregam compras reais do recorte; sem estado de tanque e lacunas, não calcule ciclos, km/L ou custo por quilômetro inferidos.
 - Distinga mocks de integração real. Sem destruição de dados reais ou mudanças em produção sem autorização e recuperação adequada.
 - Preserve mascote de boné, jaqueta azul e caderninho, wordmark pixelado e paleta aprovada. Sem redesenho ou propostas rejeitadas. Consulte imagens e Paper/FigCraft apenas quando pertinentes.
 - Reutilize componentes/tokens; mantenha temas claro/escuro, legibilidade, safe areas, teclado, fonte ampliada e acessibilidade.

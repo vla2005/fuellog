@@ -1,3 +1,4 @@
+import { fuelHistoryPage, purchaseDashboard } from './api-fixtures';
 import { test, expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -29,10 +30,10 @@ const mockEntries = [
     unitPrice: '5.8900',
     paidTotal: '266.29',
     adjustmentAmount: '0.00',
-    tankState: 'FULL',
-    historyGapBefore: false,
-    stationName: 'Posto Shell Central',
-    notes: '',
+
+
+
+
     version: 1,
     createdAt: '2026-10-24T14:35:00Z',
   },
@@ -47,10 +48,10 @@ const mockEntries = [
     unitPrice: '3.7900',
     paidTotal: '132.65',
     adjustmentAmount: '0.00',
-    tankState: 'PARTIAL',
-    historyGapBefore: false,
-    stationName: 'Posto Ipiranga',
-    notes: '',
+
+
+
+
     version: 1,
     createdAt: '2026-10-18T10:20:00Z',
   },
@@ -61,8 +62,8 @@ const mockSummary = {
   purchaseCount: 2,
   paidTotal: '398.94',
   purchasedLiters: '80.210',
-  periodConsumptionKmPerLiter: '12.50',
-  lastValidCycle: null,
+
+
 };
 
 let lastListQueryParams: Record<string, string> = {};
@@ -75,6 +76,7 @@ async function setupMockRoutes(page: Page) {
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = request.url();
+    if (url.includes('/dashboard')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(purchaseDashboard()) });
 
     if (url.includes('/auth/login')) {
       const now = new Date();
@@ -117,8 +119,7 @@ async function setupMockRoutes(page: Page) {
     if (
       url.includes('/vehicles') &&
       !url.includes('/fuel-entries') &&
-      !url.includes('/summary') &&
-      !url.includes('/consumption-cycles')
+      !url.includes('/summary')
     ) {
       return route.fulfill({
         status: 200,
@@ -127,17 +128,6 @@ async function setupMockRoutes(page: Page) {
       });
     }
 
-    if (url.includes('/consumption-cycles')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          vehicleId: mockVehicle.id,
-          items: [],
-          currentUnavailableReason: null,
-        }),
-      });
-    }
 
     if (url.includes('/summary')) {
       return route.fulfill({
@@ -159,13 +149,7 @@ async function setupMockRoutes(page: Page) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          items: mockEntries,
-          page: 0,
-          size: 30,
-          totalElements: mockEntries.length,
-          totalPages: 1,
-        }),
+        body: JSON.stringify(fuelHistoryPage(mockEntries)),
       });
     }
 
@@ -234,7 +218,7 @@ test.describe('Filtros do Histórico e Calendário de Período', () => {
     // Seção Accordion: 3 itens sanfonados
     await expect(page.getByText('Valor pago')).toBeVisible();
     await expect(page.getByText('Quantidade de litros')).toBeVisible();
-    await expect(page.getByText('Preço por litro')).toBeVisible();
+    await expect(page.getByText('Preço por litro', { exact: true })).toBeVisible();
 
     // Botões inferiores: Limpar e Aplicar filtros
     await expect(page.getByRole('button', { name: 'Limpar filtros' })).toBeVisible();

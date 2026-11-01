@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import { FUEL_TYPE_LABELS, UNAVAILABLE_REASON_EXPLANATIONS } from '@/api/endpoints';
+import { FUEL_TYPE_LABELS } from '@/api/endpoints';
 import type { FuelType } from '@/api/types';
 import { CalendarIcon, ChevronDownIcon, DropletIcon } from '@/components/icons/AppIcons';
 import { AppSheet } from '@/components/overlays/AppSheet';
@@ -36,16 +36,9 @@ export function DashboardSection({ kind, cache, scope, vehicleId, version, timez
   useEffect(() => { setDetail(null); setListOpen(false); }, [signature]);
   useEffect(() => { if (fuel && !allowedFuels.includes(fuel)) setFuel(null); }, [allowedFuels,fuel]);
   const setRange = (range: DashboardPeriod) => { setPeriod(range); setMenu(null); };
-  const unit = kind === 'consumption' ? 'km/L' : kind === 'cost' ? 'R$/km' : kind === 'price' ? 'R$/L' : kind === 'liters' ? 'Litros (L)' : 'Reais (R$)';
-  const stat = !data ? null : kind === 'consumption' ? chartValue(kind,data.consumptionKmPerLiter) : kind === 'cost' ? chartValue(kind,data.replacementCostPerKm)
-    : kind === 'price' && data.prices.length ? chartValue(kind,data.prices[data.prices.length-1].unitPrice) : null;
-  const note = !data ? '' : kind === 'consumption' || kind === 'cost'
-    ? `${data.validCycleCount} ${data.validCycleCount === 1 ? 'ciclo válido' : 'ciclos válidos'} · ${fuel ? 'Somente ciclos puros deste combustível.' : 'Inclui ciclos mistos identificados nos detalhes.'}`
-    : kind === 'price' ? 'Último preço declarado · por abastecimento' : '';
-  const empty = kind === 'consumption' || kind === 'cost'
-    ? data?.unavailableReason ? UNAVAILABLE_REASON_EXPLANATIONS[data.unavailableReason].description : 'Nenhum ciclo válido neste período.'
-    : 'Nenhum abastecimento neste período e combustível.';
-  const isMetric=kind==='consumption'||kind==='cost'||kind==='price';
+  const unit = kind === 'price' ? 'R$/L' : kind === 'liters' ? 'Litros (L)' : 'Reais (R$)';
+  const stat = kind === 'price' && data?.prices.length ? chartValue(kind,data.prices[data.prices.length-1].unitPrice) : null;
+  const empty = 'Nenhum abastecimento neste período e combustível.';
   const statusHeight=kind==='fuel'?144+allowedFuels.length*48:312;
 
   return <View testID={`section-${kind}`} onLayout={event => { sectionTop.value = event.nativeEvent.layout.y; }}
@@ -61,9 +54,9 @@ export function DashboardSection({ kind, cache, scope, vehicleId, version, timez
         <DropletIcon size={20} color={colors.textPrimary} /><Text style={[styles.filterLabel,{color:colors.textPrimary}]}>{fuel ? FUEL_TYPE_LABELS[fuel] : 'Todos os combustíveis'}</Text><ChevronDownIcon size={16} color={colors.brandPrimary} />
       </Pressable> : null}
     </View>
-    {isMetric ? <View style={{minHeight:kind==='price'?86:108,gap:6}}>
+    {kind === 'price' ? <View style={{minHeight:86,gap:6}}>
       <Text style={[styles.stat,{color:colors.textPrimary}]}>{stat && stat!=='Indisponível'?stat:'—'}</Text>
-      <Text style={[styles.body,{color:colors.textSecondary}]}>{note || (kind==='price'?'Por abastecimento':'Entre tanques cheios.')}</Text>
+      <Text style={[styles.body,{color:colors.textSecondary}]}>Último preço declarado · por abastecimento</Text>
     </View> : null}
     {error && data ? <View><Text accessibilityRole="alert" style={[styles.body,{color:colors.dangerText}]}>{error}</Text><PrimaryButton label="Tentar novamente" variant="ghost" onPress={retry}/></View>:null}
     {loading && !data ? <View style={[styles.status,{minHeight:statusHeight}]} accessibilityRole="progressbar" accessibilityLabel={`Carregando ${CHART_TITLES[kind]}`}>

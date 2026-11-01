@@ -62,8 +62,8 @@ test('cadastro real, veículo, temas, logout e login pela interface', async ({ p
   expect(response.request().postDataJSON()).toEqual(uncertainPayload);
   const persisted = await response.json();
   expect(persisted).toMatchObject({ liters: '10.100', unitPrice: '5.43', paidTotal: '54.84',
-    latitude: -23.55052, longitude: -46.633308, tankState: 'UNKNOWN', historyGapBefore: false,
-    stationName: null, notes: null });
+    latitude: -23.55052, longitude: -46.633308,
+     });
   await expect(page).toHaveURL(/\/\/?$/);
   await page.getByRole('tab', { name: 'Histórico', exact: true }).click();
   await page.getByRole('button', { name: /^Abastecimento de R\$ 54,84, Gasolina comum, em / }).click();

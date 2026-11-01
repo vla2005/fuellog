@@ -5,15 +5,6 @@ export type FuelType =
   | 'DIESEL_S10'
   | 'DIESEL_S500';
 
-export type TankState = 'FULL' | 'PARTIAL' | 'UNKNOWN';
-
-export type UnavailableReason =
-  | 'NEEDS_FULL_TANK_BASELINE'
-  | 'OPEN_CYCLE'
-  | 'HISTORY_GAP'
-  | 'ZERO_DISTANCE'
-  | 'NO_VALID_CYCLE_IN_PERIOD';
-
 export interface RegisterRequest {
   name: string;
   email: string;
@@ -99,11 +90,7 @@ export interface UpdateFuelEntryRequest {
   liters: string;
   unitPrice: string;
   paidTotal: string;
-  tankState?: TankState | null;
-  historyGapBefore?: boolean | null;
   adjustmentReason?: string | null;
-  stationName?: string | null;
-  notes?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -117,11 +104,7 @@ export interface CreateFuelEntryRequest {
   liters: string;
   unitPrice: string;
   paidTotal: string;
-  tankState?: TankState | null;
-  historyGapBefore?: boolean | null;
   adjustmentReason?: string | null;
-  stationName?: string | null;
-  notes?: string | null;
   latitude: number;
   longitude: number;
 }
@@ -135,11 +118,7 @@ export interface FuelEntry {
   liters: string;
   unitPrice: string;
   paidTotal: string;
-  tankState: TankState;
-  historyGapBefore: boolean;
   adjustmentReason: string | null;
-  stationName: string | null;
-  notes: string | null;
   vehicleId: string;
   referenceTotal: string;
   adjustmentAmount: string;
@@ -155,30 +134,8 @@ export interface FuelEntryPage {
   size: number;
   totalElements: number;
   totalPages: number;
-}
-
-export interface ConsumptionCycle {
-  startEntryId: string;
-  endEntryId: string;
-  startedAt: string;
-  endedAt: string;
-  distanceKm: number;
-  liters: string;
-  paidTotal: string;
-  consumptionKmPerLiter: string | null;
-  replacementCostPerKm: string | null;
-  fuelTypes: FuelType[];
-  mixed: boolean;
-  unavailableReason: UnavailableReason | null;
-}
-
-export interface CyclesResponse {
-  vehicleId: string;
-  from: string | null;
-  to: string | null;
-  timezone: string;
-  items: ConsumptionCycle[];
-  currentUnavailableReason: UnavailableReason | null;
+  summary: { paidTotal: string; purchasedLiters: string };
+  monthlyCounts: { month: string; purchaseCount: number }[];
 }
 
 export interface SummaryResponse {
@@ -190,14 +147,6 @@ export interface SummaryResponse {
   paidTotal: string;
   purchasedLiters: string;
   weightedPaidPrice: string | null;
-  validCycleCount: number;
-  cycleDistanceKm: number;
-  cycleLiters: string;
-  periodConsumptionKmPerLiter: string | null;
-  periodReplacementCostPerKm: string | null;
-  periodUnavailableReason: UnavailableReason | null;
-  lastValidCycle: ConsumptionCycle | null;
-  lastConsumptionUnavailableReason: UnavailableReason | null;
 }
 
 export interface DashboardMonth {
@@ -212,9 +161,7 @@ export interface DashboardPrice {
 export interface DashboardResponse {
   vehicleId: string; from: string | null; to: string | null; timezone: string; fuelType: FuelType | null;
   purchaseCount: number; paidTotal: string; purchasedLiters: string; weightedUnitPrice: string | null;
-  validCycleCount: number; cycleDistanceKm: number; cycleLiters: string; cyclePaidTotal: string;
-  consumptionKmPerLiter: string | null; replacementCostPerKm: string | null; unavailableReason: UnavailableReason | null;
-  months: DashboardMonth[]; fuels: DashboardFuel[]; prices: DashboardPrice[]; cycles: ConsumptionCycle[];
+  months: DashboardMonth[]; fuels: DashboardFuel[]; prices: DashboardPrice[];
 }
 
 export interface ProblemDetails {

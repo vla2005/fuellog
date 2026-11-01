@@ -1,7 +1,6 @@
 package com.fuellog.fueling.models;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.repositories.FuelEntryRepository;
 import com.fuellog.fueling.services.FuelEntryService;
 import com.fuellog.platform.exceptions.ApiException;
@@ -29,9 +28,9 @@ class FuelEntryEditingTest {
 
     @BeforeEach void setup() {
         var create=new FuelEntryDtos.Create(entryId,now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,
-            FuelType.GASOLINE_REGULAR,"10.123","6.1234","61.99",TankState.FULL,false,null,null,null,
+            FuelType.GASOLINE_REGULAR,"10.123","6.1234","61.99",null,
             new BigDecimal("-23.55052"),new BigDecimal("-46.633308"));
-        entry=new FuelEntry(FuelCommand.normalize(vehicleId,create),false); setField(entry,"version",2L);
+        entry=new FuelEntry(FuelCommand.normalize(vehicleId,create)); setField(entry,"version",2L);
         when(vehicles.lockOwned(vehicleId)).thenReturn(vehicle);
         when(vehicle.allowedFuels()).thenReturn(Set.of(FuelType.ETHANOL));
         when(repository.findByIdAndVehicleId(entryId,vehicleId)).thenReturn(Optional.of(entry));
@@ -40,7 +39,7 @@ class FuelEntryEditingTest {
 
     private FuelEntryDtos.Update input(FuelType fuel, BigDecimal latitude, BigDecimal longitude) {
         return new FuelEntryDtos.Update(now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,fuel,
-            "10.123","6.1234","60.00",TankState.FULL,false,"desconto"," Posto ","editado",latitude,longitude);
+            "10.123","6.1234","60.00","desconto",latitude,longitude);
     }
 
     @Test void preservesIdentityCreationHashAndHistoricalFuelWithoutRecapturingGps() {
@@ -51,8 +50,7 @@ class FuelEntryEditingTest {
         assertEquals(hash,entry.createRequestHash()); assertEquals("60.00",view.paidTotal());
         assertEquals("61.99",view.referenceTotal()); assertEquals("-1.99",view.adjustmentAmount());
         assertEquals(new BigDecimal("-23.55052"),view.latitude());
-        assertEquals("Posto",view.stationName()); assertFalse(view.idempotentReplay());
-        verify(vehicle,never()).consumePendingGap();
+        assertFalse(view.idempotentReplay());
     }
 
     @Test void validatesChangedFuelAndAllowsAnAllowedReplacement() {

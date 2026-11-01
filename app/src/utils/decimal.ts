@@ -201,15 +201,6 @@ export function formatUnitPriceBR(dotStr: string | null | undefined, compactTwoD
   return `R$ ${formatDecimalBR(dotStr, decimals, decimals)}`;
 }
 
-/**
- * Formats consumption in 2 decimal places (e.g., 12,57 km/L).
- * Never returns 0 km/L when null/unavailable.
- */
-export function formatConsumptionBR(dotStr: string | null | undefined): string | null {
-  if (dotStr === null || dotStr === undefined || dotStr === '') return null;
-  return `${formatDecimalBR(dotStr, 2, 2)} km/L`;
-}
-
 export function formatOdometerBR(km: number | string | null | undefined, includeUnit = true): string {
   if (km === null || km === undefined || km === '') return '—';
   const intStr = String(km).replace(/\D/g, '');

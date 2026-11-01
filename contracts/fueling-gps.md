@@ -11,17 +11,19 @@
 
 Autenticação e posse continuam obrigatórias. Respostas de criação/reenvio, detalhe e histórico incluem as coordenadas como números. Registros anteriores têm ambos os campos nulos; o cliente informa localização indisponível, sem fabricar coordenadas nem consultar o GPS atual para representar um registro antigo.
 
-Omissão ou null de `tankState` produz `UNKNOWN`; de `historyGapBefore`, false. Lacunas pendentes do servidor continuam aplicáveis. Posto e observação permanecem opcionais no contrato para compatibilidade. O novo formulário deixa de coletar tanque, lacuna, posto e observação. Os dados antigos são preservados. `adjustmentReason` continua obrigatório quando o ajuste financeiro excede a tolerância existente. Sem novos registros FULL não há fechamento de novos ciclos cheio-a-cheio; compras e totais continuam contabilizados e consumo sem ciclo válido permanece indisponível.
+`tankState`, `historyGapBefore`, `stationName` e `notes` foram removidos dos comandos, respostas, filtros e banco. A política existente para propriedades JSON desconhecidas continua ignorando extras; isso não permite omitir campos obrigatórios nem contornar validações. `adjustmentReason` e as regras de desconto continuam preservados.
+
+Sem estado do tanque e lacunas não há ciclos confiáveis. O endpoint `/vehicles/{vehicleId}/consumption-cycles` e os campos de consumo, ciclos e custo por quilômetro de `/summary` e `/dashboard` foram removidos, sem valores substitutos. Dashboard mantém gastos por mês, gasto por combustível, evolução do preço por litro e litros por mês. Métricas incluem todas as compras ativas do recorte: `weightedUnitPrice` pondera preço declarado por litros, enquanto `weightedPaidPrice` divide total efetivamente pago por litros comprados.
 
 ## Captura e reenvio
 
 O app solicita localização automaticamente em primeiro plano, após restaurar o rascunho do usuário e veículo atuais. Não há rastreamento contínuo. Valida finitude e intervalos, normaliza uma vez com `Number(value.toFixed(7))` e preserva o par junto do UUID e restante do comando. GPS negado, desligado, indisponível ou com timeout bloqueia novo salvamento e preserva os campos digitados. Recapturar invalida imediatamente a coordenada anterior. Capturas pendentes são invalidadas quando a tela fica oculta ou o app entra em segundo plano; respostas obsoletas não substituem a captura atual.
 
-Após resposta incerta, reenvios usam exatamente o mesmo snapshot e UUID, sem recaptura. Reenvios exatos de comandos anteriores à exigência de GPS podem omitir as coordenadas: o hash original é mantido e o registro existente é devolvido com localização nula. Isso não permite criar um UUID novo sem GPS. Adicionar coordenadas a um comando legado já salvo resulta em conflito. Clientes antigos precisam atualizar para criar registros; comandos antigos já persistidos ainda podem confirmar seus reenvios.
+Após resposta incerta, reenvios usam exatamente o mesmo snapshot e UUID, sem recaptura. O hash original permanece imutável após edição e migração; os slots canônicos internos `UNKNOWN`, false, null, null mantêm compatibilidade com o formulário anterior. Comandos legados com outros valores nesses campos não são reproduzíveis pelo contrato novo e retornam conflito seguro. Reenvios exatos anteriores ao GPS podem omitir coordenadas quando o hash original corresponde; isso não permite criar UUID novo sem GPS. Adicionar coordenadas ao comando original já salvo retorna conflito. UUIDs excluídos continuam reservados e retornam `409 ENTRY_DELETED`, sem ressuscitar compras.
 
 ## Banco e integração
 
-`V3__fuel_entry_coordinates.sql` adiciona duas colunas NUMERIC(10,7) anuláveis, com restrições de par completo e intervalos. V1 permanece intacta. V2 pertence à funcionalidade de quilometragem do veículo: integrar V2 antes de aplicar V3 em bases persistentes, sem ativar migrações fora de ordem. Não há backfill, exclusão de colunas antigas ou recálculo de hashes e consumo.
+`V3__fuel_entry_coordinates.sql` adiciona duas colunas NUMERIC(10,7) anuláveis, com restrições de par completo e intervalos. `V8__remove_unused_fueling_fields.sql` remove somente `station_name`, `notes`, `tank_state`, `history_gap_before` de `fuel_entries` e o suporte exclusivo `pending_history_gap_after` de `vehicles`. V1–V7 permanecem intactas. V8 preserva registros, UUIDs/tombstones, hashes originais, versões, datas de auditoria, fuso, descontos, GPS e valores financeiros/hodômetro; não há reset ou recálculo de hashes.
 
 ## Mapa
 

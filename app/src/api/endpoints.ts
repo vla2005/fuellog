@@ -4,7 +4,6 @@ import {
   ApiError,
   CreateFuelEntryRequest,
   CreateVehicleRequest,
-  CyclesResponse,
   DashboardResponse,
   FuelEntry,
   FuelEntryPage,
@@ -16,7 +15,6 @@ import {
   RegisterRequest,
   RegisteredUser,
   SummaryResponse,
-  TankState,
   TokenResponse,
   TwoFactorDisableRequest,
   TwoFactorEnableRequest,
@@ -25,7 +23,6 @@ import {
   TwoFactorSetupResponse,
   TwoFactorStatus,
   TwoFactorVerifyRequest,
-  UnavailableReason,
 
   UpdateMeRequest,
   UpdateVehicleRequest,
@@ -219,7 +216,6 @@ export interface ListFuelEntriesParams {
   from?: string;
   to?: string;
   fuelType?: FuelType | null;
-  tankState?: TankState | null;
   timezone?: string;
   minTotalPaid?: string | null;
   maxTotalPaid?: string | null;
@@ -243,7 +239,6 @@ export async function listFuelEntries(
       to: params.to,
       timezone: params.timezone ?? 'America/Sao_Paulo',
       fuelType: params.fuelType ?? undefined,
-      tankState: params.tankState ?? undefined,
       occurredFrom: params.occurredFrom,
       occurredTo: params.occurredTo,
       entryId: params.entryId,
@@ -254,7 +249,7 @@ export async function listFuelEntries(
       minPricePerLiter: params.minPricePerLiter ?? undefined,
       maxPricePerLiter: params.maxPricePerLiter ?? undefined,
       page: params.page ?? 0,
-      size: params.size ?? 30,
+      size: params.size ?? 20,
     },
   });
 }
@@ -327,20 +322,6 @@ export async function getDashboard(vehicleId: string, params: DashboardParams): 
     query: { from: params.from ?? undefined, to: params.to ?? undefined, timezone: params.timezone, fuelType: params.fuelType ?? undefined } });
 }
 
-export async function getConsumptionCycles(
-  vehicleId: string,
-  params: { from?: string; to?: string } = {},
-): Promise<CyclesResponse> {
-  return apiRequest<CyclesResponse>({
-    method: 'GET',
-    path: `/vehicles/${encodeURIComponent(vehicleId)}/consumption-cycles`,
-    query: {
-      from: params.from,
-      to: params.to,
-    },
-  });
-}
-
 export const FUEL_TYPE_LABELS: Record<FuelType, string> = {
   GASOLINE_REGULAR: 'Gasolina comum',
   GASOLINE_ADDITIVE: 'Gasolina aditivada',
@@ -355,53 +336,4 @@ export const FUEL_TYPE_SHORT_LABELS: Record<FuelType, string> = {
   ETHANOL: 'Etanol',
   DIESEL_S10: 'Diesel S10',
   DIESEL_S500: 'Diesel S500',
-};
-
-export const TANK_STATE_LABELS: Record<TankState, string> = {
-  FULL: 'Tanque cheio',
-  PARTIAL: 'Parcial',
-  UNKNOWN: 'Não sei',
-};
-
-export const TANK_STATE_SHORT_LABELS: Record<TankState, string> = {
-  FULL: 'Cheio',
-  PARTIAL: 'Parcial',
-  UNKNOWN: 'Não sei',
-};
-
-export const UNAVAILABLE_REASON_EXPLANATIONS: Record<
-  UnavailableReason,
-
-  { badge: string; title: string; description: string }
-> = {
-  NEEDS_FULL_TANK_BASELINE: {
-    badge: 'Falta 1º tanque cheio',
-    title: 'Aguardando tanque cheio de referência',
-    description:
-      'Para iniciar um ciclo válido de consumo, registre pelo menos um abastecimento com "Tanque cheio" como marco inicial.',
-  },
-  OPEN_CYCLE: {
-    badge: 'Ciclo em aberto',
-    title: 'Aguardando próximo tanque cheio',
-    description:
-      'Já existe um tanque cheio inicial, mas o ciclo atual ainda está aberto. O consumo será calculado ao registrar o próximo tanque cheio.',
-  },
-  HISTORY_GAP: {
-    badge: 'Lacuna no histórico',
-    title: 'Ciclo interrompido por lacuna anterior',
-    description:
-      'Um abastecimento foi marcado com lacuna no histórico antes do fechamento do tanque cheio, impedindo o cálculo deste trecho.',
-  },
-  ZERO_DISTANCE: {
-    badge: 'Distância zero',
-    title: 'Sem distância percorrida entre marcos',
-    description:
-      'A distância entre os abastecimentos do ciclo foi zero quilômetros, não permitindo calcular km/L.',
-  },
-  NO_VALID_CYCLE_IN_PERIOD: {
-    badge: 'Sem ciclo no período',
-    title: 'Nenhum ciclo fechado neste período',
-    description:
-      'Não houve fechamento de ciclo válido entre dois tanques cheios dentro do período selecionado.',
-  },
 };

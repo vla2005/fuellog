@@ -58,46 +58,45 @@ class FuelEntryDeletionIT {
         assertThat(get(access,path(vehicle)).body().path("totalElements").asInt()).isZero();
     }
 
-    @Test void deletingPartialRemovesPurchasesAndKeepsGapAcrossEditsInsertsAndFutureCycles() throws Exception {
+    @Test void deletingPurchaseRemovesItFromEveryAggregateAfterEditsAndInserts() throws Exception {
         String access=account(), vehicle=vehicle(access);
         create(access,vehicle,entry("2026-10-10T12:00:00Z",100));
-        var middle=entry("2026-10-12T12:00:00Z",200); middle.put("tankState","PARTIAL");
+        var middle=entry("2026-10-12T12:00:00Z",200);
         String route=create(access,vehicle,middle);
         var end=entry("2026-10-14T12:00:00Z",300); String endRoute=create(access,vehicle,end);
-        String summary="/vehicles/"+vehicle+"/summary", cycles="/vehicles/"+vehicle+"/consumption-cycles";
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isEqualTo(1);
+        String summary="/vehicles/"+vehicle+"/summary";
         assertThat(request("DELETE",route,access,"\"0\"",null).status()).isEqualTo(204);
         var metrics=get(access,summary).body();
         assertThat(metrics.path("purchaseCount").asInt()).isEqualTo(2);
         assertThat(metrics.path("paidTotal").asString()).isEqualTo("120.00");
         assertThat(metrics.path("purchasedLiters").asString()).isEqualTo("20.000");
-        assertThat(metrics.path("validCycleCount").asInt()).isZero();
-        assertThat(metrics.path("periodConsumptionKmPerLiter").isNull()).isTrue();
-        assertThat(get(access,cycles).body().path("items").get(0).path("unavailableReason").asString()).isEqualTo("HISTORY_GAP");
-        var input=update(end); input.put("historyGapBefore",false);
+        var input=update(end);
         assertThat(put(access,endRoute,"\"0\"",input).status()).isEqualTo(200);
-        var inserted=entry("2026-10-13T12:00:00Z",250); inserted.put("tankState","PARTIAL"); create(access,vehicle,inserted);
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isZero();
+        var inserted=entry("2026-10-13T12:00:00Z",250); create(access,vehicle,inserted);
         create(access,vehicle,entry("2026-10-16T12:00:00Z",400));
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isEqualTo(1);
+        for (String endpoint:List.of(summary,"/vehicles/"+vehicle+"/dashboard")) {
+            var totals=get(access,endpoint).body();
+            assertThat(totals.path("purchaseCount").asInt()).isEqualTo(4);
+            assertThat(totals.path("paidTotal").asString()).isEqualTo("240.00");
+            assertThat(totals.path("purchasedLiters").asString()).isEqualTo("40.000");
+        }
     }
 
-    @Test void deletingFullBaselineAndLatestEntryNeverInventsConsumption() throws Exception {
+    @Test void deletingEveryPurchaseProducesEmptySummaryAndAllowsNewPurchases() throws Exception {
         String access=account(), vehicle=vehicle(access);
         String first=create(access,vehicle,entry("2026-10-10T12:00:00Z",100));
         String middle=create(access,vehicle,entry("2026-10-12T12:00:00Z",200));
         String last=create(access,vehicle,entry("2026-10-14T12:00:00Z",300));
         assertThat(request("DELETE",middle,access,"\"0\"",null).status()).isEqualTo(204);
         String summary="/vehicles/"+vehicle+"/summary";
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isZero();
         assertThat(request("DELETE",last,access,"\"0\"",null).status()).isEqualTo(204);
-        assertThat(get(access,"/vehicles/"+vehicle+"/consumption-cycles").body().path("currentUnavailableReason").asString()).isEqualTo("HISTORY_GAP");
         assertThat(request("DELETE",first,access,"\"0\"",null).status()).isEqualTo(204);
         assertThat(get(access,summary).body().path("purchaseCount").asInt()).isZero();
         create(access,vehicle,entry("2026-10-16T12:00:00Z",400));
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isZero();
+        assertThat(get(access,summary).body().path("purchaseCount").asInt()).isEqualTo(1);
         create(access,vehicle,entry("2026-10-18T12:00:00Z",500));
-        assertThat(get(access,summary).body().path("validCycleCount").asInt()).isEqualTo(1);
+        assertThat(get(access,summary).body().path("purchaseCount").asInt()).isEqualTo(2);
+        assertThat(get(access,"/vehicles/"+vehicle+"/dashboard").body().path("prices").size()).isEqualTo(2);
     }
 
     @Test void concurrentDeleteAndPutCannotBothAcceptTheSameVersion() throws Exception {
@@ -132,7 +131,6 @@ class FuelEntryDeletionIT {
         input.put("id",UUID.randomUUID().toString()); input.put("occurredAt",when); input.put("timezone","America/Sao_Paulo");
         input.put("odometerKm",odometer); input.put("fuelType","GASOLINE_REGULAR");
         input.put("liters","10"); input.put("unitPrice","6"); input.put("paidTotal","60");
-        input.put("tankState","FULL"); input.put("historyGapBefore",false);
         input.put("latitude",new BigDecimal("-23.55052")); input.put("longitude",new BigDecimal("-46.633308")); return input;
     }
     private Map<String,Object> update(Map<String,Object> original) {

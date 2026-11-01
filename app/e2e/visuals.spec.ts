@@ -22,7 +22,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
   test(`capturas reais dashboard, formulário e histórico ${colorScheme}`, async ({ page, request }) => {
     const account = await createAccount(request);
     const vehicle = await createVehicle(request, account.headers, 'Carro QA');
-    for (const entry of [fuelEntry(1000, 'FULL', 3), fuelEntry(1100, 'PARTIAL', 2), fuelEntry(1200, 'FULL', 1)]) {
+    for (const entry of [fuelEntry(1000, 3), fuelEntry(1100, 2), fuelEntry(1200, 1)]) {
       const result = await request.post(`${apiURL}/vehicles/${vehicle.id}/fuel-entries`, { headers: account.headers, data: entry });
       expect(result.status()).toBe(201);
     }

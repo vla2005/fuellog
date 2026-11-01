@@ -140,7 +140,7 @@ export function DashboardPlot({ kind, rows, signature, sectionTop, onDetails, on
             return <G key={fraction}>
               <Line x1={geometry.left} x2={geometry.right} y1={y} y2={y} stroke={colors.borderSubtle} strokeDasharray={fraction ? '4 4' : undefined} />
               <SvgText x={geometry.left - 8} y={y + 4} textAnchor="end" fill={colors.textSecondary} fontSize={11}>
-                {new Intl.NumberFormat('pt-BR', { maximumFractionDigits: kind === 'cost' || kind === 'price' ? 2 : 1, notation: value >= 10000 ? 'compact' : 'standard' }).format(value)}
+                {new Intl.NumberFormat('pt-BR', { maximumFractionDigits: kind === 'price' ? 2 : 1, notation: value >= 10000 ? 'compact' : 'standard' }).format(value)}
               </SvgText>
             </G>;
           }) : null}

@@ -100,7 +100,7 @@ class FuelAmountValidationIT {
         var input=new LinkedHashMap<String,Object>();
         input.put("id",UUID.randomUUID().toString()); input.put("occurredAt","2026-10-10T12:00:00Z");
         input.put("timezone","America/Sao_Paulo"); input.put("odometerKm",100); input.put("fuelType","GASOLINE_REGULAR");
-        input.put("liters",liters); input.put("unitPrice",price); input.put("paidTotal",paid); input.put("tankState","PARTIAL");
+        input.put("liters",liters); input.put("unitPrice",price); input.put("paidTotal",paid);
         input.put("latitude",BigDecimal.ZERO); input.put("longitude",BigDecimal.ZERO); return input;
     }
     private Result request(String method,String path,String access,String tag,Object body) throws Exception {

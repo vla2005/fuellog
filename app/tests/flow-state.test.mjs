@@ -77,7 +77,7 @@ const period = { from: '2026-10-01', to: '2026-10-31', label: 'Outubro 2026', mo
 const draftKey = id => `fuellog.draft.fuel_entry.v1.user.${id}`;
 const draft = (id, liters = '35') => ({ id, liters, unitPrice: '6', manualPaidTotal: '', isManualPaidTotal: false,
   adjustmentReason: '', odometerKm: '1000', dateStr: '2026-10-20', timeStr: '12:00', timezone: 'America/Sao_Paulo',
-  fuelType: 'ETHANOL', tankState: 'FULL', historyGapBefore: false, stationName: '', notes: '', showMoreDetails: false });
+  fuelType: 'ETHANOL',     showMoreDetails: false });
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 
 function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gps = {}, clock = globalThis, props = {}, observableReturn = true, platform = 'android' } = {}) {
@@ -129,6 +129,8 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) },
     'react-native-svg': { default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop' },
     '@/assets/brand/scene_day_road_integrated.png': 'IntegratedRoadScene',
+    '@/assets/brand/scene_day_road_compact.png': 'CompactRoadScene',
+    '@/assets/brand/scene_night_road_compact.png': 'CompactNightScene',
     'expo-image': { Image: 'ExpoImage' },
     './AndroidLocationMap': { AndroidLocationMap: 'AndroidLocationMap' },
     'expo-location': {
@@ -148,7 +150,7 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     '@/components/navigation/AuthenticatedTabShell': { TabActiveContext: {}, useAuthenticatedHeader: () => ({ headerHeight: 56 }) },
     '@/motion/useMotionPolicy': { useMotionPolicy: () => ({ isAppActive: activity.appActive }) },
     '@/features/home/MonthlySummaryModal': {},
-    '@/api/endpoints': { FUEL_TYPE_LABELS: {}, FUEL_TYPE_SHORT_LABELS: {}, TANK_STATE_LABELS: {}, TANK_STATE_SHORT_LABELS: {}, UNAVAILABLE_REASON_EXPLANATIONS: {}, ...endpoints },
+    '@/api/endpoints': { FUEL_TYPE_LABELS: {}, FUEL_TYPE_SHORT_LABELS: {},    ...endpoints },
     '@/api/types': { ApiError }, '@/state/SessionContext': { useSession: () => session },
     '@/api/tokenStorage': { getSessionEpoch: () => 0 },
     '@/theme/ThemeProvider': { useAppTheme: () => ({ colors: {}, isDark: false }) },
@@ -749,10 +751,9 @@ test('salvamento confirmado envia GPS normalizado e só recaptura ao voltar ao f
   assert.equal(calls.length, 1);
   assert.equal(calls[0].payload.latitude, -23.1234568);
   assert.equal(calls[0].payload.longitude, -46.9876543);
-  assert.equal(calls[0].payload.tankState, 'UNKNOWN');
-  assert.equal(calls[0].payload.historyGapBefore, false);
-  assert.equal(calls[0].payload.stationName, null);
-  assert.equal(calls[0].payload.notes, null);
+  for (const field of ['tankState', 'historyGapBefore', 'stationName', 'notes']) {
+    assert.equal(Object.hasOwn(calls[0].payload, field), false);
+  }
   assert.deepEqual(h.navigation, ['/']);
   assert.equal(h.snapshot.liters, '');
   assert.equal(captures, 1, 'Navegar para Início não pode solicitar GPS outra vez');
@@ -805,6 +806,112 @@ test('resposta incerta preserva UUID e comando idênticos no reenvio', async () 
   assert.deepEqual(calls[1], calls[0]);
 });
 
+test('histórico substitui páginas, mantém contexto no detalhe e reseta por tamanho/filtros/veículo', async () => {
+  const calls = [];
+  const all = Array.from({ length: 26 }, (_, i) => ({ id: `entry-${i}`, vehicleId: 'A', occurredAt: '2026-10-20T12:00:00Z' }));
+  const h = mount('features/history/HistoryScreen.tsx', 'HistoryScreen', { endpoints: {
+    listFuelEntries: async (id, params) => {
+      calls.push({ id, ...params });
+      return { items: all.slice(params.page * params.size, (params.page + 1) * params.size), page: params.page,
+        size: params.size, totalPages: Math.ceil(all.length / params.size), totalElements: all.length,
+        summary: { paidTotal: '1234.56', purchasedLiters: '100.123' }, monthlyCounts: [{ month: '2026-10', purchaseCount: 26 }] };
+    },
+  } });
+  await h.settle();
+  assert.equal(calls[0].size, 20);
+  assert.equal(h.snapshot.entries.length, 20);
+  h.snapshot.setPage(1); h.render(); await h.settle();
+  assert.equal(h.snapshot.entries.length, 6);
+  assert.equal(h.snapshot.entries[0].id, 'entry-20');
+  assert.equal(h.snapshot.periodSummary.paidTotal, '1234.56');
+  assert.equal(h.snapshot.groupedSections[0].count, 26);
+  const before = calls.length;
+  h.activity.tabActive = false; h.render(); await h.settle();
+  h.activity.tabActive = true; h.render(); await h.settle();
+  assert.equal(h.snapshot.page, 1);
+  assert.equal(calls.length, before, 'Voltar do detalhe não perde nem refaz a página');
+  h.snapshot.setPageSize(10); h.render(); await h.settle();
+  assert.equal(h.snapshot.page, 0);
+  assert.equal(h.snapshot.entries.length, 10);
+  assert.equal(calls.at(-1).size, 10);
+  h.snapshot.setPage(1); h.render(); await h.settle();
+  h.snapshot.setActiveFilters({ ...h.snapshot.activeFilters, fuelType: 'ETHANOL', minTotalPaid: '40.01' });
+  h.render(); await h.settle();
+  assert.equal(h.snapshot.page, 0);
+  assert.equal(calls.at(-1).fuelType, 'ETHANOL');
+  assert.equal(calls.at(-1).minTotalPaid, '40.01');
+  h.snapshot.setPage(1); h.render(); await h.settle();
+  await h.switchVehicle('B');
+  assert.equal(h.snapshot.page, 0);
+  assert.equal(calls.at(-1).id, 'B');
+});
+
+test('histórico agrupa pelo fuso solicitado, mesmo quando o registro declara outro fuso', async () => {
+  const h = mount('features/history/HistoryScreen.tsx', 'HistoryScreen', { endpoints: {
+    listFuelEntries: async (id, params) => ({ items: [{ id: 'boundary', occurredAt: '2024-02-01T02:00:00Z', timezone: 'Pacific/Auckland' }],
+      page: 0, size: params.size, totalElements: 1, totalPages: 1, summary: { paidTotal: '1.00', purchasedLiters: '1.000' },
+      monthlyCounts: [{ month: params.timezone === 'UTC' ? '2024-02' : '2024-01', purchaseCount: 1 }] }),
+  } });
+  await h.settle();
+  assert.equal(h.snapshot.groupedSections[0].key, '2024-01');
+  assert.equal(h.snapshot.groupedSections[0].title, 'Janeiro 2024');
+  assert.equal(h.snapshot.groupedSections[0].count, 1);
+  h.session.user = { ...h.session.user, preferredTimezone: 'UTC' }; h.render(); await h.settle();
+  assert.equal(h.snapshot.groupedSections[0].key, '2024-02');
+  assert.equal(h.snapshot.groupedSections[0].title, 'Fevereiro 2024');
+  assert.equal(h.snapshot.groupedSections[0].count, 1);
+});
+
+test('histórico recalcula totais e recua página final removida após invalidação', async () => {
+  let total = 21;
+  const calls = [];
+  const h = mount('features/history/HistoryScreen.tsx', 'HistoryScreen', { endpoints: {
+    listFuelEntries: async (id, params) => {
+      calls.push(params.page);
+      const count = Math.max(0, Math.min(params.size, total - params.page * params.size));
+      return { items: Array.from({ length: count }, (_, i) => ({ id: `entry-${params.page * params.size + i}`, occurredAt: '2026-10-20T12:00:00Z' })),
+        page: params.page, size: params.size, totalPages: Math.ceil(total / params.size), totalElements: total,
+        summary: { paidTotal: `${total}.00`, purchasedLiters: `${total}.000` }, monthlyCounts: [{ month: '2026-10', purchaseCount: total }] };
+    },
+  } });
+  await h.settle();
+  h.snapshot.setPage(1); h.render(); await h.settle();
+  assert.equal(h.snapshot.entries.length, 1);
+  total = 20;
+  h.session.dataVersion++; h.render(); await h.settle();
+  assert.deepEqual(calls, [0, 1, 1, 0]);
+  assert.equal(h.snapshot.page, 0);
+  assert.equal(h.snapshot.entries.length, 20);
+  assert.equal(h.snapshot.totalElements, 20);
+  assert.equal(h.snapshot.periodSummary.paidTotal, '20.00');
+  assert.equal(h.snapshot.groupedSections[0].count, 20);
+});
+
+test('histórico descarta página tardia e erro não inventa resumo zero', async () => {
+  const late = deferred();
+  let fail = false;
+  const h = mount('features/history/HistoryScreen.tsx', 'HistoryScreen', { endpoints: {
+    listFuelEntries: async (id, params) => {
+      if (params.page === 1) return late.promise;
+      if (fail) throw new Error('Falha controlada');
+      return { items: [{ id: params.fuelType ?? 'initial', occurredAt: '2026-10-20T12:00:00Z' }], page: 0, size: 20,
+        totalPages: 2, totalElements: 21, summary: { paidTotal: '21.00', purchasedLiters: '21.000' }, monthlyCounts: [] };
+    },
+  } });
+  await h.settle();
+  h.snapshot.setPage(1); h.render(); await h.settle();
+  assert.equal(h.snapshot.periodSummary, null);
+  assert.deepEqual(h.snapshot.entries, []);
+  h.snapshot.setActiveFilters({ ...h.snapshot.activeFilters, fuelType: 'ETHANOL' }); h.render(); await h.settle();
+  assert.equal(h.snapshot.entries[0].id, 'ETHANOL');
+  late.resolve({ items: [{ id: 'old-page' }], page: 1, totalElements: 21, totalPages: 2 }); await h.settle();
+  assert.equal(h.snapshot.entries[0].id, 'ETHANOL');
+  fail = true; h.session.dataVersion++; h.render(); await h.settle();
+  assert.ok(h.snapshot.errorMessage);
+  assert.equal(h.snapshot.periodSummary, null);
+  assert.deepEqual(h.snapshot.entries, []);
+});
+
 for (const [file, name] of [['home/HomeScreen', 'HomeScreen'], ['history/HistoryScreen', 'HistoryScreen']]) {
   test(`${name}: resposta A atrasada não substitui B`, async () => {
     const gates = { A: deferred(), B: deferred() };
@@ -814,7 +921,6 @@ for (const [file, name] of [['home/HomeScreen', 'HomeScreen'], ['history/History
       getVehicleSummary: id => gates[id].promise,
       getDashboard: id => gates[id].promise,
       listFuelEntries: id => gates[id].promise,
-      getConsumptionCycles: async () => ({ items: [] }),
     } });
     await h.switchVehicle('B');
     gates.B.resolve(result('B')); await h.settle();

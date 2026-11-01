@@ -12,7 +12,7 @@ const interfaces = {
   RegisteredUser: 'RegisteredUser', MeResponse: 'Me', TokenResponse: 'TokenResponse',
   CreateVehicleRequest: 'CreateVehicle', Vehicle: 'Vehicle',
   CreateFuelEntryRequest: 'CreateFuelEntry', FuelEntry: 'FuelEntry', FuelEntryPage: 'FuelEntryPage',
-  ConsumptionCycle: 'Cycle', CyclesResponse: 'Cycles', SummaryResponse: 'Summary',
+  SummaryResponse: 'Summary',
   DashboardResponse: 'Dashboard', DashboardMonth: 'DashboardMonth', DashboardFuel: 'DashboardFuel', DashboardPrice: 'DashboardPrice',
   PasswordChangeRequest: 'PasswordChange',
   TwoFactorStatus: 'TwoFactorStatus',
@@ -38,7 +38,7 @@ for (const [interfaceName, schemaName] of Object.entries(interfaces)) {
   });
 }
 
-for (const enumName of ['FuelType', 'TankState', 'UnavailableReason']) {
+for (const enumName of ['FuelType']) {
   test(`${enumName}: valores iguais ao enum OpenAPI`, () => {
     const declaration = declarations.get(enumName);
     assert.ok(declaration && ts.isTypeAliasDeclaration(declaration), `Tipo ausente: ${enumName}`);

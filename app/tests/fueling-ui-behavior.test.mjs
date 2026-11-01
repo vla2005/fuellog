@@ -200,8 +200,8 @@ const savedEntry = (overrides = {}) => ({
   id: 'entry-1', vehicleId: 'veh-1', version: 7,
   liters: '10.123', unitPrice: '6.1234', paidTotal: '61.99', referenceTotal: '61.99',
   occurredAt: '2026-10-24T15:30:45.789Z', timezone: 'America/Manaus',
-  odometerKm: 120500, fuelType: 'GASOLINE_REGULAR', tankState: 'FULL', historyGapBefore: true,
-  stationName: 'Posto original', notes: 'Nota original', adjustmentReason: null,
+  odometerKm: 120500, fuelType: 'GASOLINE_REGULAR',
+    adjustmentReason: null,
   latitude: -23.55052123, longitude: -46.63330876, ...overrides,
 });
 
@@ -232,6 +232,9 @@ for (const overrides of [
     await h.settle();
     const { id, vehicleId, version, referenceTotal, ...expected } = entry;
     assert.deepEqual(calls, [expected]);
+    for (const field of ['tankState', 'historyGapBefore', 'stationName', 'notes']) {
+      assert.equal(Object.hasOwn(calls[0], field), false);
+    }
     assert.equal(h.writes.length, 0, 'Edição não grava rascunho de novo');
     assert.equal(store.get('fuellog.draft.fuel_entry.v1.user-1.veh-1'), '{"liters":"99,999"}');
   });
@@ -297,7 +300,6 @@ test('edição: data/hora alterada usa fuso original, sem perder campos ocultos'
   await h.snapshot.handleSubmit();
   assert.equal(calls[0].occurredAt, '2026-10-24T16:45:00.000Z');
   assert.equal(calls[0].timezone, 'America/Manaus');
-  assert.equal(calls[0].historyGapBefore, true);
 });
 
 test('NewFuelEntryScreen: preço digita centavos como valor pago, apaga, limpa e cola sem mudar magnitude', async () => {

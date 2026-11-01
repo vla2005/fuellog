@@ -1,3 +1,4 @@
+import { fuelHistoryPage, purchaseDashboard } from './api-fixtures';
 import { test, expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -29,11 +30,11 @@ function createMockEntry(overrides = {}) {
     paidTotal: '265.05',
     referenceTotal: '265.05',
     adjustmentAmount: '0.00',
-    tankState: 'FULL',
-    historyGapBefore: false,
+
+
     adjustmentReason: null,
-    stationName: 'Posto Shell Histórico',
-    notes: 'Abastecido na rodovia',
+
+
     version: 3,
     idempotentReplay: false,
     latitude: -23.55052,
@@ -58,6 +59,7 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = request.url();
+    if (url.includes('/dashboard')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(purchaseDashboard()) });
     const method = request.method();
 
     if (url.includes('/auth/login') || url.includes('/auth/refresh')) {
@@ -97,7 +99,7 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
       });
     }
 
-    if (url.includes('/vehicles') && !url.includes('/fuel-entries') && !url.includes('/summary') && !url.includes('/consumption-cycles')) {
+    if (url.includes('/vehicles') && !url.includes('/fuel-entries') && !url.includes('/summary')) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -157,23 +159,10 @@ async function setupMockApi(page: Page, initialEntry: ReturnType<typeof createMo
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          items: [currentEntry],
-          page: 0,
-          size: 30,
-          totalElements: 1,
-          totalPages: 1,
-        }),
+        body: JSON.stringify(fuelHistoryPage([currentEntry])),
       });
     }
 
-    if (url.includes('/consumption-cycles')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: [] }),
-      });
-    }
 
     if (url.includes('/summary')) {
       return route.fulfill({
@@ -280,7 +269,7 @@ for (const paidTotal of ['60.00', '63.00']) {
     const initial = createMockEntry({ liters: '10.123', unitPrice: '6.1234', paidTotal, referenceTotal: '61.99',
       occurredAt: '2026-10-24T15:30:45.789Z', timezone: 'America/Manaus',
       adjustmentReason: paidTotal === '60.00' ? 'Cupom especial' : 'Ajuste histórico',
-      historyGapBefore: true, latitude: -23.55052123, longitude: -46.63330876 });
+       latitude: -23.55052123, longitude: -46.63330876 });
     const api = await setupMockApi(page, initial);
     await loginAndGoToDetail(page);
     await openEditor(page);
@@ -419,7 +408,7 @@ test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match pr
   await expect(page.getByText('Preserva dados e versão do abastecimento')).not.toBeVisible();
   await page.getByRole('button', { name: /^Litros calculados:/ }).click();
   const litersInput = page.getByLabel('Litros calculados', { exact: true });
-  const priceInput = page.getByLabel('Preço por litro');
+  const priceInput = page.getByLabel('Preço por litro', { exact: true });
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)');
 
   await expect(litersInput).toHaveValue('45,000');
@@ -458,10 +447,6 @@ test('Edição de abastecimento: abre form preenchido, envia PUT com If-Match pr
   expect(put!.body.fuelType).toBe('GASOLINE_REGULAR');
 
   // Garante que campos ocultos e GPS histórico foram preservados no payload
-  expect(put!.body.tankState).toBe('FULL');
-  expect(put!.body.historyGapBefore).toBe(false);
-  expect(put!.body.stationName).toBe('Posto Shell Histórico');
-  expect(put!.body.notes).toBe('Abastecido na rodovia');
   expect(put!.body.latitude).toBe(-23.55052);
   expect(put!.body.longitude).toBe(-46.633308);
 
@@ -494,7 +479,7 @@ test('Edição de abastecimento: preserva alta precisão legada (3 casas litros,
   // Verifica precisão preservada nos inputs
   await page.getByRole('button', { name: /^Litros calculados:/ }).click();
   const litersInput = page.getByLabel('Litros calculados', { exact: true });
-  const priceInput = page.getByLabel('Preço por litro');
+  const priceInput = page.getByLabel('Preço por litro', { exact: true });
   await expect(litersInput).toHaveValue('10,123');
   await expect(priceInput).toHaveValue('6,1234');
 
@@ -541,7 +526,7 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
 
   const odoInput = page.getByLabel('Hodômetro atual (km inteiro)');
   const litersInput = page.getByLabel('Litros calculados', { exact: true });
-  const priceInput = page.getByLabel('Preço por litro');
+  const priceInput = page.getByLabel('Preço por litro', { exact: true });
 
   await odoInput.fill('120999');
 
@@ -565,8 +550,8 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
     unitPrice: '6.15',
     paidTotal: '307.50',
     referenceTotal: '307.50',
-    stationName: 'Posto Novo Concorrente',
-    notes: 'Nota sincronizada externamente',
+
+
     latitude: -23.56789,
     longitude: -46.65432,
   });
@@ -593,8 +578,6 @@ test('Edição de abastecimento: erro 412 PRECONDITION_FAILED retém digitação
   expect(put!.headers['if-match']).toBe('"4"');
   expect(put!.body.odometerKm).toBe(121000);
   expect(put!.body.liters).toBe('50.0');
-  expect(put!.body.stationName).toBe('Posto Novo Concorrente');
-  expect(put!.body.notes).toBe('Nota sincronizada externamente');
   expect(put!.body.latitude).toBe(-23.56789);
   expect(put!.body.longitude).toBe(-46.65432);
 });

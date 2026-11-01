@@ -66,7 +66,7 @@ class FuellogApiIT {
                 assertThat(request("GET", "/vehicles/" + id, owner.access(), null)
                         .body().path("currentOdometerKm").asLong()).isEqualTo(reading);
                 assertThat(request("GET", "/vehicles/" + id + "/summary", owner.access(), null)
-                        .body().path("validCycleCount").asInt()).isZero();
+                        .body().path("purchaseCount").asInt()).isEqualTo(1);
             }
             assertThat(request("GET", "/vehicles/" + id, stranger.access(), null).status()).isEqualTo(404);
             assertThat(request("GET", "/vehicles", stranger.access(), null).body().isEmpty()).isTrue();
@@ -221,7 +221,7 @@ class FuellogApiIT {
                     values (?,?,'2026-10-12T12:00:00Z','America/Sao_Paulo',100,'GASOLINE_REGULAR',10,6,60,'FULL',true,'Posto','Legado',?)
                     """,entry,vehicle,"a".repeat(64));
                 var before=isolated.queryForMap("select * from fuel_entries where id=?",entry);
-                org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load().migrate();
+                org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("7").load().migrate();
                 var after=isolated.queryForMap("select * from fuel_entries where id=?",entry);
                 assertThat(after.remove("latitude")).isNull(); assertThat(after.remove("longitude")).isNull();
                 assertThat(after.remove("deleted_at")).isNull();
@@ -247,7 +247,6 @@ class FuellogApiIT {
         var owner=account();
         String vehicle=vehicle(owner.access());
         var input=entry("2026-10-12T12:00:00Z",100,"10","6","60");
-        input.remove("tankState"); input.remove("historyGapBefore");
         for (String nonFinite:List.of("NaN","Infinity","-Infinity")) {
             String raw=json.writeValueAsString(input).replace("-23.55052",nonFinite);
             var response=client.send(HttpRequest.newBuilder(URI.create(base()+"/api/v1"+path(vehicle)))
@@ -278,8 +277,6 @@ class FuellogApiIT {
         assertThat(request("GET",path(vehicle),owner.access(),null).body().path("totalElements").asInt()).isZero();
         var saved=request("POST",path(vehicle),owner.access(),input);
         assertThat(saved.status()).isEqualTo(201);
-        assertThat(saved.body().path("tankState").asString()).isEqualTo("UNKNOWN");
-        assertThat(saved.body().path("historyGapBefore").asBoolean()).isFalse();
         for (var body:List.of(saved.body(),request("GET",path(vehicle)+"/"+input.get("id"),owner.access(),null).body(),
                 request("GET",path(vehicle),owner.access(),null).body().path("items").get(0))) {
             assertThat(body.path("latitude").isNumber()).isTrue();
@@ -293,8 +290,6 @@ class FuellogApiIT {
         assertThat(request("GET",path(vehicle)+"/"+input.get("id"),owner.access(),null).body()
             .path("latitude").decimalValue()).isEqualByComparingTo("-23.55052");
         var summary=request("GET","/vehicles/"+vehicle+"/summary",owner.access(),null).body();
-        assertThat(summary.path("lastValidCycle").isNull()).isTrue();
-        assertThat(summary.path("periodConsumptionKmPerLiter").isNull()).isTrue();
         assertThat(summary.path("purchaseCount").asInt()).isEqualTo(1);
         assertThat(summary.path("paidTotal").asString()).isEqualTo("60.00");
         for (String[] pair:List.of(new String[]{"90","180"},new String[]{"-90","-180"},new String[]{"0","0"})) {
@@ -313,15 +308,14 @@ class FuellogApiIT {
         String originalHash=legacyFingerprint(vehicle,input);
         jdbc.update("""
             insert into fuel_entries (id,vehicle_id,occurred_at,timezone,odometer_km,fuel_type,liters,unit_price,paid_total,
-                tank_state,history_gap_before,create_request_hash)
-            values (?, ?, '2026-10-12T12:00:00Z', 'America/Sao_Paulo', 100, 'GASOLINE_REGULAR',10,6,60,'FULL',false,?)
+                create_request_hash)
+            values (?, ?, '2026-10-12T12:00:00Z', 'America/Sao_Paulo', 100, 'GASOLINE_REGULAR',10,6,60,?)
             """,UUID.fromString(input.get("id").toString()),UUID.fromString(vehicle),originalHash);
         var replay=request("POST",path(vehicle),owner.access(),input);
         assertThat(replay.status()).isEqualTo(200);
         assertThat(replay.body().path("idempotentReplay").asBoolean()).isTrue();
         assertThat(replay.body().path("latitude").isNull()).isTrue();
         assertThat(replay.body().path("longitude").isNull()).isTrue();
-        assertThat(replay.body().path("tankState").asString()).isEqualTo("FULL");
         assertThat(request("GET",path(vehicle),owner.access(),null).body().path("items").get(0).path("latitude").isNull()).isTrue();
         assertThat(request("GET",path(vehicle)+"/"+input.get("id"),owner.access(),null).body().path("longitude").isNull()).isTrue();
         input.put("latitude",0); input.put("longitude",0);
@@ -336,10 +330,14 @@ class FuellogApiIT {
         var bytes=new java.io.ByteArrayOutputStream();
         var out=new java.io.DataOutputStream(bytes);
         Object[] values={input.get("id"),vehicle,Instant.parse(input.get("occurredAt").toString()),input.get("timezone"),
-            input.get("odometerKm"),input.get("fuelType"),"10","6","60",input.get("tankState"),false,null,null,null};
+            input.get("odometerKm"),input.get("fuelType"),"10","6","60",input.getOrDefault("tankState","UNKNOWN"),false,null,null,null};
         for (Object value:values) {
             if (value==null) out.writeInt(-1);
             else { byte[] data=value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8); out.writeInt(data.length); out.write(data); }
+        }
+        if (input.get("latitude") != null) for (String field:List.of("latitude","longitude")) {
+            byte[] data=new java.math.BigDecimal(input.get(field).toString()).stripTrailingZeros().toPlainString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            out.writeInt(data.length); out.write(data);
         }
         return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
     }
@@ -431,7 +429,7 @@ class FuellogApiIT {
                 Map.of("nickname", "Carro", "allowedFuels", List.of(0))).status()).isEqualTo(400);
         assertThat(request("GET", "/vehicles", account.access(), null).body().size()).isZero();
         String vehicle = vehicle(account.access());
-        for (String field : List.of("fuelType", "tankState", "historyGapBefore")) {
+        for (String field : List.of("fuelType")) {
             for (Object invalid : List.of(0, "0")) {
                 var input = entry("2026-10-12T12:00:00Z", 100, "10", "6", "60");
                 input.put(field, invalid);
@@ -439,7 +437,7 @@ class FuellogApiIT {
             }
         }
         var input = entry("2026-10-12T12:00:00Z", 100, "10", "6", "60");
-        input.put("historyGapBefore", "false");
+        input.put("odometerKm", "100");
         assertThat(request("POST", path(vehicle), account.access(), input).status()).isEqualTo(400);
         assertThat(request("GET", path(vehicle), account.access(), null).body().path("totalElements").asInt()).isZero();
     }
@@ -459,7 +457,9 @@ class FuellogApiIT {
         middle.put("odometerKm", 200);
         assertThat(request("POST", path(vehicle), account.access(), middle).status()).isEqualTo(201);
         assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-11T12:00:00Z", 200, "10", "6", "60")).status()).isEqualTo(422);
+                entry("2026-10-11T12:00:00Z", 201, "10", "6", "60")).status()).isEqualTo(422);
+        assertThat(request("POST", path(vehicle), account.access(),
+                entry("2026-10-11T12:00:00Z", 200, "10", "6", "60")).status()).isEqualTo(201);
         var invalid = entry(Instant.now().plusSeconds(600).toString(), 400, "10", "6", "60");
         assertThat(request("POST", path(vehicle), account.access(), invalid).status()).isEqualTo(422);
         invalid.put("occurredAt", "2026-10-13T12:00:00Z");
@@ -481,7 +481,7 @@ class FuellogApiIT {
         assertThat(replay.body().path("idempotentReplay").asBoolean()).isTrue();
         input.put("liters", "10");
         assertThat(request("POST", path(vehicle), account.access(), input).status()).isEqualTo(200);
-        input.put("notes", "Comando diferente");
+        input.put("odometerKm", 101);
         var conflict = request("POST", path(vehicle), account.access(), input);
         assertThat(conflict.status()).isEqualTo(409);
         assertThat(conflict.body().path("code").asString()).isEqualTo("IDEMPOTENCY_CONFLICT");
@@ -598,101 +598,90 @@ class FuellogApiIT {
     }
 
     @Test
-    void consumptionIncludesIntermediatesExcludesBaselineAndKeepsGlobalLatestCycle() throws Exception {
-        var account = account();
-        String vehicle = vehicle(account.access());
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-10T12:00:00Z", 10000, "40", "6", "240")).status()).isEqualTo(201);
-        var partial = entry("2026-10-12T12:00:00Z", 10200, "15", "6", "90");
-        partial.put("tankState", "PARTIAL");
-        assertThat(request("POST", path(vehicle), account.access(), partial).status()).isEqualTo(201);
-        var closing = entry("2026-10-24T12:00:00Z", 10500, "30", "6", "180");
-        closing.put("fuelType", "ETHANOL");
-        assertThat(request("POST", path(vehicle), account.access(), closing).status()).isEqualTo(201);
-        String route = "/vehicles/" + vehicle;
-        var summary = request("GET", route + "/summary?from=2026-10-20&to=2026-10-24", account.access(), null);
-        assertThat(summary.status()).isEqualTo(200);
-        assertThat(summary.body().path("purchaseCount").asInt()).isEqualTo(1);
-        assertThat(summary.body().path("paidTotal").asString()).isEqualTo("180.00");
-        assertThat(summary.body().path("purchasedLiters").asString()).isEqualTo("30.000");
-        assertThat(summary.body().path("cycleLiters").asString()).isEqualTo("45.000");
-        assertThat(summary.body().path("periodConsumptionKmPerLiter").asString()).isEqualTo("11.11");
-        assertThat(summary.body().path("periodReplacementCostPerKm").asString()).isEqualTo("0.5400");
-        assertThat(summary.body().path("lastValidCycle").path("mixed").asBoolean()).isTrue();
-        var cycles = request("GET", route + "/consumption-cycles", account.access(), null);
-        assertThat(cycles.status()).isEqualTo(200);
-        assertThat(cycles.body().path("items").size()).isEqualTo(1);
-        assertThat(cycles.body().path("items").get(0).path("fuelTypes").size()).isEqualTo(2);
-        var emptyPeriod = request("GET", route + "/summary?from=2026-09-01&to=2026-09-30", account.access(), null);
-        assertThat(emptyPeriod.body().path("periodConsumptionKmPerLiter").isNull()).isTrue();
-        assertThat(emptyPeriod.body().path("periodUnavailableReason").asString()).isEqualTo("NO_VALID_CYCLE_IN_PERIOD");
-        assertThat(emptyPeriod.body().path("lastValidCycle").path("consumptionKmPerLiter").asString()).isEqualTo("11.11");
-        assertThat(emptyPeriod.body().path("lastConsumptionUnavailableReason").isNull()).isTrue();
-    }
-
-    @Test
-    void incompleteAndBrokenCyclesExplainNullAndFullTankReopensBaseline() throws Exception {
-        var account = account();
-        String vehicle = vehicle(account.access());
-        String route = "/vehicles/" + vehicle;
-        var empty = request("GET", route + "/summary", account.access(), null);
-        assertThat(empty.status()).isEqualTo(200);
-        assertThat(empty.body().path("weightedPaidPrice").isNull()).isTrue();
-        assertThat(empty.body().path("lastConsumptionUnavailableReason").asString()).isEqualTo("NEEDS_FULL_TANK_BASELINE");
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-10T12:00:00Z", 10000, "40", "6", "240")).status()).isEqualTo(201);
-        var baseline = request("GET", route + "/summary", account.access(), null);
-        assertThat(baseline.body().path("lastConsumptionUnavailableReason").asString()).isEqualTo("OPEN_CYCLE");
-        var gap = entry("2026-10-12T12:00:00Z", 10200, "15", "6", "90");
-        gap.put("tankState", "UNKNOWN");
-        gap.put("historyGapBefore", true);
-        assertThat(request("POST", path(vehicle), account.access(), gap).status()).isEqualTo(201);
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-20T12:00:00Z", 10500, "30", "6", "180")).status()).isEqualTo(201);
-        var broken = request("GET", route + "/consumption-cycles", account.access(), null);
-        assertThat(broken.body().path("items").get(0).path("consumptionKmPerLiter").isNull()).isTrue();
-        assertThat(broken.body().path("items").get(0).path("unavailableReason").asString()).isEqualTo("HISTORY_GAP");
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-24T12:00:00Z", 10800, "30", "6", "180")).status()).isEqualTo(201);
-        var recovered = request("GET", route + "/summary", account.access(), null);
-        assertThat(recovered.body().path("validCycleCount").asInt()).isEqualTo(1);
-        assertThat(recovered.body().path("lastValidCycle").path("consumptionKmPerLiter").asString()).isEqualTo("10.00");
-    }
-
-    @Test
-    void periodConsumptionIsWeightedAcrossCyclesAndZeroDistanceDoesNotDivide() throws Exception {
-        var account = account();
-        String vehicle = vehicle(account.access());
-        String route = "/vehicles/" + vehicle;
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-01T12:00:00Z", 10000, "40", "6", "240")).status()).isEqualTo(201);
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-02T12:00:00Z", 10100, "10", "6", "60")).status()).isEqualTo(201);
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-03T12:00:00Z", 11000, "60", "6", "360")).status()).isEqualTo(201);
-        var weighted = request("GET", route + "/summary", account.access(), null);
-        assertThat(weighted.body().path("periodConsumptionKmPerLiter").asString()).isEqualTo("14.29");
-        assertThat(weighted.body().path("cycleDistanceKm").asInt()).isEqualTo(1000);
-        assertThat(request("POST", path(vehicle), account.access(),
-                entry("2026-10-04T12:00:00Z", 11000, "5", "6", "30")).status()).isEqualTo(201);
-        var cycles = request("GET", route + "/consumption-cycles", account.access(), null);
-        assertThat(cycles.body().path("items").get(2).path("consumptionKmPerLiter").isNull()).isTrue();
-        assertThat(cycles.body().path("items").get(2).path("unavailableReason").asString()).isEqualTo("ZERO_DISTANCE");
-        assertThat(request("GET", route + "/summary", account.access(), null)
-                .body().path("periodConsumptionKmPerLiter").asString()).isEqualTo("14.29");
-    }
-
-    @Test
     void metricsAlsoEnforceOwnershipAndValidateFilters() throws Exception {
         var owner = account();
         var stranger = account();
         String vehicle = vehicle(owner.access());
-        for (String endpoint : List.of("summary", "consumption-cycles")) {
+        for (String endpoint : List.of("summary", "dashboard")) {
             String route = "/vehicles/" + vehicle + "/" + endpoint;
             assertThat(request("GET", route, stranger.access(), null).status()).isEqualTo(404);
             assertThat(request("GET", route + "?timezone=Mars/Olympus", owner.access(), null).status()).isEqualTo(422);
             assertThat(request("GET", route + "?from=2026-10-12&to=2026-10-01", owner.access(), null).status()).isEqualTo(422);
         }
+    }
+
+    @Test
+    void v8DropsOnlyUnusedFieldsAndPreservesLegacyRowsAndHashes() throws Exception {
+        String schema="purchase_upgrade_"+UUID.randomUUID().toString().replace("-","");
+        var flyway=org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema);
+        flyway.target("7").load().migrate();
+        try (var connection=dataSource.getConnection()) {
+            String originalSchema=connection.getSchema();
+            try {
+                connection.setSchema(schema);
+                var isolated=new JdbcTemplate(new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection,true));
+                UUID user=UUID.randomUUID(), vehicle=UUID.randomUUID();
+                isolated.update("insert into users(id,email,name,password_hash) values (?,?,'Migration fixture','hash')",user,user+"@example.test");
+                isolated.update("insert into vehicles(id,user_id,nickname,pending_history_gap_after) values (?,?,'Migration fixture',now())",vehicle,user);
+                for (String tank:List.of("FULL","PARTIAL","UNKNOWN")) isolated.update("""
+                    insert into fuel_entries(id,vehicle_id,occurred_at,timezone,odometer_km,fuel_type,liters,unit_price,
+                        paid_total,adjustment_reason,tank_state,history_gap_before,station_name,notes,latitude,longitude,
+                        create_request_hash,version,deleted_at)
+                    values (?,?,'2026-10-12T12:00:00Z','America/Sao_Paulo',100,'ETHANOL',10.123,6.1234,60.00,
+                        'desconto',?,true,'Legacy station','Legacy notes',-23.55052,-46.633308,?,7,?)
+                    """,UUID.randomUUID(),vehicle,tank,"a".repeat(64),tank.equals("PARTIAL")?java.sql.Timestamp.from(Instant.now()):null);
+                var before=isolated.queryForList("select * from fuel_entries order by id");
+                var vehicleBefore=isolated.queryForMap("select * from vehicles where id=?",vehicle);
+                before.forEach(row->List.of("station_name","notes","tank_state","history_gap_before").forEach(row::remove));
+                vehicleBefore.remove("pending_history_gap_after");
+                assertThat(flyway.target("8").load().migrate().migrationsExecuted).isEqualTo(1);
+                assertThat(isolated.queryForList("select * from fuel_entries order by id")).isEqualTo(before);
+                assertThat(isolated.queryForMap("select * from vehicles where id=?",vehicle)).isEqualTo(vehicleBefore);
+                assertThat(isolated.queryForObject("select count(*) from information_schema.columns where table_schema=? and column_name in ('station_name','notes','tank_state','history_gap_before','pending_history_gap_after')",Integer.class,schema)).isZero();
+                assertThat(flyway.load().migrate().migrationsExecuted).isZero();
+            } finally { connection.setSchema(originalSchema); }
+        } finally { jdbc.execute("drop schema if exists "+schema+" cascade"); }
+    }
+
+    @Test
+    void originalAppFingerprintsReplayAfterEditAndLegacyNonDefaultsConflictSafely() throws Exception {
+        var owner=account(); String vehicle=vehicle(owner.access());
+        var input=entry("2026-10-12T12:00:00Z",100,"10","6","60");
+        var saved=request("POST",path(vehicle),owner.access(),input);
+        assertThat(saved.status()).isEqualTo(201);
+        String originalHash=legacyFingerprint(vehicle,input);
+        UUID id=UUID.fromString(input.get("id").toString());
+        assertThat(jdbc.queryForObject("select create_request_hash from fuel_entries where id=?",String.class,id)).isEqualTo(originalHash);
+        // Simulate a later edit without replacing the immutable original command fingerprint.
+        jdbc.update("update fuel_entries set odometer_km=101,paid_total=59,adjustment_reason='desconto',version=version+1 where id=?",id);
+        var replay=request("POST",path(vehicle),owner.access(),input);
+        assertThat(replay.status()).isEqualTo(200);
+        assertThat(replay.body().path("paidTotal").asString()).isEqualTo("59.00");
+        assertThat(replay.body().path("idempotentReplay").asBoolean()).isTrue();
+        var legacy=new LinkedHashMap<>(input); legacy.put("tankState","FULL");
+        String unreproducible=legacyFingerprint(vehicle,legacy);
+        jdbc.update("update fuel_entries set create_request_hash=? where id=?",unreproducible,id);
+        assertThat(request("POST",path(vehicle),owner.access(),input).status()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("select create_request_hash from fuel_entries where id=?",String.class,id)).isEqualTo(unreproducible);
+        jdbc.update("update fuel_entries set deleted_at=now() where id=?",id);
+        assertThat(request("POST",path(vehicle),owner.access(),input).body().path("code").asString()).isEqualTo("ENTRY_DELETED");
+        assertThat(request("GET",path(vehicle),owner.access(),null).body().path("totalElements").asInt()).isZero();
+        assertThat(request("GET","/vehicles/"+vehicle+"/consumption-cycles",owner.access(),null).status()).isEqualTo(404);
+    }
+
+    @Test
+    void removedPropertiesFollowExistingUnknownFieldPolicyAndRequiredInputsStayRequired() throws Exception {
+        assertThat(json.isEnabled(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
+        var owner=account(); String vehicle=vehicle(owner.access());
+        var input=entry("2026-10-12T12:00:00Z",100,"10","6","60");
+        input.put("tankState","UNKNOWN"); input.put("historyGapBefore",false);
+        input.put("stationName",null); input.put("notes",null); input.put("unknownClientField","ignored");
+        var saved=request("POST",path(vehicle),owner.access(),input);
+        assertThat(saved.status()).isEqualTo(201);
+        for (String field:List.of("tankState","historyGapBefore","stationName","notes")) assertThat(saved.body().has(field)).isFalse();
+        var minimal=new LinkedHashMap<>(input); minimal.remove("odometerKm"); minimal.put("id",UUID.randomUUID().toString());
+        assertThat(request("POST",path(vehicle),owner.access(),minimal).status()).isEqualTo(422);
+        assertThat(request("POST",path(vehicle),owner.access(),input).status()).isEqualTo(200);
     }
 
     private Account account() throws Exception {
@@ -722,8 +711,6 @@ class FuellogApiIT {
         value.put("liters", liters);
         value.put("unitPrice", price);
         value.put("paidTotal", paid);
-        value.put("tankState", "FULL");
-        value.put("historyGapBefore", false);
         value.put("latitude", new java.math.BigDecimal("-23.55052"));
         value.put("longitude", new java.math.BigDecimal("-46.633308"));
         return value;

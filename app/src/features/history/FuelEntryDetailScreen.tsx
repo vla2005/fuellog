@@ -15,13 +15,10 @@ import {
 
 import {
   FUEL_TYPE_LABELS,
-  getConsumptionCycles,
   getFuelEntry,
-  TANK_STATE_LABELS,
 } from '@/api/endpoints';
 import {
   ApiError,
-  ConsumptionCycle,
   FuelEntry,
 } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
@@ -41,7 +38,6 @@ import { formatDateTimeFullBR } from '@/utils/date';
 import { DeleteFuelEntrySheet } from './components/DeleteFuelEntrySheet';
 import { FuelEntryActionsMenu } from './components/FuelEntryActionsMenu';
 import {
-  formatConsumptionBR,
   formatCurrencyBRL,
   formatLitersBR,
   formatOdometerBR,
@@ -72,9 +68,6 @@ export function FuelEntryDetailScreen({
   const scope = `${user?.id}:${activeVehicle?.id}:${resolvedEntryId}`;
   const [loadedEntry, setLoadedEntry] = useState<{ scope: string; entry: FuelEntry } | null>(null);
   const entry = loadedEntry?.scope === scope ? loadedEntry.entry : null;
-  const [matchingCycle, setMatchingCycle] = useState<ConsumptionCycle | null>(
-    null,
-  );
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const lastEntryScopeRef = useRef('');
@@ -98,7 +91,6 @@ export function FuelEntryDetailScreen({
     if (lastEntryScopeRef.current !== scopeKey) {
       lastEntryScopeRef.current = scopeKey;
       setLoadedEntry(null);
-      setMatchingCycle(null);
     }
 
     if (!user || !currentVehicleId || !currentEntryId) {
@@ -109,29 +101,15 @@ export function FuelEntryDetailScreen({
     }
 
     setLoading(true);
-    setMatchingCycle(null);
     setErrorMessage(null);
     try {
-      const [fetchedEntry, cyclesRes] = await Promise.all([
-        getFuelEntry(currentVehicleId, currentEntryId),
-        getConsumptionCycles(currentVehicleId).catch(() => null),
-      ]);
+      const fetchedEntry = await getFuelEntry(currentVehicleId, currentEntryId);
 
       if (isDisposedRef.current || currentReqIdRef.current !== reqId) {
         return;
       }
 
       setLoadedEntry({ scope: scopeKey, entry: fetchedEntry });
-      if (cyclesRes?.items) {
-        const found = cyclesRes.items.find(
-          (c) =>
-            c.endEntryId === fetchedEntry.id ||
-            c.startEntryId === fetchedEntry.id,
-        );
-        setMatchingCycle(found ?? null);
-      } else {
-        setMatchingCycle(null);
-      }
     } catch (err: unknown) {
       if (isDisposedRef.current || currentReqIdRef.current !== reqId) {
         return;
@@ -317,7 +295,6 @@ export function FuelEntryDetailScreen({
           onDeleted={() => {
             currentReqIdRef.current++;
             setLoadedEntry(null);
-            setMatchingCycle(null);
             setDeleteOpen(false);
             router.replace('/history');
           }}
@@ -402,23 +379,7 @@ export function FuelEntryDetailScreen({
             </View>
             <View style={[styles.cleanLineDivider, { backgroundColor: colors.borderSubtle }]} />
 
-            {entry.tankState && entry.tankState !== 'UNKNOWN' ? (
-              <>
-                <View style={styles.cleanLineItem}>
-                  <Text style={[styles.cleanLineLabel, { color: colors.textSecondary }]}>Tanque</Text>
-                  <Text style={[styles.cleanLineValue, { color: colors.textPrimary }]}>{TANK_STATE_LABELS[entry.tankState]} ✓</Text>
-                </View>
-                <View style={[styles.cleanLineDivider, { backgroundColor: colors.borderSubtle }]} />
-              </>
-            ) : null}
 
-            {/* Posto e observacao row */}
-            {(entry.stationName || entry.notes) ? (
-              <View style={styles.cleanLineItem}>
-                <Text style={[styles.cleanLineLabel, { color: colors.textSecondary }]}>Posto e observação</Text>
-                <Text style={[styles.cleanLineValue, { color: colors.textPrimary }]}>{entry.stationName || entry.notes}</Text>
-              </View>
-            ) : null}
           </View>
 
           {/* Location Section: Square real map for saved coordinates */}

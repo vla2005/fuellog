@@ -14,13 +14,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
-  getConsumptionCycles,
   getVehicleSummary,
 } from '@/api/endpoints';
 import {
-  CyclesResponse,
   SummaryResponse,
-  UnavailableReason,
   Vehicle,
 } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
@@ -35,10 +32,8 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 import { radii, typography } from '@/theme/tokens';
 import { listRecentMonthPeriods, MonthPeriodOption } from '@/utils/date';
 import {
-  formatConsumptionBR,
   formatCurrencyBRL,
   formatLitersBR,
-  formatOdometerBR,
   formatUnitPriceBR,
 } from '@/utils/decimal';
 
@@ -47,18 +42,6 @@ export interface MonthlySummaryModalProps {
   onClose: () => void;
 }
 
-const UNAVAILABLE_REASON_MESSAGES: Record<UnavailableReason, string> = {
-  NEEDS_FULL_TANK_BASELINE:
-    'Necessário pelo menos um abastecimento com tanque cheio anterior como linha de base.',
-  OPEN_CYCLE:
-    'Ciclo em andamento: aguardando o próximo abastecimento com tanque cheio para fechar o ciclo.',
-  HISTORY_GAP:
-    'Houve abastecimento intermediário não registrado, interrompendo o ciclo de consumo.',
-  ZERO_DISTANCE:
-    'Quilometragem igual à do registro anterior (distância zero).',
-  NO_VALID_CYCLE_IN_PERIOD:
-    'Não há ciclos de consumo concluídos no período selecionado.',
-};
 
 export function MonthlySummaryModal({
   visible,
@@ -90,7 +73,6 @@ export function MonthlySummaryModal({
   const [monthDropdownOpen, setMonthDropdownOpen] = useState(false);
 
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
-  const [cycles, setCycles] = useState<CyclesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -105,19 +87,17 @@ export function MonthlySummaryModal({
   const requestSeqRef = React.useRef(0);
   const lastIdentityScopeRef = React.useRef('');
 
-  // Fetch summary and consumption cycles whenever vehicle or period changes
+  // Fetch summary whenever vehicle or period changes
   useEffect(() => {
     const identityScope = `${status}:${user?.id ?? 'anon'}:${currentVehicle?.id ?? 'none'}`;
     if (lastIdentityScopeRef.current !== identityScope) {
       lastIdentityScopeRef.current = identityScope;
       setSummary(null);
-      setCycles(null);
     }
 
     if (!visible || !currentVehicle || status !== 'authenticated' || !user) {
       requestSeqRef.current++;
       setSummary(null);
-      setCycles(null);
       setLoading(false);
       return;
     }
@@ -126,31 +106,22 @@ export function MonthlySummaryModal({
     const seq = ++requestSeqRef.current;
     // Clear previous results immediately upon vehicle/period change to avoid showing stale data
     setSummary(null);
-    setCycles(null);
     setLoading(true);
     setErrorMessage(null);
 
-    Promise.all([
-      getVehicleSummary(currentVehicle.id, {
+    getVehicleSummary(currentVehicle.id, {
         from: currentPeriod.from,
         to: currentPeriod.to,
-      }),
-      getConsumptionCycles(currentVehicle.id, {
-        from: currentPeriod.from,
-        to: currentPeriod.to,
-      }),
-    ])
-      .then(([summaryRes, cyclesRes]) => {
+      })
+      .then((summaryRes) => {
         if (!cancelled && requestSeqRef.current === seq) {
           setSummary(summaryRes);
-          setCycles(cyclesRes);
           setLoading(false);
         }
       })
       .catch((err: unknown) => {
         if (!cancelled && requestSeqRef.current === seq) {
           setSummary(null);
-          setCycles(null);
           setErrorMessage(
             err instanceof Error
               ? err.message
@@ -428,83 +399,6 @@ export function MonthlySummaryModal({
                 </View>
               </View>
 
-              {/* Consumption Cycles Section */}
-              <View
-                style={[
-                  styles.cyclesCard,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.borderSubtle,
-                  },
-                ]}
-              >
-                <Text style={[styles.cyclesTitle, { color: colors.textPrimary }]}>
-                  Ciclos de consumo
-                </Text>
-
-                {summary?.periodConsumptionKmPerLiter ? (
-                  <View style={styles.cycleDataWrap}>
-                    <View style={styles.metricItemRow}>
-                      <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>
-                        Média de consumo
-                      </Text>
-                      <Text style={[styles.metricValueHighlight, { color: colors.brandPrimary }]}>
-                        {formatConsumptionBR(summary.periodConsumptionKmPerLiter)}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
-                    <View style={styles.metricItemRow}>
-                      <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>
-                        Distância percorrida em ciclos
-                      </Text>
-                      <Text style={[styles.metricValue, { color: colors.textPrimary }]}>
-                        {formatOdometerBR(summary.cycleDistanceKm)}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
-                    <View style={styles.metricItemRow}>
-                      <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>
-                        Volume consumido em ciclos
-                      </Text>
-                      <Text style={[styles.metricValue, { color: colors.textPrimary }]}>
-                        {formatLitersBR(summary.cycleLiters)}
-                      </Text>
-                    </View>
-
-                    {summary.periodReplacementCostPerKm ? (
-                      <>
-                        <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-                        <View style={styles.metricItemRow}>
-                          <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>
-                            Custo por quilômetro
-                          </Text>
-                          <Text style={[styles.metricValue, { color: colors.textPrimary }]}>
-                            {formatCurrencyBRL(summary.periodReplacementCostPerKm)}/km
-                          </Text>
-                        </View>
-                      </>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View style={styles.cycleNoticeWrap}>
-                    <InlineNotice
-                      tone="info"
-                      title="Consumo não disponível"
-                      message={
-                        summary?.periodUnavailableReason
-                          ? UNAVAILABLE_REASON_MESSAGES[summary.periodUnavailableReason] ??
-                            'Sem ciclos de consumo completos no período selecionado.'
-                          : 'Necessário registrar pelo menos dois abastecimentos com tanque cheio consecutivos para calcular o consumo.'
-                      }
-                    />
-                  </View>
-                )}
-              </View>
-
               {/* Action Button: Navigate to History with Applied Filters */}
               <PrimaryButton
                 label="Ver abastecimentos do mês"
@@ -654,22 +548,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     gap: 12,
-  },
-  cyclesCard: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: 16,
-    gap: 12,
-  },
-  cyclesTitle: {
-    ...typography.cardTitle,
-    fontSize: 16,
-  },
-  cycleDataWrap: {
-    gap: 12,
-  },
-  cycleNoticeWrap: {
-    paddingVertical: 4,
   },
   metricItemRow: {
     flexDirection: 'row',

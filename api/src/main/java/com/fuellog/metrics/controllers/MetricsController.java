@@ -26,10 +26,4 @@ public class MetricsController {
         @RequestParam(defaultValue="America/Sao_Paulo") String timezone) {
         return metrics.summary(vehicleId,from,to,timezone);
     }
-    @GetMapping("/consumption-cycles")
-    public MetricsDtos.Cycles cycles(@PathVariable UUID vehicleId,
-        @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to,
-        @RequestParam(defaultValue="America/Sao_Paulo") String timezone) {
-        return metrics.cycles(vehicleId,from,to,timezone);
-    }
 }

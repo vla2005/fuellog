@@ -76,7 +76,6 @@ export function DeleteFuelEntrySheet({ entry, vehicleName, onClose, onDeleted }:
       <Text style={[typography.body, { color: colors.textPrimary }]}>
         {vehicleName}{'\n'}{formatDateTimeFullBR(snapshot.occurredAt, snapshot.timezone)}{'\n'}
         {formatCurrencyBRL(snapshot.paidTotal)} · {formatLitersBR(snapshot.liters)} · {formatOdometerBR(snapshot.odometerKm)}
-        {snapshot.stationName ? `\n${snapshot.stationName}` : ''}
       </Text>
       <Text style={[typography.body, { color: colors.textSecondary }]}>
         O registro será removido do histórico e dos totais. O consumo pode ficar indisponível nos ciclos afetados. Esta ação não pode ser desfeita.

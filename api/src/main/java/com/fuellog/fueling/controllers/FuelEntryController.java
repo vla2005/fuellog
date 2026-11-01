@@ -2,8 +2,8 @@ package com.fuellog.fueling.controllers;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
 import com.fuellog.fueling.dtos.FuelEntryFilters;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.services.FuelEntryService;
+import com.fuellog.platform.exceptions.ApiException;
 import com.fuellog.vehicles.enums.FuelType;
 
 import org.springframework.http.ResponseEntity;
@@ -40,14 +40,21 @@ public class FuelEntryController {
     @GetMapping public FuelEntryDtos.Page list(@PathVariable UUID vehicleId,
         @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to,
         @RequestParam(defaultValue="America/Sao_Paulo") String timezone,
-        @RequestParam(required=false) FuelType fuelType, @RequestParam(required=false) TankState tankState,
+        @RequestParam(required=false) FuelType fuelType,
         @RequestParam(required=false) String minTotalPaid, @RequestParam(required=false) String maxTotalPaid,
         @RequestParam(required=false) String minLiters, @RequestParam(required=false) String maxLiters,
         @RequestParam(required=false) String minPricePerLiter, @RequestParam(required=false) String maxPricePerLiter,
         @RequestParam(required=false) Instant occurredFrom, @RequestParam(required=false) Instant occurredTo,
         @RequestParam(required=false) UUID entryId,
-        @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="30") int size) {
-        return entries.list(vehicleId,from,to,timezone,fuelType,tankState,
-            FuelEntryFilters.parse(minTotalPaid,maxTotalPaid,minLiters,maxLiters,minPricePerLiter,maxPricePerLiter),page,size,occurredFrom,occurredTo,entryId);
+        @RequestParam(required=false) String page, @RequestParam(required=false) String size) {
+        return entries.list(vehicleId,from,to,timezone,fuelType,
+            FuelEntryFilters.parse(minTotalPaid,maxTotalPaid,minLiters,maxLiters,minPricePerLiter,maxPricePerLiter),
+            paginationParameter(page,0),paginationParameter(size,20),occurredFrom,occurredTo,entryId);
+    }
+    private static int paginationParameter(String value, int defaultValue) {
+        try { return value == null ? defaultValue : Integer.parseInt(value); }
+        catch (NumberFormatException error) {
+            throw new ApiException(400,"INVALID_PAGINATION","page >= 0 e size entre 1 e 20.");
+        }
     }
 }

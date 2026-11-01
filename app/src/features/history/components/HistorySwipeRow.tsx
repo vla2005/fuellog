@@ -1,23 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { ReduceMotion } from 'react-native-reanimated';
 
 import { useMotionPolicy } from '@/motion/useMotionPolicy';
+import { ChevronRightIcon } from '@/components/icons/AppIcons';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
-export function HistorySwipeRow({ children, onDelete, label }: {
-  children: React.ReactNode;
+export function HistorySwipeRow({ children, onDelete, onOpen, label }: {
+  children: (openDetails: () => void) => React.ReactNode;
   onDelete: () => void;
+  onOpen: () => void;
   label: string;
 }) {
   const ref = useRef<SwipeableMethods>(null);
+  const swiping = useRef(false);
   const [open, setOpen] = useState(false);
   const { colors } = useAppTheme();
   const { reduceMotion, isAppActive } = useMotionPolicy();
   useEffect(() => {
     if (!isAppActive) {
       ref.current?.reset();
+      swiping.current = false;
       setOpen(false);
     }
   }, [isAppActive]);
@@ -31,8 +35,9 @@ export function HistorySwipeRow({ children, onDelete, label }: {
       dragOffsetFromLeft={24}
       rightThreshold={44}
       animationOptions={{ reduceMotion: reduceMotion ? ReduceMotion.Always : ReduceMotion.System }}
-      onSwipeableWillOpen={() => setOpen(true)}
-      onSwipeableClose={() => setOpen(false)}
+      onSwipeableOpenStartDrag={() => { swiping.current = true; }}
+      onSwipeableWillOpen={() => { swiping.current = true; setOpen(true); }}
+      onSwipeableClose={() => { swiping.current = false; setOpen(false); }}
       renderRightActions={() => (
         <Pressable
           accessibilityRole="button"
@@ -48,16 +53,15 @@ export function HistorySwipeRow({ children, onDelete, label }: {
         </Pressable>
       )}
     >
-      <View style={{ flexDirection: 'row', backgroundColor: colors.surface }}>
-        <View style={{ flex: 1 }}>{children}</View>
+      <View style={{ flexDirection: 'row', backgroundColor: colors.bgPrimary, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle }}>
+        <View style={{ flex: 1 }}>{children(() => { if (!swiping.current) onOpen(); })}</View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Ações: ${label}`}
-          accessibilityHint="Revela a opção Excluir; a exclusão exige confirmação"
-          onPress={() => ref.current?.openRight()}
+          accessibilityLabel={`Ver detalhes de ${label}`}
+          onPress={() => { if (!swiping.current) onOpen(); }}
           style={{ minWidth: 44, minHeight: 48, justifyContent: 'center', alignItems: 'center' }}
         >
-          <Text style={{ color: colors.textSecondary, fontWeight: '700' }}>•••</Text>
+          <ChevronRightIcon size={20} color={colors.brandPrimary} />
         </Pressable>
       </View>
     </Swipeable>

@@ -1,3 +1,4 @@
+import { fuelHistoryPage, purchaseDashboard } from './api-fixtures';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
@@ -11,8 +12,8 @@ const entry = {
   id: 'motion-entry', vehicleId: vehicle.id, occurredAt: '2026-10-24T12:00:00Z',
   timezone: 'America/Sao_Paulo', odometerKm: 1000, fuelType: 'GASOLINE_REGULAR',
   liters: '10.000', unitPrice: '5.0000', paidTotal: '50.00', referenceTotal: '50.00',
-  adjustmentAmount: '0.00', tankState: 'FULL', historyGapBefore: false,
-  stationName: 'Posto teste', notes: '', version: 1,
+  adjustmentAmount: '0.00',
+    version: 1,
 };
 
 async function mockApi(page: Page, authenticated = true) {
@@ -41,9 +42,9 @@ async function mockApi(page: Page, authenticated = true) {
     else if (path.endsWith('/fuel-types')) body = ['GASOLINE_REGULAR'];
     else if (path.endsWith('/vehicles')) body = [vehicle];
     else if (path.endsWith(`/fuel-entries/${entry.id}`)) body = entry;
-    else if (path.endsWith('/fuel-entries')) body = { items: [entry], totalPages: 1, totalElements: 1, page: 0, size: 20 };
-    else if (path.endsWith('/consumption-cycles')) body = { items: [], totalElements: 0 };
-    else if (path.endsWith('/summary')) body = { purchaseCount: 1, paidTotal: '50.00', purchasedLiters: '10.000', lastValidCycle: null };
+    else if (path.endsWith('/fuel-entries')) body = fuelHistoryPage([entry]);
+    else if (path.endsWith('/dashboard')) body = purchaseDashboard({ purchaseCount: 1, paidTotal: '50.00', purchasedLiters: '10.000' });
+    else if (path.endsWith('/summary')) body = { purchaseCount: 1, paidTotal: '50.00', purchasedLiters: '10.000', };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
 }
@@ -306,7 +307,7 @@ test.describe('Transições laterais com mocks', () => {
     await mockApi(page);
     const second = { ...entry, id: 'second-entry', paidTotal: '75.00', version: 3 };
     await page.route('**/fuel-entries?**', route => route.fulfill({ status: 200, contentType: 'application/json',
-      body: JSON.stringify({ items: [entry, second], totalPages: 1, totalElements: 2, page: 0, size: 20 }) }));
+      body: JSON.stringify(fuelHistoryPage([entry, second])) }));
     let release!: () => void;
     const loading = new Promise<void>(resolve => { release = resolve; });
     await page.route(`**/fuel-entries/${second.id}`, async route => {

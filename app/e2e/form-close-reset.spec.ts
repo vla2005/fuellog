@@ -1,3 +1,4 @@
+import { purchaseDashboard } from './api-fixtures';
 import { test, expect } from '@playwright/test';
 
 // Mocks identificados para frontend
@@ -67,6 +68,7 @@ function setupMockApi(page: any, options: MockApiOptions = {}) {
 
       await page.route('**/api/v1/**', async (route: any) => {
         const url = route.request().url();
+        if (url.includes('/dashboard')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(purchaseDashboard()) });
         const method = route.request().method();
 
         if (url.includes('/auth/refresh')) {
@@ -166,13 +168,6 @@ function setupMockApi(page: any, options: MockApiOptions = {}) {
           });
         }
 
-        if (url.includes('/cycles')) {
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ items: [] }),
-          });
-        }
 
         if (url.includes('/summary')) {
           return route.fulfill({
@@ -183,8 +178,8 @@ function setupMockApi(page: any, options: MockApiOptions = {}) {
               purchaseCount: 0,
               paidTotal: '0.00',
               purchasedLiters: '0.000',
-              periodConsumptionKmPerLiter: null,
-              lastValidCycle: null,
+
+
             }),
           });
         }

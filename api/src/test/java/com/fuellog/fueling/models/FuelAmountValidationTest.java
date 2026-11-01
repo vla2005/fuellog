@@ -1,7 +1,6 @@
 package com.fuellog.fueling.models;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.repositories.FuelEntryRepository;
 import com.fuellog.fueling.services.FuelEntryService;
 import com.fuellog.platform.exceptions.ApiException;
@@ -21,7 +20,7 @@ class FuelAmountValidationTest {
     private final Instant now=Instant.parse("2026-10-24T12:00:00Z");
     private FuelEntryDtos.Create input(String liters,String price,String paid,String reason) {
         return new FuelEntryDtos.Create(entryId,now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,
-            FuelType.GASOLINE_REGULAR,liters,price,paid,TankState.FULL,false,reason,null,null,
+            FuelType.GASOLINE_REGULAR,liters,price,paid,reason,
             BigDecimal.ZERO,BigDecimal.ZERO);
     }
     private FuelCommand command(String liters,String price,String paid,String reason) {
@@ -64,16 +63,16 @@ class FuelAmountValidationTest {
         when(repository.saveAndFlush(any())).thenAnswer(i->i.getArgument(0));
         var service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC));
         var old=input("1","6","6.04",null);
-        var legacy=new FuelEntry(FuelCommand.normalize(vehicleId,old),false);
+        var legacy=new FuelEntry(FuelCommand.normalize(vehicleId,old));
         setField(legacy,"version",0L);
         when(repository.findById(entryId)).thenReturn(Optional.of(legacy));
         assertTrue(service.create(vehicleId,old).idempotentReplay());
         when(repository.findByIdAndVehicleId(entryId,vehicleId)).thenReturn(Optional.of(legacy));
         var dateOnly=new FuelEntryDtos.Update(now.minusSeconds(60).atOffset(ZoneOffset.UTC),old.timezone(),1000L,
-            old.fuelType(),"1.000","6.0000","6.04",old.tankState(),false,null,null,null,null,null);
+            old.fuelType(),"1.000","6.0000","6.04",null,null,null);
         assertEquals(now.minusSeconds(60),service.update(vehicleId,entryId,"\"0\"",dateOnly).occurredAt());
         var changed=new FuelEntryDtos.Update(old.occurredAt(),old.timezone(),1000L,old.fuelType(),
-            "1","6","6.03",old.tankState(),false,null,null,null,null,null);
+            "1","6","6.03",null,null,null);
         assertEquals(422,assertThrows(ApiException.class,()->service.update(vehicleId,entryId,"\"0\"",changed)).status());
         when(repository.findById(entryId)).thenReturn(Optional.empty());
         assertEquals(422,assertThrows(ApiException.class,()->service.create(vehicleId,old)).status());

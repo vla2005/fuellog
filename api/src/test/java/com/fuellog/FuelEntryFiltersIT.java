@@ -44,13 +44,65 @@ class FuelEntryFiltersIT {
         assertThat(data.path("weightedUnitPrice").asString()).isEqualTo("5.1234");
         assertThat(data.path("prices").size()).isEqualTo(65);
         assertThat(data.path("months").get(0).path("month").asString()).isEqualTo("2024-02");
-        assertThat(data.path("cycles").size()).isEqualTo(64);
-        assertThat(list(owner,vehicle,"?size=30").path("items").size()).isEqualTo(30);
+        assertThat(data.has("cycles")).isFalse();
+        assertThat(list(owner,vehicle,"?size=20").path("items").size()).isEqualTo(20);
         assertThat(request("GET",endpoint,null,null).status()).isEqualTo(401);
         assertThat(request("GET",endpoint,stranger,null).status()).isEqualTo(404);
         assertThat(request("GET",endpoint+"&fuelType=GASOLINE_REGULAR",owner,null).body().path("purchaseCount").asInt()).isZero();
         assertThat(request("GET",endpoint+"&fuelType=INVALID",owner,null).status()).isEqualTo(400);
         assertThat(request("GET","/vehicles/"+vehicle+"/dashboard?from=2024-03-01&to=2024-02-29",owner,null).status()).isEqualTo(422);
+    }
+
+    @Test void historyPagesAreBoundedStableAndAggregateTheWholeFilteredSlice() throws Exception {
+        String owner=account(), stranger=account(), vehicle=vehicle(owner);
+        var ids=new ArrayList<String>();
+        for(int i=0;i<25;i++) ids.add(create(owner,vehicle,"2024-02-01T02:00:00Z",100,"1.001","5.1234","4.02","ETHANOL"));
+        create(owner,vehicle,"2024-01-01T12:00:00Z",0,"1.001","5.1234","3.75","ETHANOL");
+        create(owner,vehicle,"2024-01-31T12:00:00Z",50,"1.001","5.1234","4.02","GASOLINE_REGULAR");
+        create(owner,vehicle(owner),"2024-01-31T12:00:00Z",50,"1.001","5.1234","4.02","ETHANOL");
+        create(stranger,vehicle(stranger),"2024-01-31T12:00:00Z",50,"1.001","5.1234","4.02","ETHANOL");
+        ids.sort(Comparator.reverseOrder());
+        String filters="?from=2024-01-31&to=2024-01-31&timezone=America/Sao_Paulo&fuelType=ETHANOL"
+            +"&minTotalPaid=4.02&maxTotalPaid=4.02&minLiters=1.001&maxLiters=1.001&minPricePerLiter=5.1234&maxPricePerLiter=5.1234";
+        var first=list(owner,vehicle,filters);
+        assertThat(first.path("size").asInt()).isEqualTo(20);
+        assertThat(first.path("items").valueStream().map(e -> e.path("id").asString()).toList()).containsExactlyElementsOf(ids.subList(0,20));
+        assertThat(first.path("totalElements").asInt()).isEqualTo(25);
+        assertThat(first.path("totalPages").asInt()).isEqualTo(2);
+        assertThat(first.path("summary").path("paidTotal").asString()).isEqualTo("100.50");
+        assertThat(first.path("summary").path("purchasedLiters").asString()).isEqualTo("25.025");
+        assertThat(first.path("monthlyCounts").size()).isEqualTo(1);
+        assertThat(first.path("monthlyCounts").get(0).path("month").asString()).isEqualTo("2024-01");
+        assertThat(first.path("monthlyCounts").get(0).path("purchaseCount").asInt()).isEqualTo(25);
+        var last=list(owner,vehicle,filters+"&page=1");
+        assertThat(last.path("items").valueStream().map(e -> e.path("id").asString()).toList()).containsExactlyElementsOf(ids.subList(20,25));
+        assertThat(last.path("summary")).isEqualTo(first.path("summary"));
+        assertThat(last.path("monthlyCounts")).isEqualTo(first.path("monthlyCounts"));
+        assertThat(list(owner,vehicle,filters+"&size=10&page=2").path("items").size()).isEqualTo(5);
+        assertThat(list(owner,vehicle,filters+"&size=5&page=4").path("items").size()).isEqualTo(5);
+        assertThat(list(owner,vehicle,filters+"&size=1&page=24").path("items").get(0).path("id").asString()).isEqualTo(ids.get(24));
+        var utc=list(owner,vehicle,"?from=2024-02-01&to=2024-02-01&timezone=UTC&fuelType=ETHANOL");
+        assertThat(utc.path("monthlyCounts").get(0).path("month").asString()).isEqualTo("2024-02");
+        assertThat(utc.path("summary")).isEqualTo(first.path("summary"));
+        assertThat(request("GET",path(vehicle)+filters,stranger,null).status()).isEqualTo(404);
+        assertThat(request("GET",path(vehicle)+filters,null,null).status()).isEqualTo(401);
+        String deleted=ids.get(24);
+        var deletion=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1"+path(vehicle)+"/"+deleted))
+            .header("Authorization","Bearer "+owner).header("If-Match","\"0\"").DELETE().build();
+        assertThat(client.send(deletion,HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(204);
+        var after=list(owner,vehicle,filters+"&page=1");
+        assertThat(after.path("items").size()).isEqualTo(4);
+        assertThat(after.path("totalElements").asInt()).isEqualTo(24);
+        assertThat(after.path("summary").path("paidTotal").asString()).isEqualTo("96.48");
+        assertThat(after.path("summary").path("purchasedLiters").asString()).isEqualTo("24.024");
+        assertThat(after.path("monthlyCounts").get(0).path("purchaseCount").asInt()).isEqualTo(24);
+        var empty=list(owner,vehicle,filters+"&entryId="+deleted);
+        assertThat(empty.path("totalElements").asInt()).isZero();
+        assertThat(empty.path("totalPages").asInt()).isZero();
+        assertThat(empty.path("summary").path("paidTotal").asString()).isEqualTo("0.00");
+        assertThat(empty.path("summary").path("purchasedLiters").asString()).isEqualTo("0.000");
+        assertThat(empty.path("monthlyCounts").size()).isZero();
+        assertThat(list(owner,vehicle,filters+"&page=2").path("items").size()).isZero();
     }
 
     @Test void exactChartSlicesComposeWithCivilDatesAndNeverBroadenOwnership() throws Exception {
@@ -76,7 +128,7 @@ class FuelEntryFiltersIT {
         create(access,vehicle,"2024-02-04T12:00:00Z",400,"15","5.5","45","ETHANOL");
         create(access,vehicle(access),"2024-02-01T12:00:00Z",100,"15","5.5","45","GASOLINE_REGULAR");
         String filters="?from=2024-02-01&to=2024-02-02&timezone=America/Sao_Paulo&fuelType=GASOLINE_REGULAR"
-            +"&tankState=FULL&minTotalPaid=40.01&maxTotalPaid=50.02&minLiters=10.123&maxLiters=20.123"
+            +"&minTotalPaid=40.01&maxTotalPaid=50.02&minLiters=10.123&maxLiters=20.123"
             +"&minPricePerLiter=5.1234&maxPricePerLiter=6.1234&size=1";
         var page=list(access,vehicle,filters);
         assertThat(page.path("totalElements").asInt()).isEqualTo(2);
@@ -84,6 +136,9 @@ class FuelEntryFiltersIT {
         assertThat(page.path("items").size()).isEqualTo(1);
         assertThat(page.path("items").get(0).path("id").asString()).isEqualTo(second);
         assertThat(page.path("items").get(0).path("paidTotal").asString()).isEqualTo("50.02");
+        assertThat(page.path("summary").path("paidTotal").asString()).isEqualTo("90.03");
+        assertThat(page.path("summary").path("purchasedLiters").asString()).isEqualTo("30.246");
+        assertThat(page.path("monthlyCounts").get(0).path("purchaseCount").asInt()).isEqualTo(2);
         assertThat(list(access,vehicle,filters+"&page=1").path("items").get(0).path("id").asString()).isEqualTo(first);
         var empty=list(access,vehicle,filters+"&page=2");
         assertThat(empty.path("items").size()).isZero();
@@ -94,7 +149,6 @@ class FuelEntryFiltersIT {
             assertThat(list(access,vehicle,"?fuelType=GASOLINE_REGULAR&"+bound).path("totalElements").asInt()).as(bound).isEqualTo(expected);
         }
         assertThat(list(access,vehicle,"?maxTotalPaid=0").path("totalElements").asInt()).isZero();
-        assertThat(list(access,vehicle,"?tankState=PARTIAL").path("totalElements").asInt()).isZero();
         assertThat(list(access,vehicle,"").path("totalElements").asInt()).isEqualTo(4);
     }
 
@@ -134,7 +188,7 @@ class FuelEntryFiltersIT {
             assertThat(request("GET",path(vehicle)+"?"+query,access,null).status()).as(query).isEqualTo(422);
         assertThat(list(access,vehicle,"?minTotalPaid=0&maxTotalPaid=9999999999.99&minLiters=0&maxLiters=9999999.999"
             +"&minPricePerLiter=0&maxPricePerLiter=999999.9999").path("totalElements").asInt()).isZero();
-        for (String query:List.of("from=2023-02-29","fuelType=INVALID","tankState=INVALID","page=-1","size=101"))
+        for (String query:List.of("from=2023-02-29","fuelType=INVALID","page=-1","page=1.5","page=no","page=","size=21","size=30","size=100","size=0","size=-1","size=1.5","size=no","size=","size=2147483648"))
             assertThat(request("GET",path(vehicle)+"?"+query,access,null).status()).as(query).isEqualTo(400);
     }
 
@@ -163,7 +217,7 @@ class FuelEntryFiltersIT {
         String id=UUID.randomUUID().toString(); input.put("id",id); input.put("occurredAt",when);
         input.put("timezone","America/Sao_Paulo"); input.put("odometerKm",odometer); input.put("fuelType",fuel);
         input.put("liters",liters); input.put("unitPrice",price); input.put("paidTotal",paid);
-        input.put("adjustmentReason","Valor efetivamente pago"); input.put("tankState","FULL");
+        input.put("adjustmentReason","Valor efetivamente pago");
         input.put("latitude",new BigDecimal("-23.55052")); input.put("longitude",new BigDecimal("-46.633308"));
         var result=request("POST",path(vehicle),access,input);
         assertThat(result.status()).as("%s",result.body()).isEqualTo(201); return id;

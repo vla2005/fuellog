@@ -1,7 +1,6 @@
 package com.fuellog.fueling.models;
 
 import com.fuellog.fueling.dtos.FuelEntryDtos;
-import com.fuellog.fueling.enums.TankState;
 import com.fuellog.fueling.repositories.FuelEntryRepository;
 import com.fuellog.fueling.services.FuelEntryService;
 import com.fuellog.platform.exceptions.ApiException;
@@ -27,13 +26,13 @@ class FuelDomainTest {
     private final Instant now=Instant.parse("2026-10-24T12:00:00Z");
     private FuelEntryDtos.Create command(String liters,String price,String paid,String reason) {
         return new FuelEntryDtos.Create(entryId,now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,
-            FuelType.GASOLINE_REGULAR,liters,price,paid,TankState.PARTIAL,false,reason," Posto ",null,new BigDecimal("-23.5505200"),new BigDecimal("-46.6333080"));
+            FuelType.GASOLINE_REGULAR,liters,price,paid,reason,new BigDecimal("-23.5505200"),new BigDecimal("-46.6333080"));
     }
     @Test void keepsActualPaymentAndRequiresAdjustmentReason() {
         var error=assertThrows(ApiException.class,()->FuelCommand.normalize(vehicleId,command("40","6","230",null)));
         assertEquals(422,error.status());
         var c=FuelCommand.normalize(vehicleId,command("40","6","230"," desconto "));
-        var view=new FuelEntry(c,false).view(false);
+        var view=new FuelEntry(c).view(false);
         assertEquals("230",view.paidTotal());
         assertEquals("240.00",view.referenceTotal());
         assertEquals("-10.00",view.adjustmentAmount());
@@ -58,7 +57,7 @@ class FuelDomainTest {
         assertEquals(a.hash(),b.hash());
         assertNotEquals(a.hash(),FuelCommand.normalize(vehicleId,command("40","6","231","desconto")).hash());
         var offset=new FuelEntryDtos.Create(entryId,now.atOffset(ZoneOffset.ofHours(-3)),"America/Sao_Paulo",1000L,
-            FuelType.GASOLINE_REGULAR,"40","6","230",TankState.PARTIAL,false,"desconto","Posto",null,new BigDecimal("-23.55052"),new BigDecimal("-46.633308"));
+            FuelType.GASOLINE_REGULAR,"40","6","230","desconto",new BigDecimal("-23.55052"),new BigDecimal("-46.633308"));
         assertEquals(a.hash(),FuelCommand.normalize(vehicleId,offset).hash());
     }
     @Test void jacksonRejectsNumericDecimalTokensForBothRequests() {
@@ -93,35 +92,34 @@ class FuelDomainTest {
     }
     @Test void replayReturnsCurrentStateBeforeArchiveAndFutureChecks() {
         var input=command("40","6","240",null);
-        FuelEntry existing=new FuelEntry(FuelCommand.normalize(vehicleId,input),false);
-        setField(existing,"notes","edited later");setField(existing,"paidTotal",new BigDecimal("230"));setField(existing,"version",8L);
+        FuelEntry existing=new FuelEntry(FuelCommand.normalize(vehicleId,input));
+        setField(existing,"paidTotal",new BigDecimal("230"));setField(existing,"version",8L);
         when(repository.findById(entryId)).thenReturn(Optional.of(existing));
         when(vehicle.archivedAt()).thenReturn(now);
         var result=service.create(vehicleId,input);
-        assertTrue(result.idempotentReplay()); assertEquals(8L,result.version()); assertEquals("edited later",result.notes());
+        assertTrue(result.idempotentReplay()); assertEquals(8L,result.version());
         assertEquals("230",result.paidTotal()); verify(repository,never()).saveAndFlush(any());
         verify(vehicles).lockOwned(vehicleId);
     }
     @Test void changedReplayConflicts() {
-        var existing=new FuelEntry(FuelCommand.normalize(vehicleId,command("40","6","240",null)),false);
+        var existing=new FuelEntry(FuelCommand.normalize(vehicleId,command("40","6","240",null)));
         when(repository.findById(entryId)).thenReturn(Optional.of(existing));
         var error=assertThrows(ApiException.class,()->service.create(vehicleId,command("41","6","246",null)));
         assertEquals(409,error.status());
     }
     private FuelEntryDtos.Create location(FuelEntryDtos.Create c, BigDecimal latitude, BigDecimal longitude) {
         return new FuelEntryDtos.Create(c.id(),c.occurredAt(),c.timezone(),c.odometerKm(),c.fuelType(),
-            c.liters(),c.unitPrice(),c.paidTotal(),c.tankState(),c.historyGapBefore(),c.adjustmentReason(),c.stationName(),c.notes(),latitude,longitude);
+            c.liters(),c.unitPrice(),c.paidTotal(),c.adjustmentReason(),latitude,longitude);
     }
     @Test void locationDefaultsAndFingerprintKeepTheOriginalSnapshot() {
         var input=command("40","6","240",null);
         var minimal=new FuelEntryDtos.Create(input.id(),input.occurredAt(),input.timezone(),input.odometerKm(),input.fuelType(),
-            input.liters(),input.unitPrice(),input.paidTotal(),null,null,null,null,null,BigDecimal.ZERO,BigDecimal.ZERO);
+            input.liters(),input.unitPrice(),input.paidTotal(),null,BigDecimal.ZERO,BigDecimal.ZERO);
         var saved=service.create(vehicleId,minimal);
-        assertEquals(TankState.UNKNOWN,saved.tankState()); assertFalse(saved.historyGapBefore());
         assertEquals(BigDecimal.ZERO,saved.latitude()); assertEquals(BigDecimal.ZERO,saved.longitude());
         assertEquals(FuelCommand.normalize(vehicleId,location(input,BigDecimal.ZERO,new BigDecimal("1.0"))).hash(),
             FuelCommand.normalize(vehicleId,location(input,new BigDecimal("-0.000"),new BigDecimal("1.000"))).hash());
-        var existing=new FuelEntry(FuelCommand.normalize(vehicleId,input),false);
+        var existing=new FuelEntry(FuelCommand.normalize(vehicleId,input));
         when(repository.findById(entryId)).thenReturn(Optional.of(existing));
         var equivalent=location(input,new BigDecimal("-23.550520"),new BigDecimal("-46.6333080"));
         assertTrue(service.create(vehicleId,equivalent).idempotentReplay());
@@ -134,12 +132,7 @@ class FuelDomainTest {
         var input=location(command("40","6","240",null),null,null);
         assertEquals(422,assertThrows(ApiException.class,()->service.create(vehicleId,input)).status());
         verify(repository,never()).saveAndFlush(any());
-        var fixed=new FuelEntryDtos.Create(UUID.fromString("11111111-1111-1111-1111-111111111111"),
-            now.atOffset(ZoneOffset.UTC),"America/Sao_Paulo",1000L,FuelType.GASOLINE_REGULAR,"40","6","240",
-            TankState.FULL,false,null,"Posto",null,null,null);
-        var legacyCommand=FuelCommand.normalize(UUID.fromString("22222222-2222-2222-2222-222222222222"),fixed);
-        assertEquals("8f1a53b85535c16797b7950e4fa87947eec2e35738c5c5fa51d176bfcd11d46c",legacyCommand.hash());
-        var legacy=new FuelEntry(FuelCommand.normalize(vehicleId,input),false);
+        var legacy=new FuelEntry(FuelCommand.normalize(vehicleId,input));
         when(repository.findById(entryId)).thenReturn(Optional.of(legacy));
         when(vehicle.archivedAt()).thenReturn(now);
         var replay=service.create(vehicleId,input);
@@ -172,14 +165,15 @@ class FuelDomainTest {
         setField(next,"odometerKm",1000);
         assertDoesNotThrow(()->service.create(vehicleId,command("40","6","240",null)));
     }
-    @Test void tiedFullTankRequiresTimeCorrectionButEqualPartialReadingsAreAllowed() {
-        var same=new FuelEntry();setField(same,"odometerKm",1000);setField(same,"tankState",TankState.FULL);
+    @Test void sameTimestampRequiresEqualOdometers() {
+        var same=new FuelEntry(); setField(same,"odometerKm",1000);
         when(repository.findByVehicleIdAndOccurredAt(vehicleId,now)).thenReturn(List.of(same));
+        assertDoesNotThrow(()->service.create(vehicleId,command("40","6","240",null)));
+        setField(same,"odometerKm",1001);
         var error=assertThrows(ApiException.class,()->service.create(vehicleId,command("40","6","240",null)));
         assertTrue(error.fieldErrors().containsKey("occurredAt"));
-        setField(same,"tankState",TankState.PARTIAL);
-        assertDoesNotThrow(()->service.create(vehicleId,command("40","6","240",null)));
     }
+
     @Test void archiveAndDisallowedFuelAreRejected() {
         when(vehicle.archivedAt()).thenReturn(now);
         assertEquals(409,assertThrows(ApiException.class,()->service.create(vehicleId,command("40","6","240",null))).status());
@@ -193,14 +187,6 @@ class FuelDomainTest {
         doThrow(new org.springframework.dao.DataIntegrityViolationException("check",
             new java.sql.SQLException("check", "23514"))).when(repository).saveAndFlush(any());
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->service.create(vehicleId,command("40","6","240",null)));
-    }
-    @Test void pendingGapIsConsumedOnlyAtOrAfterItsBoundary() {
-        when(vehicle.pendingHistoryGapAfter()).thenReturn(now.plusSeconds(1));
-        assertFalse(service.create(vehicleId,command("40","6","240",null)).historyGapBefore());
-        verify(vehicle,never()).consumePendingGap();
-        when(vehicle.pendingHistoryGapAfter()).thenReturn(now);
-        assertTrue(service.create(vehicleId,command("40","6","240",null)).historyGapBefore());
-        verify(vehicle).consumePendingGap();
     }
     @Test void futureToleranceIncludesFiveMinutes() {
         service=new FuelEntryService(repository,vehicles,Clock.fixed(now.minusSeconds(300),ZoneOffset.UTC));

@@ -1,14 +1,14 @@
-import { FUEL_TYPE_LABELS, UNAVAILABLE_REASON_EXPLANATIONS } from '@/api/endpoints';
+import { FUEL_TYPE_LABELS } from '@/api/endpoints';
 import type { DashboardResponse, FuelType } from '@/api/types';
-import { formatCurrencyBRL, formatDecimalBR, formatLitersBR, formatOdometerBR, formatUnitPriceBR } from '@/utils/decimal';
+import { formatCurrencyBRL, formatDecimalBR, formatLitersBR, formatUnitPriceBR } from '@/utils/decimal';
 import type { DashboardPeriod } from './model';
 
-export type ChartKind = 'spending' | 'fuel' | 'consumption' | 'cost' | 'price' | 'liters';
+export type ChartKind = 'spending' | 'fuel' | 'price' | 'liters';
 export const CHART_TITLES: Record<ChartKind, string> = { spending: 'Gastos por mês', fuel: 'Gasto por combustível',
-  consumption: 'Rendimento por ciclo', cost: 'Custo por quilômetro', price: 'Evolução do preço por litro', liters: 'Litros por mês' };
+  price: 'Evolução do preço por litro', liters: 'Litros por mês' };
 export interface HistoryScope { from: string | null; to: string | null; fuelType?: FuelType | null; occurredFrom?: string; occurredTo?: string; entryId?: string }
 export interface ChartDatum { id: string; label: string; title: string; value: string | null; formatted: string;
-  fields: [string, string][]; history: HistoryScope; fuelType?: FuelType; mixed?: boolean }
+  fields: [string, string][]; history: HistoryScope; fuelType?: FuelType }
 export function civilDate(instant: string, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(instant));
   const part = (type: string) => parts.find(p => p.type === type)?.value;
@@ -20,8 +20,6 @@ export function dateLabel(instant: string, timezone: string, year = false) {
 }
 export function chartValue(kind: ChartKind, value: string | null): string {
   if (value === null) return 'Indisponível';
-  if (kind === 'consumption') return `${formatDecimalBR(value, 2, 2)} km/L`;
-  if (kind === 'cost') return `${formatUnitPriceBR(value)}/km`;
   if (kind === 'price') return `${formatUnitPriceBR(value)}/L`;
   if (kind === 'liters') return formatLitersBR(value);
   return formatCurrencyBRL(value);
@@ -44,17 +42,5 @@ export function chartRows(kind: ChartKind, data: DashboardResponse, period: Dash
     formatted: chartValue(kind, item.unitPrice), fields: [['Data', new Intl.DateTimeFormat('pt-BR', { dateStyle: 'long', timeStyle: 'short', timeZone: data.timezone }).format(new Date(item.occurredAt))],
       ['Combustível', FUEL_TYPE_LABELS[item.fuelType]], ['Preço declarado por litro', chartValue(kind, item.unitPrice)], ['Litros', formatLitersBR(item.liters)], ['Total pago', formatCurrencyBRL(item.paidTotal)]],
     history: { from: civilDate(item.occurredAt,data.timezone), to: civilDate(item.occurredAt,data.timezone), fuelType: item.fuelType, entryId: item.entryId } }));
-  return data.cycles.map(cycle => {
-    const value = kind === 'consumption' ? cycle.consumptionKmPerLiter : cycle.replacementCostPerKm;
-    const title = `${dateLabel(cycle.startedAt,data.timezone,true)} a ${dateLabel(cycle.endedAt,data.timezone,true)}${cycle.mixed ? ' · Ciclo misto' : ''}`;
-    return { id: cycle.endEntryId, title, label: dateLabel(cycle.endedAt,data.timezone), value, formatted: chartValue(kind,value), mixed: cycle.mixed,
-      fields: [['Início', new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeStyle: 'short', timeZone: data.timezone }).format(new Date(cycle.startedAt))],
-        ['Fim', new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeStyle: 'short', timeZone: data.timezone }).format(new Date(cycle.endedAt))],
-        ['Rendimento', chartValue('consumption',cycle.consumptionKmPerLiter)], ['Custo por quilômetro', chartValue('cost',cycle.replacementCostPerKm)],
-        ['Distância considerada', formatOdometerBR(cycle.distanceKm)], ['Litros considerados', formatLitersBR(cycle.liters)], ['Gasto considerado', formatCurrencyBRL(cycle.paidTotal)],
-        ['Combustíveis', cycle.fuelTypes.map(type => FUEL_TYPE_LABELS[type]).join(', ')],
-        ...(cycle.unavailableReason ? [['Ciclo indisponível', UNAVAILABLE_REASON_EXPLANATIONS[cycle.unavailableReason].description] as [string,string]] : [])],
-      history: { from: civilDate(cycle.startedAt,data.timezone), to: civilDate(cycle.endedAt,data.timezone),
-        occurredFrom: cycle.startedAt, occurredTo: cycle.endedAt, fuelType: null } };
-  });
+  return [];
 }

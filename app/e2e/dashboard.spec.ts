@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fuelHistoryPage } from './api-fixtures';
 import { writeFile } from 'node:fs/promises';
 
 // Controlled frontend fixtures only. These requests never reach accounts or a real database.
@@ -17,9 +18,8 @@ export async function dashboardApi(page: Page) {
     else if (path.endsWith(`/vehicles/${vehicle.id}`)) body = {...vehicle,...(route.request().method()==='PUT'?route.request().postDataJSON():{}),version:2};
     else if (path.endsWith('/fuel-types')) body = vehicle.allowedFuels;
     else if (path.endsWith('/dashboard')) body = dashboardFixture(url.searchParams);
-    else if (path.endsWith('/fuel-entries')) body = { items: [], page: 0, size: 30, totalPages: 0, totalElements: 0 };
-    else if (path.endsWith('/consumption-cycles')) body = { items: [] };
-    else if (path.endsWith('/summary')) body = { paidTotal: '450.00', purchaseCount: 3, purchasedLiters: '90.000', lastValidCycle: null };
+    else if (path.endsWith('/fuel-entries')) body = fuelHistoryPage([]);
+    else if (path.endsWith('/summary')) body = { paidTotal: '450.00', purchaseCount: 3, purchasedLiters: '90.000' };
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
   });
 }
@@ -28,32 +28,31 @@ export function dashboardFixture(params = new URLSearchParams()) {
   const months = ['05','06','07','08','09','10'].map((month,i) => ({ month: `2026-${month}`,
     from: `2026-${month}-01`, to: `2026-${month}-${month === '06' || month === '09' ? 30 : 31}`,
     purchaseCount: 11, paidTotal: `${300+i*30}.00`, liters: `${60+i*6}.000` }));
-  const cycles = months.map((month,i) => ({ startEntryId: `start-${i}`, endEntryId: `end-${i}`,
-    startedAt: `${month.from}T12:00:00Z`, endedAt: `${month.to}T12:00:00Z`, distanceKm: 450+i*20,
-    liters: '50.000', paidTotal: '250.00', consumptionKmPerLiter: `${9+i*0.4}`, replacementCostPerKm: `${0.55-i*0.02}`,
-    fuelTypes: ['ETHANOL'], mixed: false, unavailableReason: null }));
   return { vehicleId: vehicle.id, from, to, timezone: params.get('timezone') ?? 'America/Sao_Paulo', fuelType: params.get('fuelType'),
     purchaseCount: 66, paidTotal: '2250.00', purchasedLiters: '450.000', weightedUnitPrice: '5.0000',
-    validCycleCount: 6, cycleDistanceKm: 3000, cycleLiters: '300.000', cyclePaidTotal: '1500.00',
-    consumptionKmPerLiter: '10.00', replacementCostPerKm: '0.5000', unavailableReason: null, months,
+    months,
     fuels: [{ fuelType: 'ETHANOL', purchaseCount: 44, paidTotal: '1500.00', liters: '300.000', percentage: '66.6667' },
       { fuelType: 'GASOLINE_REGULAR', purchaseCount: 22, paidTotal: '750.00', liters: '150.000', percentage: '33.3333' }],
     prices: months.map((month,i) => ({ entryId: `price-${i}`, occurredAt: `${month.from}T12:00:00Z`, fuelType: 'ETHANOL',
-      unitPrice: `${5.5-i*0.1}`, liters: '20.000', paidTotal: '100.00' })), cycles };
+      unitPrice: `${5.5-i*0.1}`, liters: '20.000', paidTotal: '100.00' })) };
 }
-test('six charts share one page and local filters, details and history preserve dashboard', async ({ page }) => {
+test('four charts share one page and local filters, details and history preserve dashboard', async ({ page }) => {
   const historyQueries:URL[]=[];
+  const removedRequests:string[]=[];
+  page.on('request',request=>{if(request.url().includes('/consumption-cycles'))removedRequests.push(request.url());});
   page.on('request',request=>{if(request.url().includes('/fuel-entries?'))historyQueries.push(new URL(request.url()));});
   await dashboardApi(page);
   await page.goto('/');
   await expect(page.getByText('Visão geral', { exact: true })).toBeVisible();
-  const ids = ['spending','fuel','consumption','cost','price','liters'];
+  const ids = ['spending','fuel','price','liters'];
   for (const id of ids) await expect(page.getByTestId(`chart-${id}`)).toHaveCount(1);
+  await expect(page.getByTestId('section-consumption')).toHaveCount(0);
+  await expect(page.getByTestId('section-cost')).toHaveCount(0);
   const spending = page.getByTestId('section-spending');
   await spending.getByRole('button', { name: /Período/ }).click();
   await page.getByRole('button', { name: '3 meses', exact: true }).click();
   await expect(spending.getByRole('button', { name: /Período: 3 meses/ })).toBeVisible();
-  await expect(page.getByTestId('section-consumption').getByRole('button', { name: /Período: 6 meses/ })).toHaveCount(1);
+  await expect(page.getByTestId('section-price').getByRole('button', { name: /Período: 6 meses/ })).toHaveCount(1);
   await spending.getByTestId('chart-spending').click({ position: { x: 120, y: 100 } });
   await expect(page.getByTestId('tooltip-spending')).toBeVisible();
   await spending.getByRole('button', { name: 'Ver detalhes' }).click();
@@ -66,6 +65,7 @@ test('six charts share one page and local filters, details and history preserve 
   await page.getByRole('tab', { name: 'Início', exact: true }).click();
   await expect.poll(()=>page.getByTestId('dashboard-scroll').evaluate(element=>element.scrollTop)).toBe(scrollBefore);
   await expect(spending.getByRole('button', { name: /Período: 3 meses/ })).toBeVisible();
+  expect(removedRequests).toEqual([]);
 });
 
 async function showChart(page: Page, id: string) {
@@ -95,7 +95,7 @@ async function waitForArtwork(page:Page){
 test('every chart selects, guides, details, accessible list and outside touch work', async ({ page }) => {
   await dashboardApi(page); await page.goto('/');
   await expect(page.getByTestId('chart-liters')).toHaveCount(1);
-  for (const id of ['spending','fuel','consumption','cost','price','liters']) {
+  for (const id of ['spending','fuel','price','liters']) {
     const chart = await showChart(page,id);
     await chart.click({position:{x:150,y:id==='fuel'?30:100}});
     const tooltip=page.getByTestId(`tooltip-${id}`);
@@ -103,7 +103,7 @@ test('every chart selects, guides, details, accessible list and outside touch wo
     const bounds=await tooltip.boundingBox(), header=await page.getByTestId('dashboard-landscape').boundingBox();
     expect(bounds!.y).toBeGreaterThanOrEqual(header!.height-1);
     expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(844-104);
-    if (['consumption','cost','price'].includes(id)) await expect(chart.locator('line[stroke-dasharray="3 4"]')).toHaveCount(1);
+    if (id==='price') await expect(chart.locator('line[stroke-dasharray="3 4"]')).toHaveCount(1);
     await tooltip.getByRole('button',{name:'Ver detalhes',exact:true}).click();
     const dialog=page.getByRole('dialog');
     await expect(dialog.getByRole('button',{name:'Ver abastecimentos',exact:true})).toBeVisible();
@@ -126,18 +126,18 @@ test('calendar and fuel filters are local; scrolling and selection never request
   await dashboardApi(page);await page.goto('/');
   await expect(page.getByTestId('chart-liters')).toHaveCount(1);
   expect(requests).toHaveLength(2);
-  await showChart(page,'liters');await showChart(page,'consumption');
+  await showChart(page,'liters');await showChart(page,'price');
   expect(requests).toHaveLength(2);
-  const consumption=page.getByTestId('section-consumption');
-  await consumption.getByRole('button',{name:/Combustível:/}).click();
+  const filteredPrice=page.getByTestId('section-price');
+  await filteredPrice.getByRole('button',{name:/Combustível:/}).click();
   await page.getByRole('dialog').getByRole('button',{name:'Etanol',exact:true}).click();
-  await expect(consumption.getByRole('button',{name:/Combustível: Etanol/})).toBeVisible();
-  await expect(consumption.getByTestId('chart-consumption')).toHaveCount(1);
+  await expect(filteredPrice.getByRole('button',{name:/Combustível: Etanol/})).toBeVisible();
+  await expect(filteredPrice.getByTestId('chart-price')).toHaveCount(1);
   expect(requests).toHaveLength(3);
-  const cost=page.getByTestId('section-cost');await showChart(page,'cost');
-  await cost.getByRole('button',{name:/Combustível:/}).click();
+  const liters=page.getByTestId('section-liters');await showChart(page,'liters');
+  await liters.getByRole('button',{name:/Combustível:/}).click();
   await page.getByRole('dialog').getByRole('button',{name:'Etanol',exact:true}).click();
-  await expect(cost.getByTestId('chart-cost')).toHaveCount(1);
+  await expect(liters.getByTestId('chart-liters')).toHaveCount(1);
   expect(requests).toHaveLength(3);
   const price=page.getByTestId('section-price');await showChart(page,'price');
   await price.getByRole('button',{name:/Período:/}).click();
@@ -295,7 +295,7 @@ for(const theme of ['light','dark'] as const){
     await expect(page.getByTestId('chart-liters')).toHaveCount(1);
     await waitForArtwork(page);
     await page.screenshot({path:test.info().outputPath(`${theme}-top.png`)});
-    await showChart(page,'consumption');await page.screenshot({path:test.info().outputPath(`${theme}-middle.png`)});
+    await showChart(page,'price');await page.screenshot({path:test.info().outputPath(`${theme}-middle.png`)});
     await showChart(page,'liters');await page.screenshot({path:test.info().outputPath(`${theme}-bottom.png`)});
     await page.setViewportSize({width:320,height:740});
     await page.evaluate(()=>{
@@ -404,31 +404,21 @@ test.describe('viewport animations',()=>{
   });
 });
 
-test('individual errors retry, empty purchases and null cycles never draw artificial data; a single price remains selectable',async({page})=>{
+test('individual errors retry, empty purchases draw no artificial data; a single price remains selectable',async({page})=>{
   await dashboardApi(page);let fail=true;
   await page.route('**/dashboard?**',route=>{
     const url=new URL(route.request().url());const data=dashboardFixture(url.searchParams);
     if(url.searchParams.get('from')==='2026-08-01' && fail)return route.fulfill({status:503,contentType:'application/problem+json',body:JSON.stringify({detail:'Gráfico temporariamente indisponível.'})});
     if(url.searchParams.get('fuelType')==='ETHANOL'){
-      data.months=[];data.fuels=[];data.prices=data.prices.slice(0,1);data.cycles=data.cycles.slice(0,1).map(cycle=>({...cycle,consumptionKmPerLiter:null,replacementCostPerKm:null,unavailableReason:'HISTORY_GAP'})) as any;
-      data.consumptionKmPerLiter=null as any;data.replacementCostPerKm=null as any;data.validCycleCount=0;data.unavailableReason='HISTORY_GAP' as any;
-    }
+      data.months=[];data.fuels=[];data.prices=data.prices.slice(0,1);    }
     return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
   });
   await page.goto('/');await expect(page.getByTestId('chart-liters')).toHaveCount(1);
   const price=page.getByTestId('section-price');await showChart(page,'price');
   await price.getByRole('button',{name:/Período:/}).click();await page.getByRole('button',{name:'3 meses',exact:true}).click();
   await expect(price.getByText('Gráfico temporariamente indisponível.',{exact:true})).toBeVisible();
-  await expect(page.getByTestId('chart-consumption').locator('path')).toHaveCount(1);
+  await expect(page.getByTestId('chart-spending')).toHaveCount(1);
   fail=false;await price.getByRole('button',{name:'Tentar novamente',exact:true}).click();await expect(page.getByTestId('chart-price').locator('path')).toHaveCount(1);
-  const consumption=page.getByTestId('section-consumption');await showChart(page,'consumption');
-  await consumption.getByRole('button',{name:/Combustível:/}).click();await page.getByRole('dialog').getByRole('button',{name:'Etanol',exact:true}).click();
-  await expect(consumption.getByText(/impedindo o cálculo/)).toBeVisible();
-  await expect(consumption.getByTestId('chart-consumption').locator('circle')).toHaveCount(0);
-  await expect(consumption.getByText('0,00 km/L',{exact:true})).toHaveCount(0);
-  await consumption.getByRole('button',{name:'Consultar dados em lista'}).click();
-  await expect(page.getByRole('dialog').getByRole('button',{name:/Indisponível/})).toBeVisible();
-  await page.getByRole('dialog').getByRole('button',{name:'Fechar',exact:true}).click();
   const spending=page.getByTestId('section-spending');await showChart(page,'spending');
   await spending.getByRole('button',{name:/Combustível:/}).click();await page.getByRole('dialog').getByRole('button',{name:'Etanol',exact:true}).click();
   await expect(spending.getByText('Nenhum abastecimento neste período e combustível.',{exact:true})).toBeVisible();

@@ -1,11 +1,12 @@
+import { fuelHistoryPage, purchaseDashboard } from './api-fixtures';
 import { expect, Page, test } from '@playwright/test';
 
 const vehicle = { id: 'delete-vehicle', nickname: 'Carro exclusão', allowedFuels: ['GASOLINE_REGULAR'], archivedAt: null, version: 0 };
 const original = {
   id: 'delete-entry', vehicleId: vehicle.id, occurredAt: '2026-10-24T12:00:00Z', timezone: 'America/Sao_Paulo',
   odometerKm: 120500, fuelType: 'GASOLINE_REGULAR', liters: '10.000', unitPrice: '6.0000', paidTotal: '60.00',
-  referenceTotal: '60.00', adjustmentAmount: '0.00', tankState: 'PARTIAL', historyGapBefore: false,
-  stationName: 'Posto exclusão', notes: null, version: 3, idempotentReplay: false, latitude: null, longitude: null,
+  referenceTotal: '60.00', adjustmentAmount: '0.00',
+    version: 3, idempotentReplay: false, latitude: null, longitude: null,
 };
 
 async function setup(page: Page) {
@@ -43,15 +44,14 @@ async function setup(page: Page) {
     }
     if (path.endsWith('/fuel-entries')) {
       listCalls++;
-      return reply({ items: deleted ? [] : [entry], page: 0, size: 30, totalElements: deleted ? 0 : 1, totalPages: deleted ? 0 : 1 });
+      return reply(fuelHistoryPage(deleted ? [] : [entry]));
     }
-    if (path.endsWith('/summary')) {
+    if (path.endsWith('/summary') || path.endsWith('/dashboard')) {
       summaryCalls++;
-      return reply({ vehicleId: vehicle.id, purchaseCount: deleted ? 0 : 1, paidTotal: deleted ? '0.00' : entry.paidTotal,
-        purchasedLiters: deleted ? '0.000' : entry.liters, validCycleCount: 0, periodConsumptionKmPerLiter: null,
-        periodUnavailableReason: 'NEEDS_FULL_TANK_BASELINE', lastValidCycle: null, lastCycleUnavailableReason: 'NEEDS_FULL_TANK_BASELINE' });
+      return reply({ ...purchaseDashboard(), vehicleId: vehicle.id, purchaseCount: deleted ? 0 : 1, paidTotal: deleted ? '0.00' : entry.paidTotal,
+        purchasedLiters: deleted ? '0.000' : entry.liters,
+          });
     }
-    if (path.endsWith('/consumption-cycles')) return reply({ items: [], currentUnavailableReason: 'NEEDS_FULL_TANK_BASELINE' });
     return reply({});
   });
   return {
@@ -85,8 +85,8 @@ async function captureConfirmation(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(name) });
 }
 async function reveal(page: Page) {
-  await page.getByRole('button', { name: /^Ações: abastecimento/ }).first().click();
-  await page.getByRole('button', { name: /^Excluir abastecimento de/ }).first().click();
+  const row = page.getByRole('button', { name: /^Abastecimento de R\$/ }).first();
+  await row.click({ delay: 650 });
   await expect(dialog(page)).toBeVisible();
 }
 
@@ -107,7 +107,7 @@ test('swipe only reveals; accessible alternative, cancel, focus trap and dark th
   await page.screenshot({ path: test.info().outputPath('swipe-dark.png') });
   await action.click();
   await expect(dialog(page)).toContainText('Carro exclusão');
-  await expect(dialog(page)).toContainText('Posto exclusão');
+  await expect(dialog(page)).not.toContainText('Posto');
   await captureConfirmation(page, 'confirm-dark.png');
   await expect(dialog(page).getByRole('button', { name: 'Cancelar', exact: true })).toBeFocused();
   await page.keyboard.press('Shift+Tab');

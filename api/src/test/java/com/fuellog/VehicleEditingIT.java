@@ -258,7 +258,7 @@ class VehicleEditingIT {
     private Map<String,Object> entry(String occurredAt,long odometer) {
         var value=new LinkedHashMap<String,Object>(); value.put("id",UUID.randomUUID().toString()); value.put("occurredAt",occurredAt);
         value.put("timezone","America/Sao_Paulo"); value.put("odometerKm",odometer); value.put("fuelType","GASOLINE_REGULAR");
-        value.put("liters","40"); value.put("unitPrice","6"); value.put("paidTotal","240"); value.put("tankState","FULL");
+        value.put("liters","40"); value.put("unitPrice","6"); value.put("paidTotal","240");
         value.put("latitude",new BigDecimal("-23.55052")); value.put("longitude",new BigDecimal("-46.633308")); return value;
     }
     private Result request(String method,String path,String token,Object body,String etag) throws Exception {

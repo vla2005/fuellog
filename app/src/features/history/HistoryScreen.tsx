@@ -4,35 +4,34 @@ import { Pressable as GesturePressable } from 'react-native-gesture-handler';
 import {
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import {
   FUEL_TYPE_LABELS,
   FUEL_TYPE_SHORT_LABELS,
-  getConsumptionCycles,
-  getVehicleSummary,
   listFuelEntries,
-  TANK_STATE_LABELS,
-  TANK_STATE_SHORT_LABELS,
 } from '@/api/endpoints';
 import {
   ApiError,
-  ConsumptionCycle,
   FuelEntry,
   FuelType,
-  SummaryResponse,
-  TankState,
+  FuelEntryPage,
 } from '@/api/types';
 import { BrandLockup } from '@/components/brand/BrandLockup';
 import { PixelMascot } from '@/components/brand/PixelMascot';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
+  CalendarIcon,
+  CarIcon,
   CheckIcon,
+  ChevronLeftIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   PlusIcon,
@@ -44,17 +43,13 @@ import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { useSession } from '@/state/SessionContext';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { radii, shadows, typography } from '@/theme/tokens';
+import { radii, typography } from '@/theme/tokens';
 import {
-  formatDateTimeRowBR,
-  groupMonthLabelBR,
   listRecentMonthPeriods,
 } from '@/utils/date';
 import {
-  formatConsumptionBR,
   formatCurrencyBRL,
   formatLitersBR,
-  formatOdometerBR,
   formatUnitPriceBR,
 } from '@/utils/decimal';
 import {
@@ -68,47 +63,20 @@ import {
 import { DeleteFuelEntrySheet } from './components/DeleteFuelEntrySheet';
 import { HistorySwipeRow } from './components/HistorySwipeRow';
 
-const PAGE_SIZE = 30;
+const PAGE_SIZES = [5, 10, 20] as const;
+// The new gesture-handler web pressable loses its hit area after the list scrolls.
+const EntryPressable = Platform.OS === 'web' ? Pressable : GesturePressable;
 
-const WEEKDAY_NAMES_PT = [
-  'Domingo',
-  'Segunda',
-  'Terça',
-  'Quarta',
-  'Quinta',
-  'Sexta',
-  'Sábado',
-];
-
-function formatHistoryItemDate(
-  iso: string,
-  timezone?: string,
-): string {
-  try {
-    const d = new Date(iso);
-    if (!Number.isNaN(d.getTime())) {
-      const tz = timezone || 'America/Sao_Paulo';
-      const day = new Intl.DateTimeFormat('pt-BR', {
-        day: '2-digit',
-        timeZone: tz,
-      }).format(d);
-      const wdShort = new Intl.DateTimeFormat('pt-BR', {
-        weekday: 'short',
-        timeZone: tz,
-      })
-        .format(d)
-        .replace(/\./g, '')
-        .trim();
-      const cleanWd = wdShort.split('-')[0] || '';
-      const capitalizedWd = cleanWd
-        ? cleanWd.charAt(0).toUpperCase() + cleanWd.slice(1)
-        : WEEKDAY_NAMES_PT[d.getDay()]?.slice(0, 3) ?? '';
-      return capitalizedWd ? `${day}, ${capitalizedWd}` : day;
-    }
-  } catch {
-    // Fallback below
-  }
-  return iso.slice(8, 10);
+function historyDate(iso: string, timezone: string) {
+  const date = new Date(iso);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const part = (type: string) => parts.find(item => item.type === type)?.value ?? '';
+  return {
+    monthKey: `${part('year')}-${part('month')}`,
+    day: part('day'),
+    month: new Intl.DateTimeFormat('pt-BR', { timeZone: timezone, month: 'short' }).format(date).replace('.', '').toUpperCase(),
+    title: new Intl.DateTimeFormat('pt-BR', { timeZone: timezone, month: 'long', year: 'numeric' }).format(date).replace(/^./, letter => letter.toUpperCase()).replace(' de ', ' '),
+  };
 }
 
 export function HistoryScreen({
@@ -118,7 +86,9 @@ export function HistoryScreen({
 } = {}) {
   const router = useRouter();
   const isTabActive = useContext(TabActiveContext);
-  const { colors, isDark } = useAppTheme();
+  const { colors } = useAppTheme();
+  const { width, fontScale } = useWindowDimensions();
+  const reflow = width < 360 || fontScale > 1.15;
   const {
     status,
     user,
@@ -145,29 +115,21 @@ export function HistoryScreen({
 
 
   const [entries, setEntries] = useState<FuelEntry[]>([]);
-  const [periodSummary, setPeriodSummary] = useState<SummaryResponse | null>(
-    null,
-  );
-  const [cyclesByEndEntry, setCyclesByEndEntry] = useState<
-    Record<string, ConsumptionCycle>
-  >({});
+  const [periodSummary, setPeriodSummary] = useState<FuelEntryPage['summary'] | null>(null);
+  const [monthlyCounts, setMonthlyCounts] = useState<FuelEntryPage['monthlyCounts']>([]);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(20);
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadedContext, setLoadedContext] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<FuelEntry | null>(null);
+  const [sizeSheetOpen, setSizeSheetOpen] = useState(false);
   useEffect(() => { setDeletingEntry(null); }, [activeVehicle?.id, isTabActive, user?.id]);
-  useEffect(() => {
-    setEntries([]);
-    setPeriodSummary(null);
-    setCyclesByEndEntry({});
-  }, [dataVersion]);
-
   const requestSeqRef = useRef(0);
   const latestContextKeyRef = useRef('');
-  const lastIdentityScopeRef = useRef('');
+  const lastQueryContextRef = useRef('');
 
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [vehicleSheetOpen, setVehicleSheetOpen] = useState(false);
@@ -225,200 +187,88 @@ export function HistoryScreen({
     }
   }, [selectedPeriod]);
 
-  const currentContextKey = `${status}:${user?.id ?? 'anon'}:${
-    activeVehicle?.id ?? 'none'
-  }:${activeFilters.from ?? 'ALL'}_${activeFilters.to ?? 'ALL'}:${
-    activeFilters.fuelType ?? 'ALL'
-  }:${activeFilters.minTotalPaid || 'NONE'}:${activeFilters.maxTotalPaid || 'NONE'}:${
-    activeFilters.minLiters || 'NONE'
-  }:${activeFilters.maxLiters || 'NONE'}:${activeFilters.minPricePerLiter || 'NONE'}:${
-    activeFilters.maxPricePerLiter || 'NONE'
-  }:${dataVersion}:${sliceKey}`;
+  const timezone = user?.preferredTimezone || 'America/Sao_Paulo';
+  const queryContextKey = JSON.stringify([status, user?.id, activeVehicle?.id, activeFilters, sliceKey, pageSize, timezone]);
+  const currentContextKey = `${queryContextKey}:${dataVersion}:${page}`;
   latestContextKeyRef.current = currentContextKey;
 
-  const loadPage = useCallback(
-    async (targetPage: number, append: boolean) => {
-      const seq = ++requestSeqRef.current;
-      const identityScope = `${status}:${user?.id ?? 'anon'}:${
-        activeVehicle?.id ?? 'none'
-      }`;
-      const contextSnap = `${identityScope}:${
-        activeFilters.from ?? 'ALL'}_${activeFilters.to ?? 'ALL'
-      }:${activeFilters.fuelType ?? 'ALL'}:${
-        activeFilters.minTotalPaid || 'NONE'
-      }:${activeFilters.maxTotalPaid || 'NONE'}:${
-        activeFilters.minLiters || 'NONE'
-      }:${activeFilters.maxLiters || 'NONE'}:${
-        activeFilters.minPricePerLiter || 'NONE'
-      }:${activeFilters.maxPricePerLiter || 'NONE'}:${dataVersion}:${sliceKey}`;
-      latestContextKeyRef.current = contextSnap;
-
-      if (
-        lastIdentityScopeRef.current !== identityScope ||
-        status !== 'authenticated' ||
-        !user ||
-        !activeVehicle
-      ) {
-        lastIdentityScopeRef.current = identityScope;
-        setEntries([]);
-        setPeriodSummary(null);
-        setCyclesByEndEntry({});
-        setPage(0);
-        setTotalPages(0);
-        setTotalElements(0);
-        setLoadingMore(false);
-      } else if (!append) {
-        setLoadingMore(false);
-      }
-
-      setErrorMessage(null);
-
-      if (status !== 'authenticated' || !user || !activeVehicle) {
-        setLoading(false);
-        setLoadingMore(false);
-        return;
-      }
-
-      const targetVehicleId = activeVehicle.id;
-
-      if (append) {
-        setLoadingMore(true);
-      } else {
-        setLoading(true);
-      }
-
-      try {
-        const fromParam = activeFilters.from ?? undefined;
-        const toParam = activeFilters.to ?? undefined;
-
-        const [pageData, summaryData, cyclesData] = await Promise.all([
-          listFuelEntries(targetVehicleId, {
-            from: fromParam,
-            to: toParam,
-            timezone: user?.preferredTimezone || 'America/Sao_Paulo',
-            fuelType: activeFilters.fuelType,
-            occurredFrom:slice.occurredFrom,occurredTo:slice.occurredTo,entryId:slice.entryId,
-            minTotalPaid: activeFilters.minTotalPaid || undefined,
-            maxTotalPaid: activeFilters.maxTotalPaid || undefined,
-            minLiters: activeFilters.minLiters || undefined,
-            maxLiters: activeFilters.maxLiters || undefined,
-            minPricePerLiter: activeFilters.minPricePerLiter || undefined,
-            maxPricePerLiter: activeFilters.maxPricePerLiter || undefined,
-            page: targetPage,
-            size: PAGE_SIZE,
-          }),
-          targetPage === 0 && !slice.occurredFrom && !slice.occurredTo && !slice.entryId && !activeFilters.fuelType && typeof getVehicleSummary === 'function'
-            ? getVehicleSummary(targetVehicleId, {
-                from: fromParam,
-                to: toParam,
-              }).catch(() => null)
-            : Promise.resolve(null),
-          targetPage === 0
-            ? getConsumptionCycles(targetVehicleId, {
-                from: fromParam,
-                to: toParam,
-              }).catch(() => null)
-            : Promise.resolve(null),
-        ]);
-
-        if (
-          requestSeqRef.current !== seq ||
-          latestContextKeyRef.current !== contextSnap
-        ) {
-          return;
-        }
-
-        setEntries((prev) =>
-          append ? [...prev, ...pageData.items] : pageData.items,
-        );
-        setPage(pageData.page);
-        setTotalPages(pageData.totalPages);
-        setTotalElements(pageData.totalElements);
-
-        if (!append) {
-          setPeriodSummary(summaryData);
-          const map: Record<string, ConsumptionCycle> = {};
-          for (const c of cyclesData?.items ?? []) {
-            map[c.endEntryId] = c;
-          }
-          setCyclesByEndEntry(map);
-        } else if (cyclesData?.items) {
-          const map: Record<string, ConsumptionCycle> = {};
-          for (const c of cyclesData.items) {
-            map[c.endEntryId] = c;
-          }
-          setCyclesByEndEntry(map);
-        }
-      } catch (err: unknown) {
-        if (
-          requestSeqRef.current !== seq ||
-          latestContextKeyRef.current !== contextSnap
-        ) {
-          return;
-        }
-        if (err instanceof ApiError) {
-          setErrorMessage(err.message);
-        } else {
-          setErrorMessage('Não foi possível carregar o histórico.');
-        }
-      } finally {
-        if (
-          requestSeqRef.current === seq &&
-          latestContextKeyRef.current === contextSnap
-        ) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
-      }
-    },
-    [
-      activeVehicle,
-      dataVersion,
-      activeFilters,
-      sliceKey,
-
-
-
-      status,
-
-      user,
-    ],
-  );
-
-  useEffect(() => {
+  const loadPage = useCallback(async (targetPage: number) => {
+    const seq = ++requestSeqRef.current;
+    const contextSnap = currentContextKey;
+    setEntries([]);
+    setPeriodSummary(null);
+    setMonthlyCounts([]);
+    setTotalElements(0);
+    setTotalPages(0);
+    setErrorMessage(null);
     if (status !== 'authenticated' || !user || !activeVehicle) {
-      requestSeqRef.current += 1;
-      setEntries([]);
-      setPeriodSummary(null);
-      setCyclesByEndEntry({});
-      setPage(0);
-      setTotalPages(0);
-      setTotalElements(0);
-      setErrorMessage(null);
       setLoading(false);
-      setLoadingMore(false);
       return;
     }
-
-    void loadPage(0, false);
-    return () => {
-      requestSeqRef.current += 1;
-    };
-  }, [activeVehicle, loadPage, status, user]);
-
-  const groupedSections = useMemo(() => {
-    const groups: { title: string; items: FuelEntry[] }[] = [];
-    for (const entry of entries) {
-      const monthLabel = groupMonthLabelBR(entry.occurredAt, entry.timezone);
-      const lastGroup = groups[groups.length - 1];
-      if (!lastGroup || lastGroup.title !== monthLabel) {
-        groups.push({ title: monthLabel, items: [entry] });
-      } else {
-        lastGroup.items.push(entry);
+    setLoading(true);
+    try {
+      const pageData = await listFuelEntries(activeVehicle.id, {
+        from: activeFilters.from ?? undefined,
+        to: activeFilters.to ?? undefined,
+        timezone,
+        fuelType: activeFilters.fuelType,
+        occurredFrom: slice.occurredFrom, occurredTo: slice.occurredTo, entryId: slice.entryId,
+        minTotalPaid: activeFilters.minTotalPaid || undefined,
+        maxTotalPaid: activeFilters.maxTotalPaid || undefined,
+        minLiters: activeFilters.minLiters || undefined,
+        maxLiters: activeFilters.maxLiters || undefined,
+        minPricePerLiter: activeFilters.minPricePerLiter || undefined,
+        maxPricePerLiter: activeFilters.maxPricePerLiter || undefined,
+        page: targetPage,
+        size: pageSize,
+      });
+      if (requestSeqRef.current !== seq || latestContextKeyRef.current !== contextSnap) return;
+      // A deletion or edit can remove the final page from the current slice.
+      if (targetPage > 0 && targetPage >= pageData.totalPages) {
+        setPage(Math.max(0, pageData.totalPages - 1));
+        return;
       }
+      setEntries(pageData.items);
+      setPeriodSummary(pageData.summary);
+      setMonthlyCounts(pageData.monthlyCounts);
+      setTotalPages(pageData.totalPages);
+      setTotalElements(pageData.totalElements);
+      setLoadedContext(contextSnap);
+    } catch (err: unknown) {
+      if (requestSeqRef.current !== seq || latestContextKeyRef.current !== contextSnap) return;
+      setErrorMessage(err instanceof ApiError ? err.message : 'Não foi possível carregar o histórico.');
+      setLoadedContext(contextSnap);
+    } finally {
+      if (requestSeqRef.current === seq && latestContextKeyRef.current === contextSnap) setLoading(false);
+    }
+  }, [currentContextKey]);
+
+  useEffect(() => {
+    const resetPage = lastQueryContextRef.current !== queryContextKey;
+    lastQueryContextRef.current = queryContextKey;
+    if (resetPage && page !== 0) {
+      setPage(0);
+      return;
+    }
+    void loadPage(page);
+    return () => { requestSeqRef.current += 1; };
+  }, [loadPage, queryContextKey, page]);
+
+  const contextReady = loadedContext === currentContextKey;
+  const pending = loading || (!contextReady && status === 'authenticated' && Boolean(activeVehicle));
+  const groupedSections = useMemo(() => {
+    const groups: { key: string; title: string; count: number; items: FuelEntry[] }[] = [];
+    if (!contextReady) return groups;
+    for (const entry of entries) {
+      const { monthKey } = historyDate(entry.occurredAt, timezone);
+      const lastGroup = groups[groups.length - 1];
+      if (!lastGroup || lastGroup.key !== monthKey) {
+        groups.push({ key: monthKey, title: historyDate(entry.occurredAt, timezone).title,
+          count: monthlyCounts?.find(month => month.month === monthKey)?.purchaseCount ?? 0, items: [entry] });
+      } else lastGroup.items.push(entry);
     }
     return groups;
-  }, [entries]);
+  }, [contextReady, entries, monthlyCounts, timezone]);
 
   const surfaceBg = colors.surface;
   const surfaceBorder = colors.borderSubtle;
@@ -475,11 +325,7 @@ export function HistoryScreen({
           vehicleName={activeVehicle.nickname}
           onClose={() => setDeletingEntry(null)}
           onDeleted={(deleted) => {
-            requestSeqRef.current++;
-            latestContextKeyRef.current = '';
             setEntries((current) => current.filter((item) => item.id !== deleted.id));
-            setPeriodSummary(null);
-            setCyclesByEndEntry({});
             setDeletingEntry(null);
           }}
         />
@@ -507,7 +353,7 @@ export function HistoryScreen({
       {vehicles.length > 0 ? (
         <View style={styles.controlsBlock}>
           {/* 2-Column Filters Row: Vehicle + Period (Print 3) */}
-          <View style={styles.filterTwoColRow}>
+          <View testID="history-selectors" style={[styles.filterTwoColRow, reflow && styles.stacked]}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Veículo: ${vehiclePillLabel}`}
@@ -520,10 +366,8 @@ export function HistoryScreen({
                 },
               ]}
             >
-              <Text
-                numberOfLines={1}
-                style={[styles.dropdownPillText, { color: colors.textPrimary }]}
-              >
+              <CarIcon size={21} color={colors.brandPrimary} />
+              <Text style={[styles.dropdownPillText, { color: colors.textPrimary }]}>
                 {vehiclePillLabel}
               </Text>
               <ChevronDownIcon size={16} color={colors.brandPrimary} />
@@ -535,16 +379,15 @@ export function HistoryScreen({
               onPress={() => setFilterSheetOpen(true)}
               style={[
                 styles.dropdownPill,
+                styles.periodSelector,
                 {
                   backgroundColor: surfaceBg,
                   borderColor: surfaceBorder,
                 },
               ]}
             >
-              <Text
-                numberOfLines={1}
-                style={[styles.dropdownPillText, { color: colors.textPrimary }]}
-              >
+              <CalendarIcon size={21} color={colors.brandPrimary} />
+              <Text style={[styles.dropdownPillText, { color: colors.textPrimary }]}>
                 {periodPillLabel}
               </Text>
               <ChevronDownIcon size={16} color={colors.brandPrimary} />
@@ -557,24 +400,25 @@ export function HistoryScreen({
               <Text style={[typography.bodyStrong,{color:colors.brandPrimary}]}>Remover recorte do gráfico</Text>
             </Pressable>
           </View> : null}
-          {/* Period Totals Bar: Total no período | Litros registrados */}
-          <View style={styles.summaryBar}>
+          {/* Period Totals Bar: Gasto no período | Litros */}
+          <View testID="history-summary" style={[styles.summaryBar, reflow && styles.stacked]}>
             <View style={styles.summaryCol}>
               <Text
                 style={[styles.summaryLabel, { color: colors.textSecondary }]}
               >
-                Total no período
+                Gasto no período
               </Text>
               <Text
                 style={[styles.summaryValue, { color: colors.textPrimary }]}
               >
-                {periodSummary ? formatCurrencyBRL(periodSummary.paidTotal) : '—'}
+                {contextReady && periodSummary ? formatCurrencyBRL(periodSummary.paidTotal) : '—'}
               </Text>
             </View>
 
             <View
               style={[
                 styles.summaryDivider,
+                reflow && styles.summaryDividerHorizontal,
                 { backgroundColor: surfaceBorder },
               ]}
             />
@@ -583,19 +427,19 @@ export function HistoryScreen({
               <Text
                 style={[styles.summaryLabel, { color: colors.textSecondary }]}
               >
-                Litros registrados
+                Litros
               </Text>
               <Text
                 style={[styles.summaryValue, { color: colors.textPrimary }]}
               >
-                {periodSummary ? formatLitersBR(periodSummary.purchasedLiters) : '—'}
+                {contextReady && periodSummary ? formatLitersBR(periodSummary.purchasedLiters) : '—'}
               </Text>
             </View>
           </View>
         </View>
       ) : null}
 
-      {errorMessage ? (
+      {contextReady && errorMessage ? (
         <InlineNotice
           tone="danger"
           message={errorMessage}
@@ -603,14 +447,14 @@ export function HistoryScreen({
             <PrimaryButton
               label="Tentar novamente"
               variant="secondary"
-              onPress={() => loadPage(0, false)}
+              onPress={() => void loadPage(page)}
             />
           }
           style={styles.noticeSpacing}
         />
       ) : null}
 
-      {loading && entries.length === 0 ? (
+      {pending ? (
         <View
           style={[
             styles.loadingBox,
@@ -625,7 +469,7 @@ export function HistoryScreen({
             Carregando histórico...
           </Text>
         </View>
-      ) : entries.length === 0 ? (
+      ) : errorMessage ? null : entries.length === 0 ? (
         <EmptyState
           title="Nenhum abastecimento encontrado"
           description="Não há lançamentos para os filtros selecionados. Você pode ampliar o período para todo o histórico ou registrar um novo abastecimento."
@@ -663,140 +507,102 @@ export function HistoryScreen({
         />
       ) : (
         <View style={styles.sectionsColumn}>
-          {groupedSections.map((group) => {
-            const shortMonthHeading = group.title.split(' de ')[0] || group.title;
-
-            return (
-              <View
-                key={group.title}
-                style={[
-                  styles.monthSection,
-                  {
-                    backgroundColor: surfaceBg,
-                    borderColor: surfaceBorder,
-                  },
-                  isDark ? shadows.darkCard : shadows.lightCard,
-                ]}
-              >
-                <View style={[styles.monthHeaderRow, { borderBottomColor: surfaceBorder }]}>
-                  <Text style={[styles.monthHeaderText, { color: colors.textPrimary }]}>
-                    {shortMonthHeading}
-                  </Text>
-                </View>
-
-                <View style={styles.rowsStack}>
-                  {group.items.map((entry, idx) => {
-                    const isLastInMonth = idx === group.items.length - 1;
-                    const formattedDate = formatHistoryItemDate(
-                      entry.occurredAt,
-                      entry.timezone,
-                    );
-                    const fuelLabel =
-                      FUEL_TYPE_LABELS[entry.fuelType] ??
-                      FUEL_TYPE_SHORT_LABELS[entry.fuelType] ??
-                      entry.fuelType;
-                    const fullDateRow = formatDateTimeRowBR(
-                      entry.occurredAt,
-                      entry.timezone,
-                    );
-
-                    return (
-                      <HistorySwipeRow key={entry.id}
-                        label={`abastecimento de ${formatCurrencyBRL(entry.paidTotal)}, em ${fullDateRow}`}
-                        onDelete={() => setDeletingEntry(entry)}
-                      >
-                      <GesturePressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Abastecimento de ${formatCurrencyBRL(
-                          entry.paidTotal,
-                        )}, ${fuelLabel}, em ${fullDateRow}`}
-                        accessibilityHint="Toque para ver os detalhes deste abastecimento"
-                        onPress={() =>
-                          router.push({
-                            pathname: '/fueling/[entryId]',
-                            params: { entryId: entry.id },
-                          })
-                        }
-                        style={({ pressed }) => [
-                          styles.entryRow,
-                          !isLastInMonth && {
-                            borderBottomWidth: StyleSheet.hairlineWidth,
-                            borderBottomColor: surfaceBorder,
-                          },
-                          pressed && {
-                            backgroundColor: colors.subtle,
-                            opacity: 0.85,
-                          },
-                        ]}
-                      >
-                        <View style={styles.entryLeftCol}>
-                          <Text
-                            style={[styles.entryTitle, { color: colors.textPrimary }]}
-                          >
-                            <Text style={styles.entryDateText}>{formattedDate}</Text>
-                            <Text style={[styles.entryDot, { color: colors.textSecondary }]}>
-                              {' '}•{' '}
-                            </Text>
-                            <Text style={styles.entryFuelText}>{fuelLabel}</Text>
-                          </Text>
-
-                          <Text
-                            style={[styles.entrySubtitle, { color: colors.textSecondary }]}
-                          >
-                            {formatLitersBR(entry.liters)} × {formatUnitPriceBR(entry.unitPrice)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.entryRightCol}>
-                          <Text
-                            style={[styles.entryAmount, { color: colors.textPrimary }]}
-                          >
-                            {formatCurrencyBRL(entry.paidTotal)}
-                          </Text>
-                          <ChevronRightIcon
-                            size={14}
-                            color={colors.accentPrimary}
-                          />
-                        </View>
-                      </GesturePressable>
-                      </HistorySwipeRow>
-                    );
-                  })}
-                </View>
+          {groupedSections.map((group) => (
+            <View key={group.key} style={styles.monthSection}>
+              <View style={[styles.monthHeaderRow, { borderBottomColor: surfaceBorder }]}>
+                <Text style={[styles.monthHeaderText, { color: colors.textPrimary }]}>{group.title.replace(' de ', ' ')}</Text>
+                <Text accessibilityLabel={`${group.count} registros no mês, em todo o recorte`}
+                  style={[styles.monthCount, { color: colors.textSecondary }]}>
+                  {group.count} {group.count === 1 ? 'registro' : 'registros'}
+                </Text>
               </View>
-            );
-          })}
-
-          {page + 1 < totalPages ? (
-            <PrimaryButton
-              label="Carregar mais registros"
-              variant="secondary"
-              loading={loadingMore}
-              onPress={() => loadPage(page + 1, true)}
-            />
-          ) : null}
-
-          {/* Mascot Footer */}
-          <View style={styles.mascotFooterRow}>
-            <PixelMascot variant="full" size={62} />
-            <View style={styles.mascotFooterTextCol}>
-              <Text
-                style={[styles.mascotFooterTitle, { color: colors.textPrimary }]}
-              >
-                Seu histórico, sempre à mão.
-              </Text>
-              <Text
-                style={[
-                  styles.mascotFooterSubtitle,
-                  { color: colors.textSecondary },
-                ]}
-              >
-                Toque em um registro para ver os detalhes.
-              </Text>
+              {group.items.map((entry) => {
+                const date = historyDate(entry.occurredAt, timezone);
+                const fuelLabel = FUEL_TYPE_LABELS[entry.fuelType] ?? FUEL_TYPE_SHORT_LABELS[entry.fuelType] ?? entry.fuelType;
+                const fullDateRow = new Intl.DateTimeFormat('pt-BR', { timeZone: timezone, dateStyle: 'short', timeStyle: 'short' }).format(new Date(entry.occurredAt));
+                return (
+                  <HistorySwipeRow key={entry.id}
+                    label={`abastecimento de ${formatCurrencyBRL(entry.paidTotal)}, em ${fullDateRow}`}
+                    onOpen={() => router.push({ pathname: '/fueling/[entryId]', params: { entryId: entry.id } })}
+                    onDelete={() => setDeletingEntry(entry)}>
+                    {(openDetails) => (
+                    <EntryPressable accessibilityRole="button"
+                      accessibilityLabel={`Abastecimento de ${formatCurrencyBRL(entry.paidTotal)}, ${fuelLabel}, em ${fullDateRow}`}
+                      accessibilityHint="Toque para ver detalhes. Mantenha pressionado para excluir."
+                      accessibilityActions={[{ name: 'delete', label: 'Excluir abastecimento' }]}
+                      onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'delete') setDeletingEntry(entry); }}
+                      onLongPress={() => setDeletingEntry(entry)}
+                      onPress={openDetails}
+                      style={({ pressed }) => [styles.entryRow, { borderBottomColor: surfaceBorder }, pressed && { backgroundColor: colors.subtle }]}>
+                      <View style={[styles.dateCol, { borderRightColor: colors.borderDefault }]}>
+                        <Text style={[styles.entryDay, { color: colors.textPrimary }]}>{date.day}</Text>
+                        <Text style={[styles.entryMonth, { color: colors.textSecondary }]}>{date.month}</Text>
+                      </View>
+                      <View style={[styles.entryBody, reflow && styles.stacked]}>
+                        <View style={styles.entryLeftCol}>
+                          <Text style={[styles.entryTitle, { color: colors.textPrimary }]}>{fuelLabel}</Text>
+                          <View style={styles.entryMetrics}>
+                            <Text style={[styles.entrySubtitle, { color: colors.textSecondary }]}>{formatLitersBR(entry.liters)} ·</Text>
+                            <Text style={[styles.entrySubtitle, { color: colors.textSecondary }]}>{formatUnitPriceBR(entry.unitPrice)}/L</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.entryRightCol, reflow && styles.entryRightReflow]}>
+                          <Text style={[styles.entryAmount, { color: colors.textPrimary }]}>{formatCurrencyBRL(entry.paidTotal)}</Text>
+                        </View>
+                      </View>
+                    </EntryPressable>
+                    )}
+                  </HistorySwipeRow>
+                );
+              })}
             </View>
-          </View>
+          ))}
         </View>
       )}
+
+      {vehicles.length > 0 ? (
+        <View style={styles.pagination} testID="history-pagination">
+          <Pressable accessibilityRole="button" accessibilityLabel={`${pageSize} por página. Alterar tamanho da página`}
+            accessibilityState={{ expanded: sizeSheetOpen }} onPress={() => setSizeSheetOpen(true)}
+            style={[styles.sizeSelector, { backgroundColor: surfaceBg, borderColor: surfaceBorder }]}>
+            <Text style={[styles.paginationText, { color: colors.textPrimary }]}>{pageSize} por página</Text>
+            <ChevronDownIcon size={17} color={colors.brandPrimary} />
+          </Pressable>
+          <Text accessibilityLiveRegion="polite" style={[styles.paginationText, { color: colors.textSecondary }]}>
+            {contextReady && !errorMessage ? `${totalElements === 0 ? 0 : page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalElements)} de ${totalElements}` : '—'}
+          </Text>
+          <View style={styles.pageNavigation}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Página anterior"
+              disabled={pending || !contextReady || Boolean(errorMessage) || page === 0}
+              accessibilityState={{ disabled: pending || !contextReady || Boolean(errorMessage) || page === 0 }}
+              onPress={() => setPage(page - 1)}
+              style={[styles.pageButton, { backgroundColor: colors.subtle }, (pending || page === 0) && styles.disabled]}>
+              <ChevronLeftIcon size={22} color={colors.textSecondary} />
+            </Pressable>
+            <Text accessibilityLiveRegion="polite" accessibilityLabel={contextReady && !errorMessage ? `Página ${totalPages ? page + 1 : 0} de ${totalPages}` : 'Página indisponível'}
+              style={[styles.paginationText, { color: colors.textPrimary }]}>{contextReady && !errorMessage ? `${totalPages ? page + 1 : 0} / ${totalPages}` : '—'}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Próxima página"
+              disabled={pending || !contextReady || Boolean(errorMessage) || page + 1 >= totalPages}
+              accessibilityState={{ disabled: pending || !contextReady || Boolean(errorMessage) || page + 1 >= totalPages }}
+              onPress={() => setPage(page + 1)}
+              style={[styles.pageButton, { backgroundColor: colors.brandPrimary }, (pending || page + 1 >= totalPages) && styles.disabled]}>
+              <ChevronRightIcon size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      <AppSheet visible={sizeSheetOpen} title="Registros por página" onClose={() => setSizeSheetOpen(false)}>
+        {PAGE_SIZES.map(size => (
+          <Pressable key={size} accessibilityRole="radio" accessibilityLabel={`${size} por página`}
+            accessibilityState={{ checked: pageSize === size }} aria-checked={pageSize === size}
+            onPress={() => { setPageSize(size); setSizeSheetOpen(false); }}
+            style={[styles.sheetRow, { backgroundColor: pageSize === size ? colors.accentSoft : colors.bgSecondary, borderColor: surfaceBorder }]}>
+            <Text style={[styles.sheetRowText, { color: colors.textPrimary }]}>{size} por página</Text>
+            {pageSize === size ? <CheckIcon size={18} color={colors.brandPrimary} /> : null}
+          </Pressable>
+        ))}
+      </AppSheet>
 
       {/* Sheet: Filtros do Histórico */}
       <HistoryFilterSheet
@@ -863,258 +669,51 @@ export function HistoryScreen({
 }
 
 const styles = StyleSheet.create({
-  historyTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 8,
-  },
-  historyTitleText: {
-    ...typography.screenTitle,
-    fontSize: 26,
-    fontWeight: '800',
-  },
-  filterTwoColRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingVertical: 6,
-  },
-  dropdownPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: radii.md,
-    borderWidth: 1.5,
-  },
-  dropdownPillText: {
-    ...typography.bodyStrong,
-    fontSize: 14,
-  },
-  topHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  screenTitle: {
-    ...typography.screenTitle,
-    fontSize: 28,
-    lineHeight: 34,
-  },
-  newEntrySquareBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  controlsBlock: {
-    gap: 10,
-    marginBottom: 14,
-  },
-  selectorPill: {
-    minHeight: 44,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  selectorPillText: {
-    flex: 1,
-    ...typography.bodyStrong,
-    fontSize: 14,
-  },
-  secondControlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  periodPill: {
-    flex: 1.85,
-  },
-  filterPill: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  filterActiveText: {
-    flex: 1,
-    ...typography.caption,
-    fontSize: 12,
-  },
-  summaryBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    gap: 16,
-  },
-  summaryCol: {
-    flex: 1,
-    gap: 2,
-  },
-  summaryDivider: {
-    width: 1,
-    height: 38,
-  },
-  summaryLabel: {
-    ...typography.caption,
-    fontSize: 13,
-  },
-  summaryValue: {
-    ...typography.heroValue,
-    fontSize: 24,
-    lineHeight: 30,
-  },
-  noticeSpacing: {
-    marginBottom: 12,
-  },
-  loadingBox: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  loadingText: {
-    ...typography.caption,
-  },
-  emptyActions: {
-    gap: 10,
-  },
-  sectionsColumn: {
-    gap: 16,
-  },
-  monthSection: {
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  monthHeaderRow: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  monthHeaderText: {
-    ...typography.cardTitle,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  rowsStack: {
-    gap: 0,
-  },
-  entryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 56,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  entryLeftCol: {
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 12,
-    gap: 3,
-  },
-  entryTitle: {
-    ...typography.bodyStrong,
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  entryDateText: {
-    fontWeight: '600',
-  },
-  entryDot: {
-    fontWeight: '400',
-  },
-  entryFuelText: {
-    fontWeight: '600',
-  },
-  entrySubtitle: {
-    ...typography.caption,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  entryRightCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 6,
-    flexShrink: 0,
-  },
-  entryAmount: {
-    ...typography.cardTitle,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  mascotFooterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingTop: 8,
-    paddingBottom: 18,
-    paddingHorizontal: 4,
-  },
-  mascotFooterTextCol: {
-    flex: 1,
-    gap: 2,
-  },
-  mascotFooterTitle: {
-    ...typography.bodyStrong,
-    fontSize: 15,
-  },
-  mascotFooterSubtitle: {
-    ...typography.caption,
-    fontSize: 13,
-  },
-  filterSection: {
-    gap: 8,
-  },
-  filterHeading: {
-    ...typography.caption,
-  },
-  sheetRow: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sheetRowText: {
-    ...typography.bodyStrong,
-    fontSize: 14,
-  },
-  filterPillsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  optionPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-  },
-  optionPillText: {
-    ...typography.caption,
-    fontSize: 12,
-  },
+  topHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  historyTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 8, paddingBottom: 14 },
+  historyTitleText: { ...typography.screenTitle, fontSize: 28, lineHeight: 36, fontWeight: '800' },
+  controlsBlock: { gap: 14, marginBottom: 22 },
+  filterTwoColRow: { flexDirection: 'row', gap: 10 },
+  stacked: { flexDirection: 'column', alignItems: 'stretch' },
+  dropdownPill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48,
+    paddingHorizontal: 12, paddingVertical: 12, borderRadius: radii.md, borderWidth: 1 },
+  dropdownPillText: { ...typography.bodyStrong, fontSize: 14, lineHeight: 20, flex: 1, flexShrink: 1 },
+  periodSelector: { flex: 1.25 },
+  summaryBar: { flexDirection: 'row', alignItems: 'stretch', gap: 18, paddingTop: 6 },
+  summaryCol: { flex: 1, minWidth: 0, gap: 4 },
+  summaryDivider: { width: 1 },
+  summaryDividerHorizontal: { width: '100%', height: 1 },
+  summaryLabel: { ...typography.caption, fontSize: 13, lineHeight: 20 },
+  summaryValue: { ...typography.heroValue, fontSize: 23, lineHeight: 32, fontVariant: ['tabular-nums'] },
+  noticeSpacing: { marginBottom: 12 },
+  loadingBox: { paddingVertical: 32, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  loadingText: { ...typography.caption },
+  emptyActions: { gap: 10 },
+  sectionsColumn: { gap: 24 },
+  monthSection: { gap: 0 },
+  monthHeaderRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8,
+    paddingBottom: 10, borderBottomWidth: 1 },
+  monthHeaderText: { ...typography.cardTitle, fontSize: 20, lineHeight: 28, fontWeight: '800', letterSpacing: -0.4 },
+  monthCount: { ...typography.caption, fontSize: 12, lineHeight: 20 },
+  entryRow: { flexDirection: 'row', alignItems: 'center', minHeight: 62, paddingVertical: 10 },
+  dateCol: { minWidth: 44, alignItems: 'center', paddingRight: 10, marginRight: 13, borderRightWidth: 1 },
+  entryDay: { ...typography.cardTitle, fontSize: 22, lineHeight: 26, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  entryMonth: { ...typography.caption, fontSize: 12, lineHeight: 16 },
+  entryBody: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  entryLeftCol: { flex: 1, minWidth: 0, gap: 4 },
+  entryTitle: { ...typography.bodyStrong, fontSize: 14, lineHeight: 20 },
+  entryMetrics: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 4 },
+  entrySubtitle: { ...typography.caption, fontSize: 12, lineHeight: 18, fontVariant: ['tabular-nums'] },
+  entryRightCol: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexShrink: 0 },
+  entryRightReflow: { justifyContent: 'space-between' },
+  entryAmount: { ...typography.cardTitle, fontSize: 16, lineHeight: 24, fontWeight: '800', fontVariant: ['tabular-nums'], flexShrink: 1 },
+  pagination: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 24, paddingBottom: 12 },
+  sizeSelector: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 12, paddingVertical: 10 },
+  paginationText: { ...typography.caption, fontSize: 12, lineHeight: 20, fontVariant: ['tabular-nums'] },
+  pageNavigation: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
+  pageButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radii.md },
+  disabled: { opacity: 0.4 },
+  sheetRow: { borderRadius: radii.md, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 14, minHeight: 48,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  sheetRowText: { ...typography.bodyStrong, fontSize: 14, flexShrink: 1 },
 });

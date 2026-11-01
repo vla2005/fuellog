@@ -1,3 +1,4 @@
+import { purchaseDashboard } from './api-fixtures';
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 
@@ -24,6 +25,7 @@ function setupMockApi(page: Page, vehicleState: { current: typeof INITIAL_VEHICL
   page.route('**/api/v1/**', async (route: Route) => {
     const request = route.request();
     const url = request.url();
+        if (url.includes('/dashboard')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(purchaseDashboard()) });
     const method = request.method();
 
     if (url.includes('/auth/login') || url.includes('/auth/register')) {
@@ -208,22 +210,12 @@ function setupMockApi(page: Page, vehicleState: { current: typeof INITIAL_VEHICL
         body: JSON.stringify({
           totalLiters: '0',
           totalSpent: '0',
-          averageConsumptionKmPerLiter: null,
+
           distanceTraveledKm: 0,
         }),
       });
     }
 
-    if (url.includes('/consumption-cycles')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          cycles: [],
-          currentUnavailableReason: 'NEEDS_FULL_TANK_BASELINE',
-        }),
-      });
-    }
 
     if (url.includes('/fuel-entries')) {
       return route.fulfill({

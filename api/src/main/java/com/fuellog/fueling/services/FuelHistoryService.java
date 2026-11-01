@@ -19,7 +19,7 @@ public class FuelHistoryService {
     @Transactional(readOnly=true)
     public List<FuelHistory> read(UUID vehicleId) {
         vehicles.owned(vehicleId);
-        return entries.historyIncludingDeleted(vehicleId).stream()
-            .map(e -> new FuelHistory(e.id(),e.occurredAt(),e.odometerKm(),e.fuelType(),e.liters(),e.paidTotal(),e.tankState(),e.historyGapBefore(),e.deleted(),e.unitPrice())).toList();
+        return entries.findByVehicleIdOrderByOccurredAtAscIdAsc(vehicleId).stream()
+            .map(e -> new FuelHistory(e.id(),e.occurredAt(),e.odometerKm(),e.fuelType(),e.liters(),e.paidTotal(),e.unitPrice())).toList();
     }
 }

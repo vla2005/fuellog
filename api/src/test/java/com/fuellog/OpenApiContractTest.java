@@ -75,8 +75,8 @@ class OpenApiContractTest {
                 Map.entry("UpdateFuelEntry", "fueling.dtos.FuelEntryDtos$Update"),
                 Map.entry("FuelEntry", "fueling.dtos.FuelEntryDtos$View"),
                 Map.entry("FuelEntryPage", "fueling.dtos.FuelEntryDtos$Page"),
-                Map.entry("Cycle", "metrics.dtos.MetricsDtos$Cycle"),
-                Map.entry("Cycles", "metrics.dtos.MetricsDtos$Cycles"),
+                Map.entry("FuelEntryHistorySummary", "fueling.dtos.FuelEntryDtos$Summary"),
+                Map.entry("FuelEntryMonthlyCount", "fueling.dtos.FuelEntryDtos$MonthlyCount"),
                 Map.entry("Summary", "metrics.dtos.MetricsDtos$Summary"),
                 Map.entry("Dashboard", "metrics.dtos.MetricsDtos$Dashboard"),
                 Map.entry("DashboardMonth", "metrics.dtos.MetricsDtos$MonthlyTotal"),
@@ -90,6 +90,18 @@ class OpenApiContractTest {
                     .map(java.lang.reflect.RecordComponent::getName).toList();
             assertThat(documented).as(entry.getKey()).containsExactlyInAnyOrderElementsOf(actual);
         }
+    }
+
+    @Test void historyPaginationDocumentsServerBoundsAndFullSliceAggregates() throws Exception {
+        var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
+        var operation = spec.path("paths").path("/vehicles/{vehicleId}/fuel-entries").path("get");
+        var size = operation.path("parameters").valueStream().filter(p -> p.path("name").asString().equals("size")).findFirst().orElseThrow().path("schema");
+        assertThat(size.path("default").asInt()).isEqualTo(20);
+        assertThat(size.path("minimum").asInt()).isEqualTo(1);
+        assertThat(size.path("maximum").asInt()).isEqualTo(20);
+        var schema = spec.path("components").path("schemas").path("FuelEntryPage");
+        assertThat(schema.path("properties").path("size").path("maximum").asInt()).isEqualTo(20);
+        assertThat(schema.path("required").valueStream().map(v -> v.asString()).toList()).contains("summary", "monthlyCounts");
     }
 
     @Test void loginResultIsExplicitAndSecurityMutationsDocumentNoStore() throws Exception {

@@ -24,7 +24,7 @@ import { DashboardCache, dashboardPeriod } from './dashboard/model';
 import { DashboardMotionContext, useDashboardData } from './dashboard/useDashboard';
 import type { ChartDatum, ChartKind } from './dashboard/presentation';
 
-const CHARTS: ChartKind[] = ['spending','fuel','consumption','cost','price','liters'];
+const CHARTS: ChartKind[] = ['spending','fuel','price','liters'];
 export function HomeScreen({ embeddedInShell = false }: { embeddedInShell?: boolean } = {}) {
   const router = useRouter();
   const { colors, isDark } = useAppTheme();
