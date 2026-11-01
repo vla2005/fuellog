@@ -37,6 +37,7 @@ import { radii, shadows, typography } from '@/theme/tokens';
 import { formatDateTimeFullBR } from '@/utils/date';
 import { DeleteFuelEntrySheet } from './components/DeleteFuelEntrySheet';
 import { FuelEntryActionsMenu } from './components/FuelEntryActionsMenu';
+import { ViKashSyncStatus } from '@/features/vikash/ViKashSyncStatus';
 import {
   formatCurrencyBRL,
   formatLitersBR,
@@ -381,6 +382,8 @@ export function FuelEntryDetailScreen({
 
 
           </View>
+
+          <ViKashSyncStatus key={scope} entry={entry} reload={loadDetail} />
 
           {/* Location Section: Square real map for saved coordinates */}
           <View

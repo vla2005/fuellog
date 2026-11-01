@@ -156,6 +156,9 @@ function mount(relativePath, exportName, { store = new Map(), endpoints = {}, gp
     '@/theme/ThemeProvider': { useAppTheme: () => ({ colors: {}, isDark: false }) },
     '@/theme/tokens': { radii: {}, shadows: {}, typography: {}, layout: { horizontalPadding: 20 } },
     '@/utils/date': date, '@/utils/decimal': decimal, '@/utils/location': location, '@/utils/uuid': { generateUuidV4: randomUUID },
+    '@/features/vikash/useViKash': { useViKash: () => ({ status: null, catalog: null, error: null, loading: false, reload: async () => {} }) },
+    '@/features/vikash/ViKashEntrySection': { ViKashEntrySection: () => null },
+    '@/features/vikash/viKashChoices': { choicesError: () => null },
     '@/utils/numericMask': numericMask, '../../utils/numericMask': numericMask,
   };
   dependencies['./fuelEditDateHelper'] = loadFeatureModule('features/fueling/fuelEditDateHelper.ts', dependencies);

@@ -28,6 +28,7 @@ import { radii, typography } from '@/theme/tokens';
 
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { TwoFactorSheet } from './TwoFactorSheet';
+import { ViKashSettings } from '@/features/vikash/ViKashSettings';
 
 export function SettingsScreen({
   embeddedInShell = false,
@@ -49,7 +50,7 @@ export function SettingsScreen({
   const [biometricToggling, setBiometricToggling] = useState(false);
   const biometricTogglingRef = useRef(false);
 
-  const [activeSection, setActiveSection] = useState<'main' | 'security'>('main');
+  const [activeSection, setActiveSection] = useState<'main' | 'security' | 'vikash'>('main');
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [twoFactorOpen, setTwoFactorOpen] = useState(false);
 
@@ -202,7 +203,7 @@ export function SettingsScreen({
     <ScreenShell
       transitionKey={activeSection}
       transitionActive={!changePasswordOpen && !twoFactorOpen}
-      transitionOrder={changePasswordOpen || twoFactorOpen ? 2 : activeSection === 'security' ? 1 : 0}
+      transitionOrder={changePasswordOpen || twoFactorOpen ? 2 : activeSection !== 'main' ? 1 : 0}
       withDockClearance
       omitTopSafeArea={embeddedInShell}
       footer={embeddedInShell ? undefined : <FloatingDock activeTab="settings" />}
@@ -213,7 +214,15 @@ export function SettingsScreen({
         </View>
       ) : null}
 
-      {activeSection === 'security' ? (
+      {activeSection === 'vikash' ? (
+        <View style={styles.subSectionWrap}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Voltar para Ajustes" onPress={() => setActiveSection('main')} style={styles.backButtonRow}>
+            <ChevronLeftIcon size={18} color={colors.brandPrimary} />
+            <Text style={[styles.backButtonText, { color: colors.brandPrimary }]}>Ajustes</Text>
+          </Pressable>
+          <ViKashSettings key={user?.id} />
+        </View>
+      ) : activeSection === 'security' ? (
         /* Seção Real de Segurança */
         <View style={styles.subSectionWrap}>
           <Pressable
@@ -418,6 +427,17 @@ export function SettingsScreen({
               <ChevronRightIcon size={18} color={colors.brandPrimary} />
             </Pressable>
 
+            <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+            <Pressable accessibilityRole="button" accessibilityLabel="Integrações, ViKash" onPress={() => setActiveSection('vikash')} style={styles.menuItem}>
+              <View style={styles.menuLeftCol}>
+                <View style={styles.menuTextGroup}>
+                  <Text style={[styles.menuItemTitle, { color: colors.textPrimary }]}>Integrações</Text>
+                  <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>Conectar ao ViKash</Text>
+                </View>
+              </View>
+              <ChevronRightIcon size={18} color={colors.brandPrimary} />
+            </Pressable>
             <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
             {/* Sair da conta (Red text & icon) */}

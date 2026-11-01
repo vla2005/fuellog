@@ -23,6 +23,9 @@ const interfaces = {
   TwoFactorDisableRequest: 'TwoFactorDisable',
   TwoFactorChallenge: 'TwoFactorChallenge',
   TwoFactorVerifyRequest: 'TwoFactorVerify',
+  ViKashChoices: 'ViKashChoices', ViKashSelection: 'ViKashSelection', ViKashPreferences: 'ViKashPreferences',
+  ViKashStatus: 'ViKashStatus', ViKashCatalog: 'ViKashCatalog', ViKashEntryStatus: 'ViKashEntryStatus',
+  ViKashRemoteStatus: 'ViKashRemoteStatus', ViKashDeletions: 'ViKashDeletions',
 };
 
 for (const [interfaceName, schemaName] of Object.entries(interfaces)) {

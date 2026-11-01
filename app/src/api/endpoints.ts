@@ -28,8 +28,37 @@ import {
   UpdateVehicleRequest,
   UpdateFuelEntryRequest,
   Vehicle,
+  ViKashStatus, ViKashCatalog, ViKashPreferences, ViKashRemoteStatus, ViKashDeletions,
   isTwoFactorChallenge,
 } from './types';
+
+export function getViKashStatus(): Promise<ViKashStatus> {
+  return apiRequest({ method: 'GET', path: '/integrations/vikash' });
+}
+export function getViKashDeletions(page = 0): Promise<ViKashDeletions> {
+  return apiRequest({ method: 'GET', path: '/integrations/vikash/deletions', query: { page } });
+}
+export function getViKashCatalog(): Promise<ViKashCatalog> {
+  return apiRequest({ method: 'GET', path: '/integrations/vikash/catalog' });
+}
+export function saveViKashPreferences(body: ViKashPreferences): Promise<ViKashPreferences> {
+  return apiRequest({ method: 'PUT', path: '/integrations/vikash/preferences', body });
+}
+export function startViKashAuthorization(platform: 'web' | 'native'): Promise<{ authorizationUrl: string; returnUrl: string }> {
+  return apiRequest({ method: 'POST', path: '/integrations/vikash/authorizations', body: { platform } });
+}
+export function cancelViKashAuthorization(): Promise<void> {
+  return apiRequest({ method: 'DELETE', path: '/integrations/vikash/authorizations' });
+}
+export function disconnectViKash(): Promise<{ remoteRevoked: boolean }> {
+  return apiRequest({ method: 'DELETE', path: '/integrations/vikash' });
+}
+export function getViKashRemoteStatus(entryId: string): Promise<ViKashRemoteStatus> {
+  return apiRequest({ method: 'GET', path: `/integrations/vikash/entries/${encodeURIComponent(entryId)}/remote` });
+}
+export function retryViKashEntry(entryId: string, resolution: 'RETRY' | 'OVERWRITE', remoteEtag?: string | null): Promise<void> {
+  return apiRequest({ method: 'POST', path: `/integrations/vikash/entries/${encodeURIComponent(entryId)}/retry`, body: { resolution, remoteEtag } });
+}
 
 export async function registerUser(payload: RegisterRequest): Promise<RegisteredUser> {
   return apiRequest<RegisteredUser>({

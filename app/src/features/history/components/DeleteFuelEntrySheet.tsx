@@ -80,6 +80,9 @@ export function DeleteFuelEntrySheet({ entry, vehicleName, onClose, onDeleted }:
       <Text style={[typography.body, { color: colors.textSecondary }]}>
         O registro será removido do histórico e dos totais. O consumo pode ficar indisponível nos ciclos afetados. Esta ação não pode ser desfeita.
       </Text>
+      {snapshot.vikash && snapshot.vikash.status !== 'CANCELLED' ? <Text style={[typography.body, { color: colors.textSecondary }]}>
+        Excluir também solicita o cancelamento do lançamento no ViKash. Parcelas ou faturas pagas podem impedir o cancelamento; confira o resultado em Ajustes, Integrações, ViKash. Pagamentos não serão desfeitos.
+      </Text> : null}
       {error ? <InlineNotice tone={conflict ? 'warning' : 'danger'} message={error} /> : null}
       <PrimaryButton label="Cancelar" testID="fuel-delete-cancel" variant="secondary" disabled={pending} onPress={onClose} />
       {conflict ? <PrimaryButton label="Atualizar dados" variant="secondary" loading={pending} onPress={() => void refresh()} /> : null}

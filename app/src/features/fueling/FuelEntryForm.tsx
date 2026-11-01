@@ -22,6 +22,7 @@ import {
   FuelType,
   FuelEntry,
   UpdateFuelEntryRequest,
+  ViKashSelection,
 } from '@/api/types';
 import { DiagonalPixelSpark, PixelMascot } from '@/components/brand/PixelMascot';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
@@ -73,6 +74,9 @@ import {
 } from './fuelingCalculations';
 import { useForegroundLocation } from './useForegroundLocation';
 import { formatEntryDateForInput, parseDateTimeInTimezone } from './fuelEditDateHelper';
+import { useViKash } from '@/features/vikash/useViKash';
+import { ViKashEntrySection } from '@/features/vikash/ViKashEntrySection';
+import { choicesError, sameChoices } from '@/features/vikash/viKashChoices';
 
 function formatDigitsToDisplay3(digits: string): string {
   if (!digits) return '';
@@ -113,6 +117,7 @@ interface FuelEntryDraft {
   latitude?: number | null;
   longitude?: number | null;
   uncertainPendingPayload?: CreateFuelEntryRequest | null;
+  vikash?: ViKashSelection | null;
 }
 
 function getDraftStorageKey(userId: string, vehicleId: string): string {
@@ -236,6 +241,11 @@ export function FuelEntryForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [uncertainPendingPayload, setUncertainPendingPayload] =
     useState<CreateFuelEntryRequest | null>(null);
+  const [vikashSelection, setViKashSelection] = useState<ViKashSelection | null>(() => originalEntry?.vikash
+    ? { send: originalEntry.vikash.send, connectionId: originalEntry.vikash.connectionId, choices: originalEntry.vikash.choices }
+    : null);
+  const vikash = useViKash(isScreenActive);
+  const [viKashCancellation, setViKashCancellation] = useState<ViKashSelection | null>(null);
 
   const [litersFocused, setLitersFocused] = useState(false);
   const [unitPriceFocused, setUnitPriceFocused] = useState(false);
@@ -268,6 +278,12 @@ export function FuelEntryForm({
   const isScopeRestored = Boolean(
     expectedScopeKey && restoredScopeKey === expectedScopeKey,
   );
+
+  useEffect(() => {
+    if (!isScreenActive || (!originalEntry && !isScopeRestored) || vikashSelection || vikash.status?.status !== 'CONNECTED') return;
+    setViKashSelection({ send: !originalEntry && Boolean(vikash.status.preferences?.automaticSend),
+      connectionId: vikash.status.connectionId, choices: vikash.status.preferences?.choices ?? null });
+  }, [isScreenActive, originalEntry, isScopeRestored, vikashSelection, vikash.status]);
 
   // Cancela/invalida captura em voo se a tela ficar inativa na TabShell ou app em segundo plano
   useEffect(() => {
@@ -308,6 +324,8 @@ export function FuelEntryForm({
     restoredScopeKeyRef.current = null;
     setRestoredScopeKey(null);
     setUncertainPendingPayload(null);
+    setViKashSelection(null);
+    setViKashCancellation(null);
     setErrorMessage(null);
     setFieldErrors({});
 
@@ -353,6 +371,7 @@ export function FuelEntryForm({
           try {
             const parsed = JSON.parse(raw) as Partial<FuelEntryDraft>;
             if (parsed.id) setEntryId(parsed.id);
+            if (parsed.vikash && typeof parsed.vikash.send === 'boolean') setViKashSelection(parsed.vikash);
             if (typeof parsed.liters === 'string') setLiters(parsed.liters);
             if (typeof parsed.unitPrice === 'string') {
               setUnitPrice(parsed.unitPrice);
@@ -456,6 +475,7 @@ export function FuelEntryForm({
     const freshNow = new Date();
     const freshDefaultFuel = activeVehicle?.allowedFuels[0] ?? null;
     setEntryId(generateUuidV4());
+    setViKashSelection(null);
     setLiters('');
     setUnitPrice('');
     setPaidTotal('');
@@ -589,6 +609,7 @@ export function FuelEntryForm({
       latitude: coordinates ? coordinates.latitude : null,
       longitude: coordinates ? coordinates.longitude : null,
       uncertainPendingPayload,
+      vikash: vikashSelection,
     };
     void AsyncStorage.setItem(key, JSON.stringify(draft)).catch(() => {});
   }, [
@@ -611,11 +632,17 @@ export function FuelEntryForm({
     timeStr,
     timezone,
     uncertainPendingPayload,
+    vikashSelection,
     unitPrice,
     user,
   ]);
 
   const isLockedForUncertainRetry = uncertainPendingPayload !== null;
+  const changeViKashSelection = (next: ViKashSelection) => {
+    if (originalEntry?.vikash?.send && originalEntry.vikash.status !== 'CANCELLED' && vikashSelection?.send && !next.send) {
+      setViKashCancellation(next);
+    } else setViKashSelection(next);
+  };
 
   const handlePaidTotalChange = (text: string) => {
     amountsChangedRef.current = true;
@@ -790,6 +817,13 @@ export function FuelEntryForm({
         ? (adjustmentReason.trim() || 'Desconto')
         : null;
 
+      if (vikashSelection?.send && vikash.status?.status === 'CONNECTED' && vikashSelection.connectionId === vikash.status.connectionId) {
+        const storedChoices = originalEntry?.vikash?.choices ?? vikash.status.preferences?.choices;
+        const financialError = !vikash.catalog && sameChoices(vikashSelection.choices, storedChoices)
+          ? null : choicesError(vikashSelection.choices, vikash.catalog);
+        if (financialError) nextErrors.vikash = financialError;
+      }
+
       if (Object.keys(nextErrors).length > 0) {
         setFieldErrors(nextErrors);
         setErrorMessage('Corrija os campos destacados antes de salvar.');
@@ -810,6 +844,7 @@ export function FuelEntryForm({
             : hasDiscount ? cleanReason : initialDiscount ? null : originalEntry.adjustmentReason,
           latitude: originalEntry.latitude,
           longitude: originalEntry.longitude,
+          ...(vikashSelection ? { vikash: vikashSelection } : {}),
         };
         setSubmitting(true);
         try {
@@ -852,6 +887,7 @@ export function FuelEntryForm({
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
         adjustmentReason: cleanReason,
+        ...(vikashSelection ? { vikash: vikashSelection } : {}),
       };
     }
 
@@ -1614,6 +1650,11 @@ export function FuelEntryForm({
               ) : null}
             </View>
 
+            <ViKashEntrySection status={vikash.status} catalog={vikash.catalog} error={vikash.error}
+              value={vikashSelection} onChange={changeViKashSelection} disabled={submitting || isLockedForUncertainRetry}
+              reload={() => void vikash.reload()} />
+            {fieldErrors.vikash ? <Text accessibilityRole="alert" style={[styles.errorText, { color: colors.dangerText }]}>{fieldErrors.vikash}</Text> : null}
+
             <View style={styles.brandFooterRow}>
               <DiagonalPixelSpark size={5} />
               <Text
@@ -1643,6 +1684,11 @@ export function FuelEntryForm({
       )}
 
       {/* Sheet: Seletor de veículo */}
+      <AppSheet visible={viKashCancellation !== null} modal title="Desativar envio ao ViKash?" onClose={() => setViKashCancellation(null)}>
+        <Text style={[typography.body, { color: colors.textPrimary }]}>Ao salvar as alterações, será registrado um pedido de cancelamento do lançamento no ViKash. Autorização expirada, parcelas ou faturas pagas podem impedir o cancelamento. Nada muda antes de salvar.</Text>
+        <PrimaryButton label="Manter envio ao ViKash" variant="secondary" onPress={() => setViKashCancellation(null)} />
+        <PrimaryButton label="Desativar envio ao salvar" variant="danger" onPress={() => { setViKashSelection(viKashCancellation); setViKashCancellation(null); }} />
+      </AppSheet>
       <AppSheet
         visible={vehicleSheetOpen}
         title="Veículo do abastecimento"

@@ -83,6 +83,7 @@ export interface Vehicle {
 }
 
 export interface UpdateFuelEntryRequest {
+  vikash?: ViKashSelection | null;
   occurredAt: string;
   timezone: string;
   odometerKm: number;
@@ -96,6 +97,7 @@ export interface UpdateFuelEntryRequest {
 }
 
 export interface CreateFuelEntryRequest {
+  vikash?: ViKashSelection | null;
   id: string;
   occurredAt: string;
   timezone: string;
@@ -110,6 +112,7 @@ export interface CreateFuelEntryRequest {
 }
 
 export interface FuelEntry {
+  vikash?: ViKashEntryStatus | null;
   id: string;
   occurredAt: string;
   timezone: string;
@@ -126,6 +129,49 @@ export interface FuelEntry {
   idempotentReplay: boolean;
   latitude: number | null;
   longitude: number | null;
+}
+
+export interface ViKashChoices {
+  categoryId: string;
+  paymentMethod: string;
+  accountId?: string | null;
+  cardId?: string | null;
+  installments: number;
+}
+export interface ViKashSelection {
+  send: boolean;
+  connectionId?: string | null;
+  choices?: ViKashChoices | null;
+}
+export interface ViKashPreferences { automaticSend: boolean; choices: ViKashChoices | null }
+export interface ViKashStatus {
+  status: 'NOT_CONFIGURED' | 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'EXPIRED';
+  configured: boolean;
+  connectionId: string | null;
+  preferences: ViKashPreferences | null;
+}
+export interface ViKashCatalog {
+  apiVersion: string;
+  categories: { id: string; name: string; kind: string }[];
+  accounts: { uuid: string; description: string; type: string }[];
+  cards: { uuid: string; description: string }[];
+  paymentMethods: string[];
+  installments: { min: number; max: number; creditOnly: boolean };
+  currency: string;
+}
+export interface ViKashEntryStatus {
+  status: 'PENDING' | 'SENT' | 'ERROR' | 'ACTION_REQUIRED' | 'CANCELLED';
+  send: boolean;
+  connectionId: string;
+  choices: ViKashChoices;
+  code: string | null;
+  updatedAt: string;
+}
+export interface ViKashRemoteStatus { status: string; version: number; manuallyModified: boolean; etag: string | null }
+export interface ViKashDeletions {
+  items: { entryId: string; occurredAt: string; paidTotal: string; status: ViKashEntryStatus['status']; code: string | null }[];
+  page: number;
+  totalElements: number;
 }
 
 export interface FuelEntryPage {

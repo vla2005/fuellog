@@ -54,6 +54,7 @@ test('UpdateFuelEntryRequest: chaves conferem com a especificação OpenAPI / DT
     'paidTotal',
     'timezone',
     'unitPrice',
+    'vikash',
   ].sort();
 
   assert.deepEqual(keys, expectedKeys);
