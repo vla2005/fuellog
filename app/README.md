@@ -72,3 +72,32 @@ O FuelLog suporta login rápido por biometria nativa (Face ID, Impressão Digita
 
 3. **Web:**
    - Mantém o fluxo padrão de e-mail e senha com armazenamento de sessão isolado (`sessionStorage`), sem simulação de biometria.
+
+## Distribuição pessoal com OTA
+
+O desenvolvimento mantém `app.json`, plugins e `.env.local`, com OTA desabilitado. OTA é opt-in e exige configuração completa; valores parciais ou inválidos interrompem a configuração antes do build.
+
+Guarde os valores reais somente em `app/.env.exclusive.local` (ignorado pelo Git) ou no ambiente local de build. Nunca os copie para código, exemplos, testes ou documentação. O arquivo pessoal deve conter suas próprias quatro variáveis, sem depender do ambiente herdado:
+
+```dotenv
+EXPO_PUBLIC_API_URL=https://api.example.com/api/v1
+FUELLOG_OTA_URL=https://updates.example.com/manifest
+FUELLOG_OTA_CHANNEL=personal-meu-aparelho
+FUELLOG_OTA_RUNTIME_POLICY=fingerprint
+```
+
+Para EAS Update, use `https://u.expo.dev/<projectId>` e acrescente `FUELLOG_EAS_PROJECT_ID=<projectId>` no mesmo arquivo. Um endpoint próprio não usa essa variável. O canal `personal-<identificador>` isola a distribuição; ele não autentica nem torna o conteúdo privado.
+
+Na pasta `app`, use `node scripts/exclusive.mjs config` para validar sem imprimir endereços. O script lê o arquivo pessoal com precedência sobre o ambiente e desativa o dotenv automático do Expo, evitando herdar a API LAN de `.env.local`. Os modos `prebuild` e `export` usam o mesmo ambiente, gerando Android sem `--clean` e exportando para `dist/personal`, respectivamente. Pré-build não substitui o build Gradle assinado.
+
+Para publicar no projeto/canal EAS já criados, mantenha a conta Expo autenticada e execute:
+
+```bash
+node scripts/personal-update.mjs /caminho/FuelLog-Pessoal-OTA.apk "Descrição da atualização"
+```
+
+O comando exige JDK (`JAVA_HOME`), Android SDK (`ANDROID_HOME`) e EAS CLI instalado. Se o EAS CLI estiver fora das dependências locais, defina `FUELLOG_EAS_CLI` com o caminho do seu arquivo JavaScript `eas-cli/bin/run`, inclusive no arquivo pessoal ignorado. Não use o arquivo `.cmd` nessa variável. O comando verifica canal, servidor e fingerprint do APK, recusa outro endpoint de API no bundle e exporta novamente com o mesmo ambiente pessoal. Publica somente Android no canal pessoal, usando `--skip-bundler --input-dir` e o ambiente EAS `development`, obrigatório no SDK 58. Variáveis conflitantes nesse ambiente EAS (projeto ou conta) interrompem a publicação; a API pessoal não deve ser cadastrada no EAS.
+
+Mantenha `android/` e `ios/` gerados e ignorados pelo Git. No fluxo CNG, o `expo-updates` exclui esses diretórios do fingerprint tanto no build quanto na publicação, preservando a correspondência entre a árvore fonte e a cópia local de compilação. Compile com o mesmo arquivo pessoal, sem overrides de fingerprint/workflow, e confira `assets/fingerprint` do APK final. O publicador compara esse valor com o fingerprint atual e exige novo APK quando houver mudança nativa; nunca fixe um hash manualmente para contornar essa verificação. Não instale ou limpe dados automaticamente.
+
+O cliente nativo verifica atualizações ao abrir (`ON_LOAD`), mantém o bundle embarcado para uso offline e aplica o download em uma próxima abertura, sem recarregar uma tela em uso. O runtime usa `fingerprint`: mudanças nativas exigem novo APK compatível. Esse comportamento precisa ser verificado em build release e aparelho real; Expo Go e testes Node não o comprovam.

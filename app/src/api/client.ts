@@ -7,13 +7,14 @@ import {
 } from './tokenStorage';
 import { ApiError, ProblemDetails, RefreshRequest, TokenResponse } from './types';
 
-const DEFAULT_API_URL = 'http://localhost:8080/api/v1';
+const DEFAULT_API_URL = process.env.NODE_ENV !== 'production' ? 'http://localhost:8080/api/v1' : undefined;
 const REQUEST_TIMEOUT_MS = 15000;
 
 export function getApiBaseUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_URL?.trim();
   if (!configured) {
-    return DEFAULT_API_URL;
+    if (DEFAULT_API_URL) return DEFAULT_API_URL;
+    throw new Error('Defina EXPO_PUBLIC_API_URL antes de compilar o aplicativo para produção.');
   }
   return configured.replace(/\/+$/, '');
 }
