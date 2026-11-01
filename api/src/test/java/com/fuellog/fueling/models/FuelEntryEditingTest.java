@@ -23,7 +23,7 @@ class FuelEntryEditingTest {
     private final FuelEntryRepository repository=mock(FuelEntryRepository.class);
     private final VehicleService vehicles=mock(VehicleService.class);
     private final Vehicle vehicle=mock(Vehicle.class);
-    private final FuelEntryService service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC));
+    private final FuelEntryService service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC),com.fuellog.vikash.ViKashTestSupport.disconnected());
     private FuelEntry entry;
 
     @BeforeEach void setup() {

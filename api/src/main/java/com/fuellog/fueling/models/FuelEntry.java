@@ -25,6 +25,7 @@ public class FuelEntry {
     @Column(precision=10,scale=7) private BigDecimal latitude;
     @Column(precision=10,scale=7) private BigDecimal longitude;
     @Column(name="create_request_hash",nullable=false,updatable=false,length=64) private String createRequestHash;
+    @Column(name="create_vikash_hash",updatable=false,length=64) private String createViKashHash;
     @Column(name="created_at",nullable=false,updatable=false) private Instant createdAt;
     @Column(name="updated_at",nullable=false) private Instant updatedAt;
     @Version private Long version;
@@ -40,6 +41,8 @@ public class FuelEntry {
     public BigDecimal unitPrice() { return unitPrice; }
     public BigDecimal paidTotal() { return paidTotal; }
     public String createRequestHash() { return createRequestHash; }
+    public String createViKashHash() { return createViKashHash; }
+    public void createViKashHash(String value) { createViKashHash=value; }
     public Long version() { return version; }
     protected FuelEntry() {}
     public boolean hasSameAmounts(FuelCommand c) {
@@ -65,6 +68,6 @@ public class FuelEntry {
         BigDecimal reference=FuelCommand.reference(liters,unitPrice);
         return new FuelEntryDtos.View(id,vehicleId,occurredAt,timezone,odometerKm,fuelType,liters.toPlainString(),
             unitPrice.toPlainString(),paidTotal.toPlainString(),reference.toPlainString(),paidTotal.subtract(reference).toPlainString(),
-            adjustmentReason,version,replay,latitude,longitude);
+            adjustmentReason,version,replay,latitude,longitude,null);
     }
 }

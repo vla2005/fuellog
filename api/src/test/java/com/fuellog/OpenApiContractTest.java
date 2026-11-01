@@ -81,7 +81,20 @@ class OpenApiContractTest {
                 Map.entry("Dashboard", "metrics.dtos.MetricsDtos$Dashboard"),
                 Map.entry("DashboardMonth", "metrics.dtos.MetricsDtos$MonthlyTotal"),
                 Map.entry("DashboardFuel", "metrics.dtos.MetricsDtos$FuelSpending"),
-                Map.entry("DashboardPrice", "metrics.dtos.MetricsDtos$Price"));
+                Map.entry("DashboardPrice", "metrics.dtos.MetricsDtos$Price"),
+                Map.entry("ViKashChoices", "vikash.dtos.ViKashDtos$Choices"),
+                Map.entry("ViKashSelection", "vikash.dtos.ViKashDtos$Selection"),
+                Map.entry("ViKashPreferences", "vikash.dtos.ViKashDtos$Preferences"),
+                Map.entry("ViKashStatus", "vikash.dtos.ViKashDtos$Status"),
+                Map.entry("ViKashStart", "vikash.dtos.ViKashDtos$Start"),
+                Map.entry("ViKashAuthorization", "vikash.dtos.ViKashDtos$Authorization"),
+                Map.entry("ViKashCatalog", "vikash.dtos.ViKashDtos$Catalog"),
+                Map.entry("ViKashEntryStatus", "vikash.dtos.ViKashDtos$EntryStatus"),
+                Map.entry("ViKashRetry", "vikash.dtos.ViKashDtos$Retry"),
+                Map.entry("ViKashRemoteStatus", "vikash.dtos.ViKashDtos$RemoteStatus"),
+                Map.entry("ViKashDisconnect", "vikash.dtos.ViKashDtos$Disconnect"),
+                Map.entry("ViKashDeletion", "vikash.dtos.ViKashDtos$Deletion"),
+                Map.entry("ViKashDeletions", "vikash.dtos.ViKashDtos$Deletions"));
         for (var entry : types.entrySet()) {
             Set<String> documented = new LinkedHashSet<>();
             spec.path("components").path("schemas").path(entry.getKey()).path("properties")

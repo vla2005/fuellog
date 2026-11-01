@@ -10,6 +10,7 @@ import com.fuellog.platform.validation.DomainValues;
 import com.fuellog.vehicles.enums.FuelType;
 import com.fuellog.vehicles.models.Vehicle;
 import com.fuellog.vehicles.services.VehicleService;
+import com.fuellog.vikash.services.ViKashService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -28,8 +29,9 @@ public class FuelEntryService {
     private final FuelEntryRepository entries;
     private final VehicleService vehicles;
     private final Clock clock;
-    public FuelEntryService(FuelEntryRepository entries, VehicleService vehicles, Clock clock) {
-        this.entries=entries; this.vehicles=vehicles; this.clock=clock;
+    private final ViKashService vikash;
+    public FuelEntryService(FuelEntryRepository entries, VehicleService vehicles, Clock clock, ViKashService vikash) {
+        this.entries=entries; this.vehicles=vehicles; this.clock=clock; this.vikash=vikash;
     }
     @Transactional
     public FuelEntryDtos.View create(UUID vehicleId, FuelEntryDtos.Create input) {
@@ -38,9 +40,10 @@ public class FuelEntryService {
         var existing=entries.findById(command.id());
         if (existing.isPresent()) {
             FuelEntry entry=existing.get();
-            if (!entry.vehicleId().equals(vehicleId) || !entry.createRequestHash().equals(command.hash()))
+            if (!entry.vehicleId().equals(vehicleId) || !entry.createRequestHash().equals(command.hash())
+                || !Objects.equals(entry.createViKashHash(),vikash.selectionHash(input.vikash())))
                 throw new ApiException(409,"IDEMPOTENCY_CONFLICT","UUID j\u00e1 utilizado com outro comando.");
-            return entry.view(true);
+            return vikash.decorate(entry.view(true));
         }
         if (entries.wasDeleted(command.id()))
             throw new ApiException(409,"ENTRY_DELETED","UUID de abastecimento excluído não pode ser reutilizado.");
@@ -53,7 +56,10 @@ public class FuelEntryService {
         var next=entries.findFirstByVehicleIdAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(vehicleId,command.occurredAt());
         validateHistory(command,previous,next,entries.findByVehicleIdAndOccurredAt(vehicleId,command.occurredAt()));
         try {
-            return entries.saveAndFlush(new FuelEntry(command)).view(false);
+            FuelEntry entry=new FuelEntry(command); entry.createViKashHash(vikash.selectionHash(input.vikash()));
+            var view=entries.saveAndFlush(entry).view(false);
+            vikash.saveIntent(view,input.vikash(),true,false);
+            return vikash.decorate(view);
         } catch (DataIntegrityViolationException error) {
             // Different vehicle locks cannot serialize a shared client UUID; roll back this transaction.
             for (Throwable cause=error; cause != null; cause=cause.getCause()) {
@@ -80,7 +86,11 @@ public class FuelEntryService {
         var next=entries.findFirstByVehicleIdAndIdNotAndOccurredAtGreaterThanOrderByOccurredAtAscIdAsc(vehicleId,entryId,command.occurredAt());
         validateHistory(command,previous,next,entries.findByVehicleIdAndIdNotAndOccurredAt(vehicleId,entryId,command.occurredAt()));
         entry.update(command);
-        try { return entries.saveAndFlush(entry).view(false); }
+        try {
+            var view=entries.saveAndFlush(entry).view(false);
+            vikash.saveIntent(view,input.vikash(),false,false);
+            return vikash.decorate(view);
+        }
         catch (ObjectOptimisticLockingFailureException error) { throw staleVersion(); }
     }
     @Transactional
@@ -90,7 +100,10 @@ public class FuelEntryService {
         long expected=expectedVersion(ifMatch);
         if (!Objects.equals(entry.version(),expected)) throw staleVersion();
         entry.delete(clock.instant());
-        try { entries.saveAndFlush(entry); }
+        try {
+            entries.saveAndFlush(entry);
+            vikash.saveIntent(entry.view(false),null,false,true);
+        }
         catch (ObjectOptimisticLockingFailureException error) { throw staleVersion(); }
     }
     private static long expectedVersion(String ifMatch) {
@@ -114,7 +127,7 @@ public class FuelEntryService {
     @Transactional(readOnly=true)
     public FuelEntryDtos.View get(UUID vehicleId, UUID entryId) {
         vehicles.owned(vehicleId);
-        return entries.findByIdAndVehicleId(entryId,vehicleId).orElseThrow(VehicleService::notFound).view(false);
+        return vikash.decorate(entries.findByIdAndVehicleId(entryId,vehicleId).orElseThrow(VehicleService::notFound).view(false));
     }
     @Transactional(readOnly=true)
     public FuelEntryDtos.Page list(UUID vehicleId, LocalDate from, LocalDate to, String timezone,

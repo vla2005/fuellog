@@ -87,7 +87,7 @@ class FuelDomainTest {
         repository=mock(FuelEntryRepository.class); vehicles=mock(VehicleService.class); vehicle=mock(Vehicle.class);
         when(vehicles.lockOwned(vehicleId)).thenReturn(vehicle);
         when(vehicle.allowedFuels()).thenReturn(Set.of(FuelType.GASOLINE_REGULAR));
-        service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC));
+        service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC),com.fuellog.vikash.ViKashTestSupport.disconnected());
         when(repository.saveAndFlush(any())).thenAnswer(i->i.getArgument(0));
     }
     @Test void replayReturnsCurrentStateBeforeArchiveAndFutureChecks() {
@@ -189,9 +189,9 @@ class FuelDomainTest {
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->service.create(vehicleId,command("40","6","240",null)));
     }
     @Test void futureToleranceIncludesFiveMinutes() {
-        service=new FuelEntryService(repository,vehicles,Clock.fixed(now.minusSeconds(300),ZoneOffset.UTC));
+        service=new FuelEntryService(repository,vehicles,Clock.fixed(now.minusSeconds(300),ZoneOffset.UTC),com.fuellog.vikash.ViKashTestSupport.disconnected());
         assertDoesNotThrow(()->service.create(vehicleId,command("40","6","240",null)));
-        service=new FuelEntryService(repository,vehicles,Clock.fixed(now.minusSeconds(301),ZoneOffset.UTC));
+        service=new FuelEntryService(repository,vehicles,Clock.fixed(now.minusSeconds(301),ZoneOffset.UTC),com.fuellog.vikash.ViKashTestSupport.disconnected());
         assertTrue(assertThrows(ApiException.class,()->service.create(vehicleId,command("40","6","240",null))).fieldErrors().containsKey("occurredAt"));
     }
 }

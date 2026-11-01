@@ -61,7 +61,7 @@ class FuelAmountValidationTest {
         when(vehicles.lockOwned(vehicleId)).thenReturn(vehicle);
         when(vehicle.allowedFuels()).thenReturn(Set.of(FuelType.GASOLINE_REGULAR));
         when(repository.saveAndFlush(any())).thenAnswer(i->i.getArgument(0));
-        var service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC));
+        var service=new FuelEntryService(repository,vehicles,Clock.fixed(now,ZoneOffset.UTC),com.fuellog.vikash.ViKashTestSupport.disconnected());
         var old=input("1","6","6.04",null);
         var legacy=new FuelEntry(FuelCommand.normalize(vehicleId,old));
         setField(legacy,"version",0L);

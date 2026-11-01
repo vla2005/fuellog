@@ -98,6 +98,7 @@ class IdentitySecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(request -> publicCredentials(request.getMethod(), request.getServletPath())).permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/health").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/integrations/vikash/callback").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, error) -> SecurityProblems.authentication(response, error))
                         .accessDeniedHandler((request, response, error) -> SecurityProblems.write(response, 403, "ACCESS_DENIED")))

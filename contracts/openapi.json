@@ -2773,6 +2773,929 @@
           }
         }
       }
+    },
+    "/integrations/vikash": {
+      "get": {
+        "summary": "Read owner ViKash connection",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Disconnect, erase credentials and cancel unsent work",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashDisconnect"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/vikash/authorizations": {
+      "post": {
+        "summary": "Start delegated authorization",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashAuthorization"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViKashStart"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel pending authorization",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/vikash/catalog": {
+      "get": {
+        "summary": "Read owner financial catalog",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashCatalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/vikash/preferences": {
+      "put": {
+        "summary": "Save defaults without changing existing entries",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashPreferences"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViKashPreferences"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/vikash/entries/{entryId}/remote": {
+      "get": {
+        "summary": "Review remote conflict before explicit overwrite",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashRemoteStatus"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/integrations/vikash/entries/{entryId}/retry": {
+      "post": {
+        "summary": "Retry safe delivery or approve the exact reviewed remote ETag",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViKashRetry"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/integrations/vikash/callback": {
+      "get": {
+        "summary": "Consume single-use state and exchange code on the server",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Exact configured app return URI; no tokens or codes."
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": []
+      }
+    },
+    "/integrations/vikash/deletions": {
+      "get": {
+        "summary": "Read owner-only paginated cancellation state for locally deleted refuelings",
+        "responses": {
+          "400": {
+            "description": "Invalid request format.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials, or an inactive session.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not owned by the caller.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Domain or idempotency conflict.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Domain validation failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; do not automatically refresh authentication.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViKashDeletions"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000,
+              "default": 0
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -3220,6 +4143,16 @@
             "maximum": 180,
             "multipleOf": 1e-07,
             "description": "WGS84 degrees as a finite JSON number, at most seven meaningful decimal places; no silent rounding. Required for new IDs. The client must retain the captured snapshot across retries."
+          },
+          "vikash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViKashSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3324,6 +4257,16 @@
             "maximum": 180,
             "multipleOf": 1e-07,
             "description": "WGS84 degrees; null only for records created before GPS support. Both coordinates are null together."
+          },
+          "vikash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViKashEntryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3343,7 +4286,8 @@
           "idempotentReplay",
           "latitude",
           "longitude"
-        ]
+        ],
+        "description": "ViKash state is included in detail/create/update responses; history leaves it null. Omitted selection preserves existing snapshot on edits. Saving locally never waits for ViKash."
       },
       "FuelEntryPage": {
         "type": "object",
@@ -3621,6 +4565,16 @@
             "maximum": 180,
             "multipleOf": 1e-07,
             "description": "Omitted or null pair preserves stored historical coordinates. Supply both non-null numbers to replace; WGS84, at most seven meaningful decimals, no rounding."
+          },
+          "vikash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViKashSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4130,6 +5084,474 @@
         "required": [
           "month",
           "purchaseCount"
+        ]
+      },
+      "ViKashChoices": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "accountId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cardId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "installments": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "categoryId",
+          "paymentMethod",
+          "installments"
+        ]
+      },
+      "ViKashSelection": {
+        "type": "object",
+        "properties": {
+          "send": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViKashChoices"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "send"
+        ]
+      },
+      "ViKashPreferences": {
+        "type": "object",
+        "properties": {
+          "automaticSend": {
+            "type": "boolean"
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViKashChoices"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "automaticSend"
+        ]
+      },
+      "ViKashStatus": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "NOT_CONFIGURED",
+              "DISCONNECTED",
+              "CONNECTING",
+              "CONNECTED",
+              "EXPIRED"
+            ]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preferences": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViKashPreferences"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "configured",
+          "connectionId",
+          "preferences"
+        ]
+      },
+      "ViKashStart": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "web",
+              "native"
+            ]
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "ViKashAuthorization": {
+        "type": "object",
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "returnUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizationUrl",
+          "returnUrl"
+        ]
+      },
+      "ViKashCategory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ]
+      },
+      "ViKashAccount": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uuid",
+          "description",
+          "type"
+        ]
+      },
+      "ViKashCard": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uuid",
+          "description"
+        ]
+      },
+      "ViKashInstallments": {
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "integer"
+          },
+          "max": {
+            "type": "integer"
+          },
+          "creditOnly": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "min",
+          "max",
+          "creditOnly"
+        ]
+      },
+      "ViKashCatalog": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViKashCategory"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViKashAccount"
+            }
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViKashCard"
+            }
+          },
+          "paymentMethods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "installments": {
+            "$ref": "#/components/schemas/ViKashInstallments"
+          },
+          "currency": {
+            "const": "BRL"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "categories",
+          "accounts",
+          "cards",
+          "paymentMethods",
+          "installments",
+          "currency"
+        ]
+      },
+      "ViKashEntryStatus": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "SENT",
+              "ERROR",
+              "ACTION_REQUIRED",
+              "CANCELLED"
+            ]
+          },
+          "send": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "choices": {
+            "$ref": "#/components/schemas/ViKashChoices"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "status",
+          "send",
+          "connectionId",
+          "choices",
+          "code",
+          "updatedAt"
+        ]
+      },
+      "ViKashRetry": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "RETRY",
+              "OVERWRITE"
+            ]
+          },
+          "remoteEtag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "resolution"
+        ]
+      },
+      "ViKashRemoteStatus": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "manuallyModified": {
+            "type": "boolean"
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "manuallyModified",
+          "etag"
+        ]
+      },
+      "ViKashDisconnect": {
+        "type": "object",
+        "properties": {
+          "remoteRevoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "remoteRevoked"
+        ]
+      },
+      "ViKashDeletion": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paidTotal": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+            "description": "Positive decimal string using a dot; excessive precision is rejected without silent rounding."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "SENT",
+              "ERROR",
+              "ACTION_REQUIRED",
+              "CANCELLED"
+            ]
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entryId",
+          "occurredAt",
+          "paidTotal",
+          "status",
+          "code"
+        ]
+      },
+      "ViKashDeletions": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/ViKashDeletion"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "totalElements": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "totalElements"
         ]
       }
     }
