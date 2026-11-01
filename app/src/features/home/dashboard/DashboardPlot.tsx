@@ -74,7 +74,7 @@ export function DashboardPlot({ kind, rows, signature, sectionTop, onDetails, on
       stacked ? 96 : HEIGHT, scrollY.value, viewportHeight.value, header, dockHeight);
     return visible ? signature : '';
   }, (key, previous) => { if (key && key !== previous) runOnJS(start)(); }, [signature, motion.active, start]);
-  const clipProps = useAnimatedProps(() => ({ width: width * progress.value }));
+  const clipProps = useAnimatedProps(() => ({ width: (geometry.right - geometry.left + 16) * progress.value }));
   const labelsProps = useAnimatedProps(() => ({ opacity: interpolate(progress.value, [0.84,1], [0,1], 'clamp') }));
   const tooltipStyle = useAnimatedStyle(() => {
     const plotY = expandedHeight + sectionTop.value + localTop.value - scrollY.value;
@@ -129,11 +129,16 @@ export function DashboardPlot({ kind, rows, signature, sectionTop, onDetails, on
     select(index >= 0 && index < rows.length ? index : null);
   };
 
-  return <View ref={wrapperRef} onLayout={event => { localTop.value = event.nativeEvent.layout.y; setWidth(event.nativeEvent.layout.width); hitRef.current?.measureInWindow(left=>{plotLeft.value=left;}); }}>
+  return <View ref={wrapperRef} onLayout={event => {
+    if (event.nativeEvent.layout.width <= 0) return;
+    localTop.value = event.nativeEvent.layout.y;
+    setWidth(event.nativeEvent.layout.width);
+    hitRef.current?.measureInWindow(left=>{plotLeft.value=left;});
+  }}>
     <View testID={`chart-${kind}`} style={{ height: stacked ? 96 : HEIGHT, position: 'relative' }}>
       {hasValues ? <>
         <Svg width={width} height={svgHeight} accessible={Platform.OS === 'web' ? undefined : false} aria-hidden>
-          <Defs><ClipPath id={clipId}><AnimatedRect x={0} y={0} height={HEIGHT} animatedProps={clipProps} /></ClipPath></Defs>
+          <Defs><ClipPath id={clipId}><AnimatedRect x={geometry.left - 8} y={0} height={HEIGHT} animatedProps={clipProps} /></ClipPath></Defs>
           {!stacked ? [0,0.5,1].map(fraction => {
             const y = geometry.bottom - fraction * (geometry.bottom - geometry.top);
             const value = geometry.min + fraction * (geometry.max - geometry.min);
@@ -153,7 +158,8 @@ export function DashboardPlot({ kind, rows, signature, sectionTop, onDetails, on
           </G> : bars ? rows.map((row,index) => geometry.points[index] && <GrowingBar key={row.id} x={barX(index)} y={geometry.points[index]!.y}
             width={barWidth} bottom={geometry.bottom} progress={progress}
             color={selected === index || selected === null && index === rows.length - 1 ? colors.brandPrimary : isDark ? '#3979C3' : '#8BBEF2'} />)
-            : <G clipPath={`url(#${clipId})`}>
+            // Android otherwise reuses the initial empty clip (react-native-svg#3067).
+            : <G clipPath={`url(#${clipId})`} clipRule="nonzero">
               <Path d={geometry.path} fill="none" stroke={colors.brandPrimary} strokeWidth={2.5} strokeLinejoin="round" />
               {geometry.points.map((point,index) => point && <Circle key={rows[index].id} cx={point.x} cy={point.y}
                 r={selected === index ? 7 : 4.5} fill={colors.brandPrimary} stroke={colors.bgPrimary} strokeWidth={2} />)}

@@ -318,20 +318,70 @@ for(const theme of ['light','dark'] as const){
 async function recordSvg(page:Page,selector:string,attribute:string,action:()=>Promise<unknown>,name:string){
   await page.evaluate(({selector,attribute})=>{
     (window as any).dashboardFrames=[];
+    (window as any).dashboardCaptureEnd=Infinity;
     (window as any).dashboardCapture=new Promise(resolve=>{
       const start=performance.now();
       const frame=()=>{
         const element=document.querySelector(selector);
-        (window as any).dashboardFrames.push({time:performance.now()-start,value:Number(element?.getAttribute(attribute)??0)});
-        if(performance.now()-start<850)requestAnimationFrame(frame);else resolve((window as any).dashboardFrames);
+        (window as any).dashboardFrames.push({time:performance.now()-start,value:Number(element?.getAttribute(attribute)??0),
+          svgWidth:Number(element?.closest('svg')?.getAttribute('width')??0)});
+        if(performance.now()<(window as any).dashboardCaptureEnd)requestAnimationFrame(frame);else resolve((window as any).dashboardFrames);
       };requestAnimationFrame(frame);
     });
   },{selector,attribute});
   await action();
-  const frames=await page.evaluate(()=>(window as any).dashboardCapture) as {time:number;value:number}[];
+  await page.evaluate(()=>{(window as any).dashboardCaptureEnd=performance.now()+850;});
+  const frames=await page.evaluate(()=>(window as any).dashboardCapture) as {time:number;value:number;svgWidth:number}[];
   await writeFile(test.info().outputPath(`${name}-frames.json`),JSON.stringify(frames));
   return frames;
 }
+async function recordPriceDrawing(page:Page,action:()=>Promise<unknown>,name:string){
+  await page.evaluate(()=>{
+    (window as any).priceCapture=new Promise(resolve=>{
+      const frames:any[]=[],start=performance.now();
+      const frame=()=>{
+        const svg=document.querySelector<SVGSVGElement>('[data-testid="chart-price"] svg')!;
+        frames.push({time:performance.now()-start,width:Number(svg.querySelector('clipPath rect')!.getAttribute('width')),
+          svg:new XMLSerializer().serializeToString(svg)});
+        if(performance.now()-start<900)requestAnimationFrame(frame);else resolve(frames);
+      };frame();
+    });
+  });
+  await action();
+  const frames=await page.evaluate(()=>(window as any).priceCapture) as {time:number;width:number;svg:string}[];
+  const final=frames.at(-1)!.width;
+  const middle=frames.find(frame=>frame.width>final*0.45&&frame.width<final*0.7)!;
+  expect(middle,'an actual intermediate SVG frame').toBeDefined();
+  const painted=await page.evaluate(async snapshots=>Promise.all(snapshots.map(async frame=>{
+    const image=new Image();image.src=`data:image/svg+xml;charset=utf-8,${encodeURIComponent(frame.svg)}`;await image.decode();
+    const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+    const context=canvas.getContext('2d')!;
+    const svg=new DOMParser().parseFromString(frame.svg,'image/svg+xml').documentElement;
+    context.fillStyle=svg.querySelector('path')!.getAttribute('stroke')!;context.fillRect(0,0,1,1);
+    const brand=[...context.getImageData(0,0,1,1).data];context.clearRect(0,0,canvas.width,canvas.height);context.drawImage(image,0,0);
+    const pixels=context.getImageData(0,0,canvas.width,canvas.height).data;
+    const points=[...svg.querySelectorAll('circle')].map(point=>({x:Number(point.getAttribute('cx')),y:Number(point.getAttribute('cy'))}));
+    const isBrand=(x:number,y:number)=>{
+      const offset=(Math.round(y)*canvas.width+Math.round(x))*4;
+      return pixels[offset+3]>100&&brand.slice(0,3).every((value,index)=>Math.abs(pixels[offset+index]-value)<8);
+    };
+    let linePixels=0,front=-1;
+    for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){
+      if(isBrand(x,y)&&points.every(point=>Math.hypot(point.x-x,point.y-y)>8)){linePixels++;front=Math.max(front,x);}
+    }
+    return {linePixels,front,points:points.map(point=>isBrand(point.x,point.y)),
+      labelsOpacity:Number(svg.querySelector(':scope > g:last-child')!.getAttribute('opacity')),
+      clipRule:svg.querySelector('g[clip-path]')!.getAttribute('clip-rule'),png:canvas.toDataURL(),svg:frame.svg,time:frame.time};
+  })),[frames[0],middle,frames.at(-1)!]);
+  for(const [index,phase] of ['start','middle','end'].entries()){
+    await writeFile(test.info().outputPath(`${name}-${phase}.png`),Buffer.from(painted[index].png.split(',')[1],'base64'));
+    await writeFile(test.info().outputPath(`${name}-${phase}.svg`),painted[index].svg);
+  }
+  await writeFile(test.info().outputPath(`${name}-frames.json`),JSON.stringify(frames.map(({svg,...frame})=>frame)));
+  await writeFile(test.info().outputPath(`${name}-painted.json`),JSON.stringify(painted.map(({svg,png,...frame})=>frame)));
+  return {frames,painted};
+}
+
 test.describe('viewport animations',()=>{
   test.use({reducedMotion:'no-preference',viewport:{width:390,height:650}});
   test('waits for drawing, reveals SVG, never replays equal datasets and defers changed hidden series',async({page})=>{
@@ -376,14 +426,44 @@ test.describe('viewport animations',()=>{
     changed=true;await saveVehicle();
     const priceClip=page.getByTestId('chart-price').locator('clipPath rect');
     await expect(priceClip).toHaveAttribute('width','0');
-    const line=await recordSvg(page,'[data-testid="chart-price"] clipPath rect','width',async()=>{
+    const priceWaiting=await recordSvg(page,'[data-testid="chart-price"] clipPath rect','width',async()=>{
+      await page.getByTestId('chart-price').evaluate(element=>{
+        const scroll=document.querySelector<HTMLElement>('[data-testid="dashboard-scroll"]')!;
+        // Only 60px of the drawing clears the dock, below its 35% visibility threshold.
+        scroll.scrollTop+=element.getBoundingClientRect().top-(window.innerHeight-104-60);
+      });
+    },'price-waits-for-useful-viewport');
+    expect(priceWaiting.every(frame=>frame.value===0)).toBe(true);
+    // Android must take the uncached ClipPath branch; web alone cannot reproduce its stale native cache.
+    await expect(page.getByTestId('chart-price').locator('g[clip-path]')).toHaveAttribute('clip-rule','nonzero');
+    const {frames:line,painted}=await recordPriceDrawing(page,async()=>{
       await showChart(page,'price');
-      await page.waitForFunction(()=> (window as any).dashboardFrames.some((frame:any)=>frame.value>5));
+      await page.waitForFunction(()=> Number(document.querySelector('[data-testid="chart-price"] clipPath rect')?.getAttribute('width'))>160);
       await page.screenshot({path:test.info().outputPath('line-real-intermediate.png')});
     },'changed-price-reveal');
     const lineFinal=Number(await priceClip.getAttribute('width'));
-    expect(line.some(frame=>frame.value>0&&frame.value<lineFinal-1)).toBe(true);
+    const clipMargin=Number(await page.getByTestId('chart-price').locator('svg').getAttribute('width'))-lineFinal;
+    expect(line.some(frame=>frame.width>0&&frame.width<lineFinal-1)).toBe(true);
+    const started=line.find(frame=>frame.width>0)!,completed=line.find(frame=>frame.width===lineFinal)!;
+    expect(completed.time-started.time).toBeGreaterThanOrEqual(500);expect(completed.time-started.time).toBeLessThanOrEqual(800);
+    expect(painted[0].linePixels).toBe(0);expect(painted[0].points.every(point=>!point)).toBe(true);
+    expect(painted[1].linePixels).toBeGreaterThan(0);expect(painted[1].linePixels).toBeLessThan(painted[2].linePixels);
+    expect(painted[1].front).toBeLessThan(painted[2].front);
+    expect(painted[1].points.some(Boolean)&&painted[1].points.some(point=>!point)).toBe(true);
+    expect(painted[2].points.every(Boolean)).toBe(true);
+    expect(painted.map(frame=>frame.labelsOpacity)).toEqual([0,0,1]);
     await page.screenshot({path:test.info().outputPath('line-real-final.png')});
+    const requests:string[]=[];page.on('request',request=>{if(request.url().includes('/dashboard?'))requests.push(request.url());});
+    const priceNoReplay=await recordSvg(page,'[data-testid="chart-price"] clipPath rect','width',async()=>{
+      await page.getByTestId('chart-price').click({position:{x:150,y:100}});
+      await expect(page.getByTestId('tooltip-price')).toBeVisible();
+      await showChart(page,'liters');await showChart(page,'price');
+    },'price-selection-scroll-no-replay');
+    expect(priceNoReplay.every(frame=>frame.value===lineFinal)).toBe(true);expect(requests).toHaveLength(0);
+    const priceEqual=await recordSvg(page,'[data-testid="chart-price"] clipPath rect','width',saveVehicle,'price-equal-dataset');
+    const settled=priceEqual.filter(frame=>frame.svgWidth>0);
+    expect(settled.length).toBeGreaterThan(10);
+    expect(settled.every(frame=>frame.value===frame.svgWidth-clipMargin)).toBe(true);
   });
   test('stacked segments keep proportions while revealing; background cancels without replay',async({page})=>{
     await dashboardApi(page);await page.goto('/');await expect(page.getByTestId('chart-fuel')).toHaveCount(1);
@@ -402,6 +482,30 @@ test.describe('viewport animations',()=>{
     expect(capture.some(frame=>frame.value>0&&frame.value<final-1)).toBe(true);
     expect(capture.at(-1)!.value).toBeCloseTo(final,1);
   });
+});
+
+test('price respects reduced motion and background cancellation without replay',async({page})=>{
+  test.setTimeout(90000);
+  await dashboardApi(page);await page.goto('/');await expect(page.getByTestId('chart-price')).toHaveCount(1);
+  const selector='[data-testid="chart-price"] clipPath rect',clip=page.locator(selector);
+  await showChart(page,'price');
+  const final=Number(await clip.getAttribute('width'));
+  expect(final).toBeGreaterThan(200);
+  const reduced=await recordSvg(page,selector,'width',async()=>{},'price-reduced-motion');
+  expect(reduced.every(frame=>frame.value===final)).toBe(true);
+  await expect(page.getByTestId('chart-price').locator('svg > g').last()).toHaveAttribute('opacity','1');
+  await page.emulateMedia({reducedMotion:'no-preference'});await page.reload({waitUntil:'domcontentloaded'});await expect(clip).toHaveAttribute('width','0');
+  const paused=await recordSvg(page,selector,'width',async()=>{
+    await showChart(page,'price');
+    await page.waitForFunction(()=>Number(document.querySelector('[data-testid="chart-price"] clipPath rect')?.getAttribute('width'))>20);
+    await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});document.dispatchEvent(new Event('visibilitychange'));});
+    await expect(clip).toHaveAttribute('width',String(final));
+    await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));});
+    await showChart(page,'spending');await showChart(page,'price');
+  },'price-background');
+  expect(paused.some(frame=>frame.value>0&&frame.value<final)).toBe(true);
+  const complete=paused.findIndex(frame=>frame.value===final);
+  expect(complete).toBeGreaterThan(0);expect(paused.slice(complete).every(frame=>frame.value===final)).toBe(true);
 });
 
 test('individual errors retry, empty purchases draw no artificial data; a single price remains selectable',async({page})=>{
