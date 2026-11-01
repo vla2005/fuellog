@@ -139,6 +139,19 @@ class ViKashIT {
     }
     String vehicle(String token) throws Exception { return call("POST","/vehicles",token,Map.of("nickname","Teste","allowedFuels",List.of("ETHANOL")),null).body().path("id").asString(); }
 
+    @Test void nativeAuthorizationReturnsToTheInstalledAppAfterConsentOrDenial() throws Exception {
+        for (String result : List.of("code=fixture-code","error=access_denied")) {
+            var start=call("POST","/integrations/vikash/authorizations",account(),Map.of("platform","native"),null);
+            assertThat(start.status()).isEqualTo(200);
+            assertThat(start.body().path("returnUrl").asString()).isEqualTo("fuellog://vikash-return");
+            String query=URI.create(start.body().path("authorizationUrl").asString()).getRawQuery();
+            String state=Arrays.stream(query.split("&")).filter(p -> p.startsWith("state=")).findFirst().orElseThrow().substring(6);
+            var callback=call("GET","/integrations/vikash/callback?state="+state+"&"+result,null,null,null);
+            assertThat(callback.status()).isEqualTo(303);
+            assertThat(callback.location()).isEqualTo("fuellog://vikash-return");
+        }
+    }
+
     @Test void independentAccountsPkceReplayAndRevocationAreSafe() throws Exception {
         String owner=account(), stranger=account(), connection=connect(owner);
         assertThat(call("GET","/integrations/vikash",stranger,null,null).body().path("status").asString()).isEqualTo("DISCONNECTED");

@@ -59,6 +59,7 @@ public class ViKashService {
     public Authorization start(Start input) {
         requireConfigured(); UUID userId=current.requireUserId(), sessionId=current.requireSessionId();
         if (input == null || input.platform() == null || !Set.of("web","native").contains(input.platform())) throw new ApiException(422,"VALIDATION_ERROR","Escolha a plataforma de retorno.");
+        String returnUrl=returnUrl(input.platform());
         return transactions.execute(tx -> {
             lock(userId);
             if (store.current(userId).filter(c -> "CONNECTED".equals(c.status())).isPresent())
@@ -66,7 +67,7 @@ public class ViKashService {
             String state=randomSecret(), verifier=randomSecret(); UUID attemptId=UUID.randomUUID();
             store.clearAttempts(userId);
             store.attempt(hash(state),new Attempt(attemptId,userId,sessionId,crypto.encrypt(attemptId,verifier),input.platform(),clock.instant().plusSeconds(180)));
-            return new Authorization(client.authorizationUrl(state,challenge(verifier)),returnUrl(input.platform()));
+            return new Authorization(client.authorizationUrl(state,challenge(verifier)),returnUrl);
         });
     }
     public String callback(String state,String code,String error) {
@@ -75,7 +76,8 @@ public class ViKashService {
         // Consumption commits even if token exchange fails; authorization codes and states must never be replayed.
         Attempt attempt=transactions.execute(tx -> store.consume(hash(state)).orElseThrow(ViKashService::invalidState));
         if (!attempt.expiresAt().isAfter(clock.instant()) || !store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState();
-        if (error != null) return returnUrl(attempt.platform());
+        String returnUrl=returnUrl(attempt.platform());
+        if (error != null) return returnUrl;
         if (code == null || code.isBlank() || code.length() > 2048) throw invalidState();
         return transactions.execute(tx -> {
             lock(attempt.userId());
@@ -86,7 +88,7 @@ public class ViKashService {
                 UUID id=UUID.randomUUID();
                 store.connect(id,attempt.userId(),crypto.encrypt(id,tokens.accessToken()),crypto.encrypt(id,tokens.refreshToken()),clock.instant().plusSeconds(tokens.expiresIn()));
                 store.clearAttempts(attempt.userId());
-                return returnUrl(attempt.platform());
+                return returnUrl;
             } catch (ViKashRemoteException e) { throw unavailable(); }
         });
     }
@@ -289,7 +291,11 @@ public class ViKashService {
         });
     }
     private static String externalId(Sync s) { return s.connectionId()+"."+s.entryId(); }
-    private String returnUrl(String platform) { return "web".equals(platform) ? config.webReturnUrl : config.nativeReturnUrl; }
+    private String returnUrl(String platform) {
+        if ("web".equals(platform) && config.webReturnUrl.isBlank())
+            throw new ApiException(503,"VIKASH_WEB_NOT_CONFIGURED","A conexão com o ViKash pelo app web não está disponível.");
+        return "web".equals(platform) ? config.webReturnUrl : config.nativeReturnUrl;
+    }
     private String randomSecret() { byte[] bytes=new byte[32]; random.nextBytes(bytes); return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); }
     private static String challenge(String value) { return Base64.getUrlEncoder().withoutPadding().encodeToString(digest(value)); }
     private static String hash(String value) { return HexFormat.of().formatHex(digest(value)); }

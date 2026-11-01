@@ -15,7 +15,8 @@ public class ViKashProperties {
         this.enabled=enabled; this.baseUrl=baseUrl; this.clientId=clientId; this.clientSecret=clientSecret;
         this.callbackUrl=callbackUrl; this.webReturnUrl=webReturnUrl; this.nativeReturnUrl=nativeReturnUrl;
         if (enabled) {
-            requireHttp(baseUrl,true); requireHttp(callbackUrl,false); requireHttp(webReturnUrl,false);
+            requireHttp(baseUrl,true); requireHttp(callbackUrl,false);
+            if (!webReturnUrl.isBlank()) requireHttp(webReturnUrl,false);
             URI nativeUri=URI.create(nativeReturnUrl);
             if (!"fuellog".equals(nativeUri.getScheme()) || nativeUri.getFragment() != null || nativeUri.getRawQuery() != null
                 || nativeUri.getUserInfo() != null || nativeUri.getHost() == null)
