@@ -37,7 +37,10 @@ try {
     & (Join-Path $PostgresBin 'initdb.exe') -D $clusterPath -U fuellog_test --encoding=UTF8 --locale=C --auth=scram-sha-256 --pwfile=$passwordPath *> (Join-Path $testRunPath 'initdb.log')
     if ($LASTEXITCODE -ne 0) { throw "initdb falhou. Consulte $testRunPath\initdb.log" }
     Remove-Item -LiteralPath $passwordPath
-    & (Join-Path $PostgresBin 'pg_ctl.exe') -D $clusterPath -l (Join-Path $testRunPath 'postgres.log') -o "-h 127.0.0.1 -p $port" -w start
+    # Native output pipes can stay open in PostgreSQL children on Windows; wait only for pg_ctl.
+    $pgStart = Start-Process -FilePath (Join-Path $PostgresBin 'pg_ctl.exe') -ArgumentList @('-D', ('"' + $clusterPath + '"'), '-l', ('"' + (Join-Path $testRunPath 'postgres.log') + '"'), '-o', ('"-h 127.0.0.1 -p ' + $port + '"'), '-w', 'start') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $testRunPath 'start.log') -RedirectStandardError (Join-Path $testRunPath 'start-error.log')
+    if (-not $pgStart.WaitForExit(60000)) { throw "pg_ctl excedeu o prazo. Consulte $testRunPath\postgres.log" }
+    & (Join-Path $PostgresBin 'pg_ctl.exe') -D $clusterPath status *> (Join-Path $testRunPath 'status.log')
     if ($LASTEXITCODE -ne 0) { throw "PostgreSQL de teste não iniciou. Consulte $testRunPath\postgres.log" }
     $started = $true
     $env:PGPASSWORD = $password
@@ -47,8 +50,13 @@ try {
     $env:FUELLOG_DB_USER = 'fuellog_test'
     $env:FUELLOG_DB_PASSWORD = $password
     Write-Host "PostgreSQL descartável na porta $port. Evidências: $testRunPath"
-    & rtk proxy (Join-Path $apiRoot 'mvnw.cmd') -f (Join-Path $apiRoot 'pom.xml') -Pverification verify
-    $testExitCode = $LASTEXITCODE
+    # PowerShell 5 treats RTK's informational stderr as a terminating error under Stop.
+    $ErrorActionPreference = 'Continue'
+    try {
+        & rtk proxy (Join-Path $apiRoot 'mvnw.cmd') -f (Join-Path $apiRoot 'pom.xml') -Pverification verify
+        $testExitCode = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = 'Stop' }
 }
 finally {
     if ($started) {
