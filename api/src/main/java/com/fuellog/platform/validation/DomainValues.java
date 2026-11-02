@@ -20,7 +20,7 @@ public final class DomainValues {
     }
     public static BigDecimal decimal(String value, String field, int precision, int scale, boolean required) {
         if (value == null && !required) return null;
-        if (value == null || !value.matches("[0-9]+(?:\\.[0-9]+)?")) throw invalid(field, "Informe decimal positivo como string com ponto.");
+        if (value == null || value.length() > 64 || !value.matches("[0-9]+(?:\\.[0-9]+)?")) throw invalid(field, "Informe decimal positivo como string com ponto.");
         BigDecimal result = new BigDecimal(value);
         if (result.signum() <= 0 || result.scale() > scale || result.compareTo(BigDecimal.TEN.pow(precision - scale)) >= 0)
             throw invalid(field, "Valor positivo deve respeitar precis\u00e3o " + precision + " e escala " + scale + ".");
