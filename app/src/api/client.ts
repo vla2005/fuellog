@@ -16,6 +16,17 @@ export function getApiBaseUrl(): string {
     if (DEFAULT_API_URL) return DEFAULT_API_URL;
     throw new Error('Defina EXPO_PUBLIC_API_URL antes de compilar o aplicativo para produção.');
   }
+  if (process.env.NODE_ENV === 'production') {
+    let url: URL;
+    try {
+      url = new URL(configured);
+    } catch {
+      throw new Error('EXPO_PUBLIC_API_URL deve ser uma URL HTTPS válida para produção.');
+    }
+    if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash) {
+      throw new Error('EXPO_PUBLIC_API_URL deve usar HTTPS, sem credenciais, parâmetros ou fragmentos.');
+    }
+  }
   return configured.replace(/\/+$/, '');
 }
 
