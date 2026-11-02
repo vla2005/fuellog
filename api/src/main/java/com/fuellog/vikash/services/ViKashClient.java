@@ -3,6 +3,7 @@ package com.fuellog.vikash.services;
 import com.fuellog.vikash.configurations.ViKashProperties;
 import com.fuellog.vikash.dtos.ViKashDtos.Catalog;
 import com.fuellog.vikash.exceptions.ViKashRemoteException;
+import com.fuellog.vikash.exceptions.ViKashRemoteException.Reason;
 import java.net.*;
 import java.net.http.*;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +38,7 @@ public class ViKashClient {
         if (!"Bearer".equalsIgnoreCase(body.path("token_type").asString()) || body.path("access_token").asString().isBlank()
             || body.path("refresh_token").asString().isBlank() || body.path("expires_in").asLong() <= 0
             || !Set.of(body.path("scope").asString().split(" ")).containsAll(Set.of("fuellog.catalog","fuellog.entries")))
-            throw new ViKashRemoteException(502,"INVALID_RESPONSE");
+            throw new ViKashRemoteException(502,"INVALID_RESPONSE",response.statusCode(),Reason.INVALID_RESPONSE);
         return new Tokens(body.path("access_token").asString(),body.path("refresh_token").asString(),body.path("expires_in").asLong());
     }
     public void revoke(String token) {
@@ -87,21 +88,38 @@ public class ViKashClient {
     private static String form(Map<String,String> values) { return values.entrySet().stream().map(e -> encode(e.getKey())+"="+encode(e.getValue())).collect(java.util.stream.Collectors.joining("&")); }
     private JsonNode body(HttpResponse<String> response) {
         try { return json.readTree(response.body()); }
-        catch (RuntimeException e) { throw new ViKashRemoteException(502,"INVALID_RESPONSE"); }
+        catch (RuntimeException e) { throw new ViKashRemoteException(502,"INVALID_RESPONSE",response.statusCode(),Reason.INVALID_RESPONSE); }
     }
     private HttpResponse<String> send(HttpRequest request) {
         HttpResponse<String> response;
         try { response=http.send(request,HttpResponse.BodyHandlers.ofString()); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new ViKashRemoteException(0,"UNAVAILABLE"); }
-        catch (java.io.IOException e) { throw new ViKashRemoteException(0,"UNAVAILABLE"); }
-        if (response.body().length() > 1_000_000) throw new ViKashRemoteException(502,"INVALID_RESPONSE");
+        catch (java.io.IOException e) { throw new ViKashRemoteException(0,"UNAVAILABLE",0,networkReason(e)); }
+        if (response.body().length() > 1_000_000) throw new ViKashRemoteException(502,"INVALID_RESPONSE",response.statusCode(),Reason.INVALID_RESPONSE);
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            String code;
-            try { code=json.readTree(response.body()).path("code").asString(); } catch (RuntimeException e) { code=""; }
+            String code=""; Reason reason=Reason.UNAVAILABLE;
+            try {
+                JsonNode error=json.readTree(response.body());
+                code=error.path("code").asString();
+                reason=switch (error.path("error").asString()) {
+                    case "invalid_client" -> Reason.INVALID_CLIENT;
+                    case "invalid_grant" -> Reason.INVALID_GRANT;
+                    case "invalid_scope" -> Reason.INVALID_SCOPE;
+                    default -> Reason.UNAVAILABLE;
+                };
+            } catch (RuntimeException e) { /* Only allowlisted diagnostics leave this boundary. */ }
             if (!Set.of("VERSION_CONFLICT","STALE_VERSION","CANCELLED","MANUALLY_DELETED","FINANCIAL_RESTRICTION",
                 "PRECONDITION_FAILED","INVALID_REFERENCE").contains(code)) code=response.statusCode() == 401 ? "LINK_EXPIRED" : "UNAVAILABLE";
-            throw new ViKashRemoteException(response.statusCode(),code);
+            throw new ViKashRemoteException(response.statusCode(),code,response.statusCode(),reason);
         }
         return response;
+    }
+    private static Reason networkReason(java.io.IOException error) {
+        for (Throwable cause=error; cause != null; cause=cause.getCause()) {
+            if (cause instanceof HttpTimeoutException || cause instanceof SocketTimeoutException) return Reason.NETWORK_TIMEOUT;
+            if (cause instanceof javax.net.ssl.SSLException) return Reason.TLS;
+            if (cause instanceof UnknownHostException || cause instanceof java.nio.channels.UnresolvedAddressException) return Reason.DNS;
+        }
+        return Reason.NETWORK_IO;
     }
 }

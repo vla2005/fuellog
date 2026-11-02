@@ -98,7 +98,11 @@ public class ViKashService {
                 store.connect(id,attempt.userId(),crypto.encrypt(id,tokens.accessToken()),crypto.encrypt(id,tokens.refreshToken()),clock.instant().plusSeconds(tokens.expiresIn()));
                 store.clearAttempts(attempt.userId());
                 return returnUrl;
-            } catch (ViKashRemoteException e) { throw unavailable(); }
+            } catch (ViKashRemoteException e) {
+                ApiException failure=unavailable();
+                log.warn("VIKASH_TOKEN_EXCHANGE_FAILED correlationId={} remoteStatus={} reason={}",failure.correlationId(),e.remoteStatus(),e.reason());
+                throw failure;
+            }
         });
         log.info("VIKASH_AUTHORIZATION_COMPLETED");
         return destination;

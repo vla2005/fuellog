@@ -13,19 +13,30 @@ import com.fuellog.identity.services.CurrentUserService;
 import com.fuellog.platform.exceptions.ApiExceptionHandler;
 import com.fuellog.vikash.configurations.ViKashProperties;
 import com.fuellog.vikash.controllers.ViKashController;
+import com.fuellog.vikash.exceptions.ViKashRemoteException;
 import com.fuellog.vikash.models.ViKashRecords.Attempt;
 import com.fuellog.vikash.dtos.ViKashDtos.Start;
 import com.fuellog.vikash.repositories.ViKashRepository;
 import com.fuellog.vikash.services.*;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.*;
+import java.net.http.*;
+import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;
+import java.util.stream.Stream;
+import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionSystemException;
@@ -110,6 +121,119 @@ class ViKashCallbackDiagnosticsTest {
         assertThat(logs.list).isEmpty();
         verify(store).consume(anyString());
         verifyNoInteractions(client);
+    }
+
+    static Stream<Arguments> tokenFailures() {
+        return Stream.of(
+            Arguments.of(401,"invalid_client","INVALID_CLIENT","LINK_EXPIRED"),
+            Arguments.of(400,"invalid_grant","INVALID_GRANT","UNAVAILABLE"),
+            Arguments.of(400,"invalid_scope","INVALID_SCOPE","UNAVAILABLE"),
+            Arguments.of(401,"sensitive-unknown-error","UNAVAILABLE","LINK_EXPIRED"),
+            Arguments.of(503,"sensitive-unknown-error","UNAVAILABLE","UNAVAILABLE"),
+            Arguments.of(502,"malformed","UNAVAILABLE","UNAVAILABLE"),
+            Arguments.of(200,"invalid-token","INVALID_RESPONSE","INVALID_RESPONSE"),
+            Arguments.of(200,"malformed","INVALID_RESPONSE","INVALID_RESPONSE"),
+            Arguments.of(200,"oversized","INVALID_RESPONSE","INVALID_RESPONSE"));
+    }
+    @ParameterizedTest @MethodSource("tokenFailures")
+    void tokenExchangeFailureHasCorrelatedAllowlistedDiagnosticsAndGenericPublicError(
+        int status,String error,String reason,String functionalCode) throws Exception {
+        String body=switch (error) {
+            case "malformed" -> "sensitive-malformed-response";
+            case "oversized" -> "sensitive-".repeat(120_000);
+            case "invalid-token" -> "{\"token_type\":\"sensitive-invalid-type\",\"access_token\":\"sensitive-access-token\","
+                +"\"refresh_token\":\"sensitive-refresh-token\",\"expires_in\":300,\"scope\":\"fuellog.catalog fuellog.entries\"}";
+            default -> "{\"error\":\""+error+"\",\"error_description\":\"sensitive-provider-description\","
+                +"\"error_uri\":\"https://sensitive.example.test?code=sensitive-code\",\"account\":\"sensitive-account\"}";
+        };
+        HttpServer remote=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        remote.createContext("/oauth2/token",exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes=body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type","application/json");
+            exchange.getResponseHeaders().add("Location","https://sensitive.example.test?code=sensitive-code");
+            exchange.sendResponseHeaders(status,bytes.length);
+            exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        remote.start();
+        try {
+            var remoteConfig=new ViKashProperties(true,"http://127.0.0.1:"+remote.getAddress().getPort(),config.clientId,
+                config.clientSecret,config.callbackUrl,"",config.nativeReturnUrl);
+            ViKashClient realClient=new ViKashClient(remoteConfig,json);
+            when(client.exchange(code,"sensitive-verifier")).thenAnswer(invocation -> {
+                ViKashRemoteException failure=catchThrowableOfType(() -> realClient.exchange(code,"sensitive-verifier"),ViKashRemoteException.class);
+                assertThat(failure).isNotNull();
+                assertThat(failure.status()).isEqualTo(status == 200 ? 502 : status);
+                assertThat(failure.code()).isEqualTo(functionalCode);
+                assertThat(failure.getMessage()+failure+Arrays.toString(failure.getSuppressed())).doesNotContain("sensitive-");
+                assertThat(failure.getCause()).isNull();
+                throw failure;
+            });
+
+            var response=http.perform(get("/api/v1/integrations/vikash/callback").param("state",state).param("code",code))
+                .andReturn().getResponse();
+
+            assertTokenFailure(response.getStatus(),response.getContentAsString(),status,reason);
+        } finally { remote.stop(0); }
+    }
+
+    static Stream<Arguments> networkFailures() {
+        return Stream.of(
+            Arguments.of(new HttpTimeoutException("sensitive-timeout"),"NETWORK_TIMEOUT"),
+            Arguments.of(new SocketTimeoutException("sensitive-socket-timeout"),"NETWORK_TIMEOUT"),
+            Arguments.of(new SSLHandshakeException("sensitive-tls"),"TLS"),
+            Arguments.of(new UnknownHostException("sensitive-dns"),"DNS"),
+            Arguments.of(new IOException("sensitive-wrapper",new java.nio.channels.UnresolvedAddressException()),"DNS"),
+            Arguments.of(new IOException("sensitive-network"),"NETWORK_IO"),
+            Arguments.of(new InterruptedException("sensitive-interruption"),"UNAVAILABLE"));
+    }
+    @ParameterizedTest @MethodSource("networkFailures")
+    void networkFailureUsesOnlyExceptionClassesAndDoesNotRetainSensitiveCauses(Exception cause,String reason) throws Exception {
+        HttpClient transport=mock(HttpClient.class);
+        when(transport.send(any(HttpRequest.class),org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenThrow(cause);
+        ViKashClient realClient=new ViKashClient(config,json);
+        ReflectionTestUtils.setField(realClient,"http",transport);
+        when(client.exchange(code,"sensitive-verifier")).thenAnswer(invocation -> {
+            ViKashRemoteException failure=catchThrowableOfType(() -> realClient.exchange(code,"sensitive-verifier"),ViKashRemoteException.class);
+            assertThat(failure).isNotNull();
+            assertThat(failure.status()).isZero();
+            assertThat(failure.code()).isEqualTo("UNAVAILABLE");
+            assertThat(failure.getMessage()+failure+Arrays.toString(failure.getSuppressed())).doesNotContain("sensitive-");
+            assertThat(failure.getCause()).isNull();
+            assertThat(Thread.currentThread().isInterrupted()).isEqualTo(cause instanceof InterruptedException);
+            Thread.interrupted();
+            throw failure;
+        });
+        try {
+            var response=http.perform(get("/api/v1/integrations/vikash/callback").param("state",state).param("code",code))
+                .andReturn().getResponse();
+            assertTokenFailure(response.getStatus(),response.getContentAsString(),0,reason);
+        } finally { Thread.interrupted(); }
+    }
+
+    private void assertTokenFailure(int status,String body,int remoteStatus,String reason) {
+        assertThat(status).isEqualTo(503);
+        var problem=json.readTree(body);
+        assertThat(problem.path("code").asString()).isEqualTo("VIKASH_UNAVAILABLE");
+        assertThat(problem.path("detail").asString()).isEqualTo("ViKash indisponível. Tente novamente mais tarde.");
+        assertThat(problem.path("fieldErrors").isEmpty()).isTrue();
+        String correlationId=problem.path("correlationId").asString();
+        assertThatCode(() -> UUID.fromString(correlationId)).doesNotThrowAnyException();
+        assertThat(logs.list).hasSize(1);
+        var event=logs.list.getFirst();
+        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+        assertThat(event.getFormattedMessage()).isEqualTo("VIKASH_TOKEN_EXCHANGE_FAILED correlationId="+correlationId
+            +" remoteStatus="+remoteStatus+" reason="+reason);
+        assertThat(event.getThrowableProxy()).isNull();
+        assertThat(body).doesNotContain("INVALID_CLIENT","INVALID_GRANT","INVALID_SCOPE","INVALID_RESPONSE","reason","remoteStatus","sensitive-");
+        assertThat(body+event.getFormattedMessage()+Arrays.toString(event.getArgumentArray())).doesNotContain(
+            "sensitive-",user.id().toString(),sessionId.toString(),attemptId.toString(),"Sensitive Name",config.callbackUrl,
+            config.clientSecret,"Authorization","Basic ",Base64.getEncoder().encodeToString((config.clientId+":"+config.clientSecret)
+                .getBytes(StandardCharsets.UTF_8)));
+        verify(store).consume(anyString());
+        verify(store,never()).connect(any(),any(),any(),any(),any());
+        verify(store,never()).revoke(any());
+        verify(store,never()).clearAttempts(any());
     }
 
     @ParameterizedTest @ValueSource(strings={"start","cancel","complete"})
