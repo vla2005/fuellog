@@ -14,6 +14,8 @@ async function fixture(page: Page, options: { configured?: boolean; catalogError
   let saved: any = null;
   let failSave = false;
   let authStarts = 0;
+  let authCancellations = 0;
+  let statusReads = 0;
   let saveCount = 0;
   let preferencesSaved: any = null;
   let resolution: any = null;
@@ -57,6 +59,7 @@ async function fixture(page: Page, options: { configured?: boolean; catalogError
     }
     if (path === '/integrations/vikash') {
       if (method === 'DELETE') { connected = false; return reply({ remoteRevoked: true }); }
+      statusReads++;
       return reply({ status: options.status ?? (options.configured === false ? 'NOT_CONFIGURED' : connected ? 'CONNECTED' : 'DISCONNECTED'), configured: options.configured !== false,
         connectionId: connected ? connectionId : null, preferences: connected ? { automaticSend: true, choices: selected } : null });
     }
@@ -67,14 +70,15 @@ async function fixture(page: Page, options: { configured?: boolean; catalogError
     if (path.endsWith('/remote')) return reply({ status: 'ACTIVE', version: 2, manuallyModified: true, etag: 'fixture-etag' });
     if (path.endsWith('/retry')) { resolution = route.request().postDataJSON(); return route.fulfill({ status: 204, headers }); }
     if (path.endsWith('/authorizations')) {
-      if (method === 'DELETE') return route.fulfill({ status: 204, headers });
+      if (method === 'DELETE') { authCancellations++; return route.fulfill({ status: 204, headers }); }
       authStarts++;
       await new Promise(resolve => setTimeout(resolve, 1200));
       return reply({ authorizationUrl: 'http://127.0.0.1:49579/oauth2/authorize?state=fixture-state', returnUrl: `${new URL(page.url()).origin}/vikash-return` });
     }
     return reply({ code: 'FIXTURE_UNHANDLED', path }, 404);
   });
-  return { saved: () => saved, failSave: () => { failSave = true; }, authStarts: () => authStarts, saveCount: () => saveCount,
+  return { saved: () => saved, failSave: () => { failSave = true; }, authStarts: () => authStarts,
+    authCancellations: () => authCancellations, statusReads: () => statusReads, saveCount: () => saveCount,
     preferences: () => preferencesSaved, resolution: () => resolution };
 }
 
@@ -159,7 +163,15 @@ test('delayed authorization prepares URL before direct continuation click opens 
   const popup = await popupPromise;
   await expect.poll(() => popup.url()).toContain('/oauth2/authorize');
   expect(state.authStarts()).toBe(1);
+  const readsBeforeReturn = state.statusReads();
   await popup.close();
+  await expect.poll(() => state.statusReads()).toBeGreaterThan(readsBeforeReturn);
+  await expect(page.getByRole('button', { name: 'Continuar ao ViKash', exact: true })).toBeEnabled();
+  expect(state.authCancellations()).toBe(0);
+  expect(state.authStarts()).toBe(1);
+  await page.getByRole('button', { name: 'Cancelar conexão', exact: true }).click();
+  await expect.poll(() => state.authCancellations()).toBe(1);
+  await expect(page.getByRole('button', { name: 'Conectar ao ViKash', exact: true })).toBeVisible();
 });
 
 test('entry disclosure keeps changes and the draft after a failed save', async ({ page }) => {

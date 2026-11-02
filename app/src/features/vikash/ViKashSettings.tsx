@@ -24,6 +24,7 @@ export function ViKashSettings() {
   const { colors } = useAppTheme();
   const { status, catalog, loading, error, reload } = useViKash();
   const { showToast, getCurrentSessionEpoch } = useSession();
+  const sessionEpoch = getCurrentSessionEpoch();
   const [preferences, setPreferences] = useState<ViKashPreferences>({ automaticSend: false, choices: null });
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,20 +35,26 @@ export function ViKashSettings() {
   const initialized = useRef<string | null>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
+    busyRef.current = false; setBusy(false); setNotice(null); setAuthorization(null);
+    initialized.current = null;
+  }, [sessionEpoch]);
+  useEffect(() => {
+    if (status?.status === 'CONNECTED') setAuthorization(null);
     if (status?.connectionId && initialized.current !== status.connectionId) {
       initialized.current = status.connectionId;
       setPreferences(status.preferences ?? { automaticSend: false, choices: null });
     }
   }, [status]);
   const run = async (action: () => Promise<void>) => {
-    if (busyRef.current) return;
+    if (!mounted.current || sessionEpoch !== getCurrentSessionEpoch() || busyRef.current) return;
     const epoch = getCurrentSessionEpoch();
     busyRef.current = true; setBusy(true); setNotice(null);
     try { await action(); }
     catch (err) { if (mounted.current && epoch === getCurrentSessionEpoch()) setNotice(err instanceof ApiError ? err.message : 'Não foi possível concluir. Suas escolhas foram mantidas.'); }
-    finally { busyRef.current = false; if (mounted.current && epoch === getCurrentSessionEpoch()) setBusy(false); }
+    finally { if (mounted.current && epoch === getCurrentSessionEpoch()) { busyRef.current = false; setBusy(false); } }
   };
   const connect = () => void run(async () => {
+    if (authorization || loading || error || !status?.configured || status.status === 'CONNECTING' || status.status === 'CONNECTED') return;
     const epoch = getCurrentSessionEpoch();
     const next = await startViKashAuthorization(Platform.OS === 'web' ? 'web' : 'native');
     if (!mounted.current || epoch !== getCurrentSessionEpoch()) return;
@@ -56,17 +63,22 @@ export function ViKashSettings() {
       throw new Error('Destino de autorização inválido.');
     }
     setAuthorization(next);
+    await reload();
   });
   const continueAuthorization = () => void run(async () => {
     if (!authorization) return;
     const epoch = getCurrentSessionEpoch();
     try { await WebBrowser.openAuthSessionAsync(authorization.authorizationUrl, authorization.returnUrl); }
     finally {
-      if (epoch === getCurrentSessionEpoch()) {
-        await cancelViKashAuthorization();
-        if (mounted.current) { setAuthorization(null); await reload(); }
-      }
+      if (mounted.current && epoch === getCurrentSessionEpoch()) await reload();
     }
+  });
+  const cancelAuthorization = () => void run(async () => {
+    const epoch = getCurrentSessionEpoch();
+    await cancelViKashAuthorization();
+    if (!mounted.current || epoch !== getCurrentSessionEpoch()) return;
+    setAuthorization(null);
+    await reload();
   });
   const connected = status?.status === 'CONNECTED';
   const title = viKashConnectionLabel(status, loading, error);
@@ -109,10 +121,13 @@ export function ViKashSettings() {
           if (mounted.current && epoch === getCurrentSessionEpoch()) showToast({ tone: 'success', title: 'Preferências salvas', subtitle: 'Abastecimentos anteriores mantêm suas escolhas.' });
         });
       }} />
-    </> : status?.configured ? authorization ? <>
-      <Text style={[styles.body, { color: colors.textSecondary }]}>A autorização está pronta. Continue no navegador para escolher sua conta e confirmar as permissões.</Text>
-      <PrimaryButton label="Continuar ao ViKash" onPress={continueAuthorization} loading={busy} />
-      <PrimaryButton label="Cancelar conexão" variant="ghost" disabled={busy} onPress={() => void run(async () => { await cancelViKashAuthorization(); setAuthorization(null); await reload(); })} />
+    </> : status?.configured ? authorization || status.status === 'CONNECTING' ? <>
+      <Text style={[styles.body, { color: colors.textSecondary }]}>{authorization
+        ? 'A autorização está pronta. Continue no navegador para escolher sua conta e confirmar as permissões.'
+        : 'Uma autorização está em andamento. Verifique a conexão ou cancele antes de tentar novamente.'}</Text>
+      {authorization ? <PrimaryButton label={status.status === 'EXPIRED' ? 'Tentar novamente' : 'Continuar ao ViKash'} onPress={continueAuthorization} loading={busy} disabled={loading} />
+        : !error ? <PrimaryButton label="Verificar conexão" onPress={() => void reload()} variant="secondary" disabled={busy || loading} /> : null}
+      <PrimaryButton label="Cancelar conexão" variant="ghost" disabled={busy || loading} onPress={cancelAuthorization} />
     </> : <PrimaryButton label={status.status === 'EXPIRED' ? 'Conectar novamente ao ViKash' : 'Conectar ao ViKash'} onPress={connect} loading={busy} disabled={loading} /> : null}
     {status?.connectionId ? <PrimaryButton label="Desconectar conta" variant="ghost" onPress={() => setDisconnectOpen(true)} disabled={busy} /> : null}
     <ViKashDeletions />
