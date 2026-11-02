@@ -184,6 +184,24 @@
               }
             }
           },
+          "429": {
+            "description": "Password login temporarily limited by account, connector peer or capacity; retry after the configured window.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
           "503": {
             "description": "Dependency unavailable; do not automatically refresh authentication.",
             "content": {

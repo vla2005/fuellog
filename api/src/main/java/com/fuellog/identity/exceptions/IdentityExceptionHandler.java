@@ -11,7 +11,8 @@ import org.springframework.web.bind.annotation.*;
 @Order(-2)
 @RestControllerAdvice(assignableTypes = IdentityController.class)
 class IdentityExceptionHandler {
-    @ExceptionHandler({org.springframework.transaction.TransactionException.class, jakarta.persistence.PersistenceException.class})
+    @ExceptionHandler({org.springframework.transaction.TransactionException.class, jakarta.persistence.PersistenceException.class,
+            org.springframework.dao.DataAccessException.class})
     ResponseEntity<ProblemDetail> dependency(RuntimeException error) {
         return domain(new ApiException(503, "AUTH_DEPENDENCY_UNAVAILABLE", "Serviço temporariamente indisponível."));
     }

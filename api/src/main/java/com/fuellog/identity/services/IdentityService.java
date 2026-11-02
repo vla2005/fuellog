@@ -32,14 +32,16 @@ public class IdentityService {
     private final TransactionTemplate transaction;
     private final String dummyPassword;
     private final TwoFactorService twoFactor;
+    private final LoginRateLimit loginRateLimit;
 
     IdentityService(UserAccountRepository users, UserSessionRepository sessions, RefreshTokenRepository tokens,
             PasswordEncoder passwords, RefreshSecrets secrets, AccessTokenService access, Clock identityClock,
-            PlatformTransactionManager manager, TwoFactorService twoFactor) {
+            PlatformTransactionManager manager, TwoFactorService twoFactor, LoginRateLimit loginRateLimit) {
         this.users = users; this.sessions = sessions; this.tokens = tokens; this.passwords = passwords;
         this.secrets = secrets; this.access = access; this.clock = identityClock;
         this.transaction = new TransactionTemplate(manager);
         this.twoFactor = twoFactor;
+        this.loginRateLimit = loginRateLimit;
         dummyPassword = passwords.encode(UUID.randomUUID().toString());
     }
     public RegisteredUser register(String name, String email, String password) {
@@ -52,9 +54,11 @@ public class IdentityService {
             throw new ApiException(409, "ACCOUNT_CONFLICT", "Não foi possível cadastrar esta conta.");
         }
     }
-    public LoginResult login(String email, String password) {
+    public LoginResult login(String email, String password, String source) {
+        String normalizedEmail = normalize(email);
+        loginRateLimit.attempt(normalizedEmail, source);
         return transaction.execute(status -> {
-            UserAccount user = users.lockByEmail(normalize(email)).orElse(null);
+            UserAccount user = users.lockByEmail(normalizedEmail).orElse(null);
             boolean matches = passwords.matches(password, user == null ? dummyPassword : user.passwordHash());
             if (!matches || user == null || user.disabledAt() != null)
                 throw new ApiException(401, "INVALID_CREDENTIALS", "E-mail ou senha inválidos.");

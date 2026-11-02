@@ -29,6 +29,7 @@ class IdentityServiceTest {
     final AccessTokenService access = mock(AccessTokenService.class);
     final RefreshSecrets secrets = new RefreshSecrets();
     final TwoFactorService twoFactor = mock(TwoFactorService.class);
+    final LoginRateLimit loginRateLimit = mock(LoginRateLimit.class);
     IdentityService service;
     UserAccount user;
     UserSession session;
@@ -37,7 +38,7 @@ class IdentityServiceTest {
     @BeforeEach void setup() {
         when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         when(passwords.encode(any())).thenReturn("encoded");
-        service = new IdentityService(users, sessions, tokens, passwords, secrets, access, Clock.fixed(now, ZoneOffset.UTC), transactions, twoFactor);
+        service = new IdentityService(users, sessions, tokens, passwords, secrets, access, Clock.fixed(now, ZoneOffset.UTC), transactions, twoFactor, loginRateLimit);
         user = new UserAccount("Ana", "ana@example.com", "hash", now);
         session = new UserSession(user.id(), now.minusSeconds(60));
         secret = secrets.generate();
@@ -66,7 +67,7 @@ class IdentityServiceTest {
         when(users.lockByEmail(user.email())).thenReturn(Optional.of(user));
         when(passwords.matches("password", "hash")).thenReturn(true);
         when(sessions.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
-        assertThat(service.login(user.email(), "password")).isInstanceOf(com.fuellog.identity.dtos.IdentityDtos.TokenResponse.class);
+        assertThat(service.login(user.email(), "password", "127.0.0.1")).isInstanceOf(com.fuellog.identity.dtos.IdentityDtos.TokenResponse.class);
         var order = inOrder(users, sessions);
         order.verify(users).lockByEmail(user.email());
         order.verify(sessions).saveAndFlush(any());
@@ -77,16 +78,24 @@ class IdentityServiceTest {
         when(twoFactor.enabled(user.id())).thenReturn(true);
         var challenge = new com.fuellog.identity.dtos.TwoFactorDtos.Challenge(true, secrets.generate(), now.plusSeconds(300));
         when(twoFactor.challenge(user)).thenReturn(challenge);
-        assertThat(service.login(user.email(), "password")).isSameAs(challenge);
+        assertThat(service.login(user.email(), "password", "127.0.0.1")).isSameAs(challenge);
         verify(sessions, never()).saveAndFlush(any());
         verify(tokens, never()).saveAndFlush(any());
         verify(access, never()).issue(any(), any());
     }
     @Test void incorrectPasswordNeverCreatesSecondFactorChallenge() {
         when(users.lockByEmail(user.email())).thenReturn(Optional.of(user));
-        assertThatThrownBy(() -> service.login(user.email(), "wrong")).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.login(user.email(), "wrong", "127.0.0.1")).isInstanceOf(ApiException.class);
         verifyNoInteractions(twoFactor);
         verify(access, never()).issue(any(), any());
+    }
+    @Test void exhaustedReservationStopsBeforeTheEncoderAndUserLookup() {
+        doThrow(new ApiException(429, "LOGIN_RATE_LIMITED", "Limited")).when(loginRateLimit)
+                .attempt("missing@example.test", "127.0.0.1");
+        clearInvocations(passwords);
+        assertThatThrownBy(() -> service.login(" MISSING@example.test ", "wrong", "127.0.0.1"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.status()).isEqualTo(429));
+        verifyNoInteractions(passwords, users, sessions, tokens, twoFactor);
     }
     @Test void replayCommitsRevocationBeforeThrowing() {
         setField(token,"usedAt",now.minusSeconds(1));

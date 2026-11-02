@@ -29,7 +29,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
-@EnableConfigurationProperties(IdentitySecurityProperties.class)
+@EnableConfigurationProperties({IdentitySecurityProperties.class, LoginRateLimitProperties.class})
 class IdentitySecurityConfiguration {
     static boolean publicCredentials(String method, String path) {
         return "POST".equals(method) && Set.of("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/2fa/verify").contains(path);

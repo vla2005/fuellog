@@ -5,6 +5,7 @@ import com.fuellog.identity.services.CurrentUserService;
 import com.fuellog.identity.services.IdentityService;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,8 +20,8 @@ public class IdentityController {
         return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(identity.register(request.name(), request.email(), request.password()));
     }
     @PostMapping("/auth/login")
-    ResponseEntity<IdentityDtos.LoginResult> login(@Valid @RequestBody IdentityDtos.Login request) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(identity.login(request.email(), request.password()));
+    ResponseEntity<IdentityDtos.LoginResult> login(@Valid @RequestBody IdentityDtos.Login request, HttpServletRequest http) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(identity.login(request.email(), request.password(), http.getRemoteAddr()));
     }
     @PostMapping("/auth/refresh")
     ResponseEntity<IdentityDtos.TokenResponse> refresh(@Valid @RequestBody IdentityDtos.Refresh request) {

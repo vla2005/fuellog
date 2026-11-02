@@ -70,7 +70,7 @@ class TwoFactorPoolIT {
         assertThat(jdbc.queryForObject("select password_hash from users where id=?", String.class, user)).isEqualTo(hash);
         assertThat(jdbc.queryForObject("select revoked_at from user_sessions where id=?", Timestamp.class, session)).isNull();
         assertThat(jdbc.queryForObject("select count(*) from two_factor_recovery_codes where user_id=?", Integer.class, user)).isEqualTo(1);
-        var challenge = (TwoFactorDtos.Challenge) identity.login(email, password);
+        var challenge = (TwoFactorDtos.Challenge) identity.login(email, password, "127.0.0.1");
         assertThatThrownBy(() -> identity.verifyTwoFactor(challenge.challengeToken(), recovery))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.status()).isEqualTo(429));
         assertThat(jdbc.queryForObject("select attempts from two_factor_attempts where scope=?", Integer.class,
