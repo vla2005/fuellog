@@ -63,7 +63,7 @@ public class ViKashService {
         requireConfigured(); UUID userId=current.requireUserId(), sessionId=current.requireSessionId();
         if (input == null || input.platform() == null || !Set.of("web","native").contains(input.platform())) throw new ApiException(422,"VALIDATION_ERROR","Escolha a plataforma de retorno.");
         String returnUrl=returnUrl(input.platform());
-        return transactions.execute(tx -> {
+        Authorization authorization=transactions.execute(tx -> {
             lock(userId);
             if (store.current(userId).filter(c -> "CONNECTED".equals(c.status())).isPresent())
                 throw new ApiException(409,"VIKASH_ALREADY_CONNECTED","Desconecte o vínculo atual antes de conectar outra conta.");
@@ -72,18 +72,22 @@ public class ViKashService {
             store.attempt(hash(state),new Attempt(attemptId,userId,sessionId,crypto.encrypt(attemptId,verifier),input.platform(),clock.instant().plusSeconds(180)));
             return new Authorization(client.authorizationUrl(state,challenge(verifier)),returnUrl);
         });
+        log.info("VIKASH_AUTHORIZATION_CREATED");
+        return authorization;
     }
     public String callback(String state,String code,String error) {
         requireConfigured();
         if (state == null || !state.matches("[A-Za-z0-9_-]{43}")) throw invalidState(CallbackRejection.MALFORMED_STATE);
         // Consumption commits even if token exchange fails; authorization codes and states must never be replayed.
-        Attempt attempt=transactions.execute(tx -> store.consume(hash(state)).orElseThrow(() -> invalidState(CallbackRejection.ATTEMPT_MISSING_OR_CONSUMED)));
+        String stateHash=hash(state);
+        Attempt attempt=transactions.execute(tx -> store.consume(stateHash).orElseThrow(() -> invalidState(
+            store.attemptConsumed(stateHash) ? CallbackRejection.ATTEMPT_ALREADY_CONSUMED : CallbackRejection.ATTEMPT_NOT_FOUND)));
         if (!attempt.expiresAt().isAfter(clock.instant())) throw invalidState(CallbackRejection.ATTEMPT_EXPIRED);
         if (!store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState(CallbackRejection.SESSION_INVALID);
         String returnUrl=returnUrl(attempt.platform());
         if (error != null) return returnUrl;
         if (code == null || code.isBlank() || code.length() > 2048) throw invalidState(CallbackRejection.INVALID_CODE);
-        return transactions.execute(tx -> {
+        String destination=transactions.execute(tx -> {
             lock(attempt.userId());
             if (!store.authoritative(attempt.id())) throw invalidState(CallbackRejection.ATTEMPT_SUPERSEDED);
             if (!store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState(CallbackRejection.SESSION_INVALID);
@@ -96,9 +100,12 @@ public class ViKashService {
                 return returnUrl;
             } catch (ViKashRemoteException e) { throw unavailable(); }
         });
+        log.info("VIKASH_AUTHORIZATION_COMPLETED");
+        return destination;
     }
     public void cancelAuthorization() {
         UUID userId=current.requireUserId(); transactions.executeWithoutResult(tx -> { lock(userId); store.clearAttempts(userId); });
+        log.info("VIKASH_AUTHORIZATION_CANCELLATION_PROCESSED");
     }
     public Catalog catalog() {
         requireConfigured(); UUID userId=current.requireUserId();
@@ -308,7 +315,7 @@ public class ViKashService {
     private String write(Object value) { return value == null ? null : json.writeValueAsString(value); }
     private <T> T read(String value,Class<T> type) { return value == null ? null : json.readValue(value,type); }
     private enum CallbackRejection {
-        MALFORMED_STATE, ATTEMPT_MISSING_OR_CONSUMED, ATTEMPT_EXPIRED, SESSION_INVALID, INVALID_CODE, ATTEMPT_SUPERSEDED
+        MALFORMED_STATE, ATTEMPT_NOT_FOUND, ATTEMPT_ALREADY_CONSUMED, ATTEMPT_EXPIRED, SESSION_INVALID, INVALID_CODE, ATTEMPT_SUPERSEDED
     }
     private static ApiException invalidState(CallbackRejection reason) {
         ApiException error=new ApiException(400,"VIKASH_INVALID_STATE","Autorização inválida ou expirada. Inicie a conexão novamente.");

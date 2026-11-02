@@ -50,6 +50,7 @@ public class ViKashRepository {
         return jdbc.query("update vikash_authorizations set consumed_at=now() where state_hash=? and consumed_at is null returning *",(r,n) ->
             new Attempt(r.getObject("id",UUID.class),r.getObject("user_id",UUID.class),r.getObject("session_id",UUID.class),r.getString("verifier_cipher"),r.getString("platform"),time(r,"expires_at")),hash).stream().findFirst();
     }
+    public boolean attemptConsumed(String hash) { return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from vikash_authorizations where state_hash=? and consumed_at is not null)",Boolean.class,hash)); }
     public boolean authoritative(UUID attemptId) { return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from vikash_authorizations where id=? and consumed_at is not null)",Boolean.class,attemptId)); }
     public boolean pending(UUID userId,Instant now) { return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from vikash_authorizations where user_id=? and consumed_at is null and expires_at>?)",Boolean.class,userId,Timestamp.from(now))); }
     public boolean sessionValid(UUID userId,UUID sessionId,Instant now) {

@@ -14,6 +14,7 @@ import com.fuellog.platform.exceptions.ApiExceptionHandler;
 import com.fuellog.vikash.configurations.ViKashProperties;
 import com.fuellog.vikash.controllers.ViKashController;
 import com.fuellog.vikash.models.ViKashRecords.Attempt;
+import com.fuellog.vikash.dtos.ViKashDtos.Start;
 import com.fuellog.vikash.repositories.ViKashRepository;
 import com.fuellog.vikash.services.*;
 import java.time.*;
@@ -23,9 +24,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionSystemException;
 import tools.jackson.databind.ObjectMapper;
 
 class ViKashCallbackDiagnosticsTest {
@@ -33,15 +36,18 @@ class ViKashCallbackDiagnosticsTest {
     final UserAccount user=new UserAccount("Sensitive Name","sensitive-email@example.test","sensitive-password-hash",now);
     final UUID sessionId=UUID.randomUUID(), attemptId=UUID.randomUUID();
     final String state="sensitive-state-"+"s".repeat(27), code="sensitive-authorization-code";
-    final ViKashRepository store=mock(ViKashRepository.class);
+    final JdbcTemplate jdbc=mock(JdbcTemplate.class);
+    final ViKashRepository store=spy(new ViKashRepository(jdbc));
     final UserAccountRepository users=mock(UserAccountRepository.class);
     final ViKashClient client=mock(ViKashClient.class);
     final ObjectMapper json=new ObjectMapper();
     final ViKashProperties config=new ViKashProperties(true,"https://api.example.test","fuellog","sensitive-client-secret",
         "https://fuellog.example.test/api/v1/integrations/vikash/callback","","fuellog://vikash-return");
-    final ViKashService service=new ViKashService(store,users,mock(CurrentUserService.class),
-        new ViKashEncryption(Base64.getEncoder().encodeToString(new byte[32])),config,client,json,
-        Clock.fixed(now,ZoneOffset.UTC),mock(PlatformTransactionManager.class));
+    final CurrentUserService current=mock(CurrentUserService.class);
+    final PlatformTransactionManager manager=mock(PlatformTransactionManager.class);
+    final ViKashEncryption crypto=new ViKashEncryption(Base64.getEncoder().encodeToString(new byte[32]));
+    final ViKashService service=new ViKashService(store,users,current,crypto,config,client,json,
+        Clock.fixed(now,ZoneOffset.UTC),manager);
     final MockMvc http=MockMvcBuilders.standaloneSetup(new ViKashController(service))
         .setControllerAdvice(new ApiExceptionHandler()).build();
     final Logger logger=(Logger)LoggerFactory.getLogger(ViKashService.class);
@@ -61,9 +67,14 @@ class ViKashCallbackDiagnosticsTest {
         assertRejected("MALFORMED_STATE",input,code);
         verify(store,never()).consume(anyString());
     }
-    @Test void missingOrConsumedAttemptHasSafeDiagnostics() throws Exception {
+    @Test void missingAttemptHasSafeDiagnostics() throws Exception {
         when(store.consume(anyString())).thenReturn(Optional.empty());
-        assertRejected("ATTEMPT_MISSING_OR_CONSUMED",state,code);
+        assertRejected("ATTEMPT_NOT_FOUND",state,code);
+    }
+    @Test void consumedAttemptHasSafeDiagnostics() throws Exception {
+        when(store.consume(anyString())).thenReturn(Optional.empty());
+        when(jdbc.queryForObject(eq("select exists(select 1 from vikash_authorizations where state_hash=? and consumed_at is not null)"),eq(Boolean.class),anyString())).thenReturn(true);
+        assertRejected("ATTEMPT_ALREADY_CONSUMED",state,code);
     }
     @Test void expiredAttemptHasSafeDiagnosticsBeforeCheckingSession() throws Exception {
         when(store.consume(anyString())).thenReturn(Optional.of(attempt(now)));
@@ -101,8 +112,53 @@ class ViKashCallbackDiagnosticsTest {
         verifyNoInteractions(client);
     }
 
+    @ParameterizedTest @ValueSource(strings={"start","cancel","complete"})
+    void lifecycleEventFollowsSuccessfulCommitWithoutSensitiveFields(String operation) {
+        doAnswer(invocation -> {
+            assertThat(logs.list).isEmpty();
+            return null;
+        }).when(manager).commit(any());
+
+        lifecycle(operation);
+
+        assertThat(logs.list).hasSize(1);
+        var event=logs.list.getFirst();
+        String expected=switch (operation) {
+            case "start" -> "VIKASH_AUTHORIZATION_CREATED";
+            case "cancel" -> "VIKASH_AUTHORIZATION_CANCELLATION_PROCESSED";
+            default -> "VIKASH_AUTHORIZATION_COMPLETED";
+        };
+        assertThat(event.getLevel()).isEqualTo(Level.INFO);
+        assertThat(event.getFormattedMessage()).isEqualTo(expected);
+        assertThat(event.getArgumentArray()).isNullOrEmpty();
+        assertThat(event.getThrowableProxy()).isNull();
+    }
+    @ParameterizedTest @ValueSource(strings={"start","cancel","complete"})
+    void failedCommitDoesNotEmitLifecycleSuccess(String operation) {
+        int[] commits={0};
+        doAnswer(invocation -> {
+            if (++commits[0] == ("complete".equals(operation) ? 2 : 1))
+                throw new TransactionSystemException("sensitive-commit-failure");
+            return null;
+        }).when(manager).commit(any());
+
+        assertThatThrownBy(() -> lifecycle(operation)).isInstanceOf(TransactionSystemException.class);
+
+        assertThat(logs.list).isEmpty();
+    }
+    private void lifecycle(String operation) {
+        when(current.requireUserId()).thenReturn(user.id());
+        when(current.requireSessionId()).thenReturn(sessionId);
+        when(client.authorizationUrl(anyString(),anyString())).thenReturn("https://api.example.test?state=sensitive-state");
+        when(client.exchange(anyString(),anyString())).thenReturn(new ViKashClient.Tokens("sensitive-access-token","sensitive-refresh-token",300));
+        switch (operation) {
+            case "start" -> service.start(new Start("native"));
+            case "cancel" -> service.cancelAuthorization();
+            default -> service.callback(state,code,null);
+        }
+    }
     private Attempt attempt(Instant expiresAt) {
-        return new Attempt(attemptId,user.id(),sessionId,"sensitive-encrypted-verifier","native",expiresAt);
+        return new Attempt(attemptId,user.id(),sessionId,crypto.encrypt(attemptId,"sensitive-verifier"),"native",expiresAt);
     }
     private void assertRejected(String reason,String inputState,String inputCode) throws Exception {
         var request=get("/api/v1/integrations/vikash/callback");
