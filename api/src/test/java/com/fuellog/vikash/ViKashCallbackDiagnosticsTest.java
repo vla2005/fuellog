@@ -1,0 +1,132 @@
+package com.fuellog.vikash;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.fuellog.identity.models.UserAccount;
+import com.fuellog.identity.repositories.UserAccountRepository;
+import com.fuellog.identity.services.CurrentUserService;
+import com.fuellog.platform.exceptions.ApiExceptionHandler;
+import com.fuellog.vikash.configurations.ViKashProperties;
+import com.fuellog.vikash.controllers.ViKashController;
+import com.fuellog.vikash.models.ViKashRecords.Attempt;
+import com.fuellog.vikash.repositories.ViKashRepository;
+import com.fuellog.vikash.services.*;
+import java.time.*;
+import java.util.*;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.PlatformTransactionManager;
+import tools.jackson.databind.ObjectMapper;
+
+class ViKashCallbackDiagnosticsTest {
+    final Instant now=Instant.parse("2026-11-01T12:00:00Z");
+    final UserAccount user=new UserAccount("Sensitive Name","sensitive-email@example.test","sensitive-password-hash",now);
+    final UUID sessionId=UUID.randomUUID(), attemptId=UUID.randomUUID();
+    final String state="sensitive-state-"+"s".repeat(27), code="sensitive-authorization-code";
+    final ViKashRepository store=mock(ViKashRepository.class);
+    final UserAccountRepository users=mock(UserAccountRepository.class);
+    final ViKashClient client=mock(ViKashClient.class);
+    final ObjectMapper json=new ObjectMapper();
+    final ViKashProperties config=new ViKashProperties(true,"https://api.example.test","fuellog","sensitive-client-secret",
+        "https://fuellog.example.test/api/v1/integrations/vikash/callback","","fuellog://vikash-return");
+    final ViKashService service=new ViKashService(store,users,mock(CurrentUserService.class),
+        new ViKashEncryption(Base64.getEncoder().encodeToString(new byte[32])),config,client,json,
+        Clock.fixed(now,ZoneOffset.UTC),mock(PlatformTransactionManager.class));
+    final MockMvc http=MockMvcBuilders.standaloneSetup(new ViKashController(service))
+        .setControllerAdvice(new ApiExceptionHandler()).build();
+    final Logger logger=(Logger)LoggerFactory.getLogger(ViKashService.class);
+    final ListAppender<ILoggingEvent> logs=new ListAppender<>();
+
+    @BeforeEach void captureLogs() {
+        logs.start(); logger.addAppender(logs);
+        when(store.consume(anyString())).thenReturn(Optional.of(attempt(now.plusSeconds(180))));
+        when(store.sessionValid(user.id(),sessionId,now)).thenReturn(true);
+        when(store.authoritative(attemptId)).thenReturn(true);
+        when(users.lockById(user.id())).thenReturn(Optional.of(user));
+    }
+    @AfterEach void releaseLogs() { logger.detachAppender(logs); logs.stop(); }
+
+    @ParameterizedTest @NullSource @ValueSource(strings={"sensitive-malformed-state",""})
+    void malformedStateHasSafeDiagnosticsWithoutConsumingAnAttempt(String input) throws Exception {
+        assertRejected("MALFORMED_STATE",input,code);
+        verify(store,never()).consume(anyString());
+    }
+    @Test void missingOrConsumedAttemptHasSafeDiagnostics() throws Exception {
+        when(store.consume(anyString())).thenReturn(Optional.empty());
+        assertRejected("ATTEMPT_MISSING_OR_CONSUMED",state,code);
+    }
+    @Test void expiredAttemptHasSafeDiagnosticsBeforeCheckingSession() throws Exception {
+        when(store.consume(anyString())).thenReturn(Optional.of(attempt(now)));
+        assertRejected("ATTEMPT_EXPIRED",state,code);
+        verify(store,never()).sessionValid(any(),any(),any());
+    }
+    @Test void invalidSessionHasSafeDiagnostics() throws Exception {
+        when(store.sessionValid(user.id(),sessionId,now)).thenReturn(false);
+        assertRejected("SESSION_INVALID",state,code);
+        verify(store,never()).authoritative(any());
+    }
+    @ParameterizedTest @NullSource @ValueSource(strings={"", " ", "oversized"})
+    void invalidCodeHasSafeDiagnosticsAndStillConsumesTheAttempt(String input) throws Exception {
+        if ("oversized".equals(input)) input="sensitive-code-".repeat(150);
+        assertRejected("INVALID_CODE",state,input);
+        verify(store).consume(anyString());
+        verify(store,never()).authoritative(any());
+    }
+    @Test void supersededAttemptHasSafeDiagnosticsUnderLock() throws Exception {
+        when(store.authoritative(attemptId)).thenReturn(false);
+        assertRejected("ATTEMPT_SUPERSEDED",state,code);
+        verify(users).lockById(user.id());
+        verify(store,times(1)).sessionValid(user.id(),sessionId,now);
+    }
+    @Test void sessionRevokedAfterConsumptionHasSafeDiagnosticsUnderLock() throws Exception {
+        when(store.sessionValid(user.id(),sessionId,now)).thenReturn(true,false);
+        assertRejected("SESSION_INVALID",state,code);
+        verify(users).lockById(user.id());
+        verify(store,times(2)).sessionValid(user.id(),sessionId,now);
+    }
+    @Test void providerDenialStillRedirectsWithoutRejectionLogsOrTokenExchange() throws Exception {
+        assertThat(service.callback(state,code,"sensitive-provider-error")).isEqualTo("fuellog://vikash-return");
+        assertThat(logs.list).isEmpty();
+        verify(store).consume(anyString());
+        verifyNoInteractions(client);
+    }
+
+    private Attempt attempt(Instant expiresAt) {
+        return new Attempt(attemptId,user.id(),sessionId,"sensitive-encrypted-verifier","native",expiresAt);
+    }
+    private void assertRejected(String reason,String inputState,String inputCode) throws Exception {
+        var request=get("/api/v1/integrations/vikash/callback");
+        if (inputState != null) request.param("state",inputState);
+        if (inputCode != null) request.param("code",inputCode);
+        var response=http.perform(request).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(400);
+        String body=response.getContentAsString();
+        var problem=json.readTree(body);
+        assertThat(problem.path("code").asString()).isEqualTo("VIKASH_INVALID_STATE");
+        assertThat(problem.path("detail").asString()).isEqualTo("Autorização inválida ou expirada. Inicie a conexão novamente.");
+        assertThat(problem.path("fieldErrors").isEmpty()).isTrue();
+        String correlationId=problem.path("correlationId").asString();
+        assertThatCode(() -> UUID.fromString(correlationId)).doesNotThrowAnyException();
+        assertThat(logs.list).hasSize(1);
+        var event=logs.list.getFirst();
+        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+        assertThat(event.getFormattedMessage()).isEqualTo("VIKASH_INVALID_STATE correlationId="+correlationId+" reason="+reason);
+        assertThat(event.getThrowableProxy()).isNull();
+        assertThat(body).doesNotContain(reason,"reason");
+        String diagnostics=body+event.getFormattedMessage()+Arrays.toString(event.getArgumentArray());
+        assertThat(diagnostics).doesNotContain("sensitive-",user.id().toString(),sessionId.toString(),attemptId.toString(),
+            "Sensitive Name",config.callbackUrl,config.clientSecret);
+        verifyNoInteractions(client);
+        verify(store,never()).connect(any(),any(),any(),any(),any());
+    }
+}

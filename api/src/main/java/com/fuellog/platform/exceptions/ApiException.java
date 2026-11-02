@@ -1,8 +1,10 @@
 package com.fuellog.platform.exceptions;
 
 import java.util.Map;
+import java.util.UUID;
 
 public class ApiException extends RuntimeException {
+    private final String correlationId = UUID.randomUUID().toString();
     private final int status;
     private final String code;
     private final Map<String, String> fieldErrors;
@@ -18,6 +20,7 @@ public class ApiException extends RuntimeException {
         this.fieldErrors = Map.copyOf(fieldErrors);
     }
 
+    public String correlationId() { return correlationId; }
     public int status() { return status; }
     public String code() { return code; }
     public Map<String, String> fieldErrors() { return fieldErrors; }

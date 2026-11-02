@@ -15,6 +15,8 @@ import java.security.*;
 import java.time.*;
 import java.util.*;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -22,6 +24,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ViKashService {
+    private static final Logger log=LoggerFactory.getLogger(ViKashService.class);
     private final ViKashRepository store;
     private final UserAccountRepository users;
     private final CurrentUserService current;
@@ -72,16 +75,18 @@ public class ViKashService {
     }
     public String callback(String state,String code,String error) {
         requireConfigured();
-        if (state == null || !state.matches("[A-Za-z0-9_-]{43}")) throw invalidState();
+        if (state == null || !state.matches("[A-Za-z0-9_-]{43}")) throw invalidState(CallbackRejection.MALFORMED_STATE);
         // Consumption commits even if token exchange fails; authorization codes and states must never be replayed.
-        Attempt attempt=transactions.execute(tx -> store.consume(hash(state)).orElseThrow(ViKashService::invalidState));
-        if (!attempt.expiresAt().isAfter(clock.instant()) || !store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState();
+        Attempt attempt=transactions.execute(tx -> store.consume(hash(state)).orElseThrow(() -> invalidState(CallbackRejection.ATTEMPT_MISSING_OR_CONSUMED)));
+        if (!attempt.expiresAt().isAfter(clock.instant())) throw invalidState(CallbackRejection.ATTEMPT_EXPIRED);
+        if (!store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState(CallbackRejection.SESSION_INVALID);
         String returnUrl=returnUrl(attempt.platform());
         if (error != null) return returnUrl;
-        if (code == null || code.isBlank() || code.length() > 2048) throw invalidState();
+        if (code == null || code.isBlank() || code.length() > 2048) throw invalidState(CallbackRejection.INVALID_CODE);
         return transactions.execute(tx -> {
             lock(attempt.userId());
-            if (!store.authoritative(attempt.id()) || !store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState();
+            if (!store.authoritative(attempt.id())) throw invalidState(CallbackRejection.ATTEMPT_SUPERSEDED);
+            if (!store.sessionValid(attempt.userId(),attempt.sessionId(),clock.instant())) throw invalidState(CallbackRejection.SESSION_INVALID);
             try {
                 var tokens=client.exchange(code,crypto.decrypt(attempt.id(),attempt.verifierCipher()));
                 store.current(attempt.userId()).ifPresent(c -> store.revoke(c.id()));
@@ -302,6 +307,13 @@ public class ViKashService {
     private static byte[] digest(String value) { try { return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)); } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); } }
     private String write(Object value) { return value == null ? null : json.writeValueAsString(value); }
     private <T> T read(String value,Class<T> type) { return value == null ? null : json.readValue(value,type); }
-    private static ApiException invalidState() { return new ApiException(400,"VIKASH_INVALID_STATE","Autorização inválida ou expirada. Inicie a conexão novamente."); }
+    private enum CallbackRejection {
+        MALFORMED_STATE, ATTEMPT_MISSING_OR_CONSUMED, ATTEMPT_EXPIRED, SESSION_INVALID, INVALID_CODE, ATTEMPT_SUPERSEDED
+    }
+    private static ApiException invalidState(CallbackRejection reason) {
+        ApiException error=new ApiException(400,"VIKASH_INVALID_STATE","Autorização inválida ou expirada. Inicie a conexão novamente.");
+        log.warn("VIKASH_INVALID_STATE correlationId={} reason={}",error.correlationId(),reason);
+        return error;
+    }
     private static ApiException unavailable() { return new ApiException(503,"VIKASH_UNAVAILABLE","ViKash indisponível. Tente novamente mais tarde."); }
 }

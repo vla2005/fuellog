@@ -24,7 +24,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ProblemDetail> domain(ApiException error) {
-        return problem(error.status(), error.code(), error.getMessage(), error.fieldErrors());
+        return problem(error.status(), error.code(), error.getMessage(), error.fieldErrors(), error.correlationId());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
