@@ -7,13 +7,17 @@ import com.fuellog.vikash.exceptions.ViKashRemoteException.Reason;
 import java.net.*;
 import java.net.http.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.*;
 
 @Component
 public class ViKashClient {
+    private static final int MAX_RESPONSE_BYTES = 1_000_000;
     private final ViKashProperties config;
     private final ObjectMapper json;
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NEVER).build();
@@ -92,10 +96,15 @@ public class ViKashClient {
     }
     private HttpResponse<String> send(HttpRequest request) {
         HttpResponse<String> response;
-        try { response=http.send(request,HttpResponse.BodyHandlers.ofString()); }
+        try { response=http.send(request,info -> new LimitedBodySubscriber(info)); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new ViKashRemoteException(0,"UNAVAILABLE"); }
-        catch (java.io.IOException e) { throw new ViKashRemoteException(0,"UNAVAILABLE",0,networkReason(e)); }
-        if (response.body().length() > 1_000_000) throw new ViKashRemoteException(502,"INVALID_RESPONSE",response.statusCode(),Reason.INVALID_RESPONSE);
+        catch (java.io.IOException e) {
+            for (Throwable cause=e; cause != null; cause=cause.getCause()) {
+                if (cause instanceof ResponseTooLargeException oversized)
+                    throw new ViKashRemoteException(502,"INVALID_RESPONSE",oversized.status,Reason.INVALID_RESPONSE);
+            }
+            throw new ViKashRemoteException(0,"UNAVAILABLE",0,networkReason(e));
+        }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             String code=""; Reason reason=Reason.UNAVAILABLE;
             try {
@@ -113,6 +122,37 @@ public class ViKashClient {
             throw new ViKashRemoteException(response.statusCode(),code,response.statusCode(),reason);
         }
         return response;
+    }
+    private static final class ResponseTooLargeException extends java.io.IOException {
+        private final int status;
+        private ResponseTooLargeException(int status) { super("ViKash response exceeds size limit"); this.status=status; }
+    }
+    /** Reject excess bytes before the string decoder buffers them, including chunked responses. */
+    private static final class LimitedBodySubscriber implements HttpResponse.BodySubscriber<String> {
+        private final HttpResponse.BodySubscriber<String> delegate;
+        private final int status;
+        private Flow.Subscription subscription;
+        private int remaining=MAX_RESPONSE_BYTES;
+        private boolean finished;
+        private LimitedBodySubscriber(HttpResponse.ResponseInfo info) {
+            delegate=HttpResponse.BodyHandlers.ofString().apply(info); status=info.statusCode();
+        }
+        @Override public CompletionStage<String> getBody() { return delegate.getBody(); }
+        @Override public void onSubscribe(Flow.Subscription subscription) {
+            this.subscription=subscription; delegate.onSubscribe(subscription);
+        }
+        @Override public void onNext(List<ByteBuffer> buffers) {
+            if (finished) return;
+            for (ByteBuffer buffer : buffers) {
+                if (buffer.remaining() > remaining) {
+                    finished=true; subscription.cancel(); delegate.onError(new ResponseTooLargeException(status)); return;
+                }
+                remaining-=buffer.remaining();
+            }
+            delegate.onNext(buffers);
+        }
+        @Override public void onError(Throwable error) { if (!finished) { finished=true; delegate.onError(error); } }
+        @Override public void onComplete() { if (!finished) { finished=true; delegate.onComplete(); } }
     }
     private static Reason networkReason(java.io.IOException error) {
         for (Throwable cause=error; cause != null; cause=cause.getCause()) {
