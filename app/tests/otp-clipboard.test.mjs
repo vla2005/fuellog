@@ -73,16 +73,16 @@ test('applyOtpInput: colar 012345 com valor 123456 e caret no meio ou fim', () =
 
 test('applyOtpInput: valor parcial 123 tocar no primeiro e digitar 9 substitui 1 por 9 e avança para quadrado 2', () => {
   const { applyOtpInput } = loadOtpHelper();
-  // prev = '123', caret no índice 0 (primeiro quadrado), digita '9' gerando raw '9123'
-  const res = applyOtpInput('9123', '123', { start: 0, end: 0 });
+  // O toque seleciona o primeiro dígito; o TextInput nativo já entrega a substituição.
+  const res = applyOtpInput('923', '123', { start: 0, end: 1 });
   assert.equal(res.value, '923');
   assert.equal(res.nextSelection, 1);
 });
 
 test('applyOtpInput: corrigir quadrado 3 em 123456 substitui e avança para o quadrado 4', () => {
   const { applyOtpInput } = loadOtpHelper();
-  // prev = '123456', caret no quadrado 3 (índice 2, caractere '3'), digita '8' gerando raw '1283456'
-  const res = applyOtpInput('1283456', '123456', { start: 2, end: 2 });
+  // O terceiro dígito está selecionado; a edição nativa não insere um caractere extra.
+  const res = applyOtpInput('128456', '123456', { start: 2, end: 3 });
   assert.equal(res.value, '128456');
   assert.equal(res.nextSelection, 3); // quadrado 4 (índice 3), não 6!
 });

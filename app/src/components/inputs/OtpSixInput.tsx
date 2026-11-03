@@ -1,11 +1,12 @@
 import * as Clipboard from 'expo-clipboard';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputChangeEvent,
   View,
 } from 'react-native';
 
@@ -35,22 +36,16 @@ export interface OtpSelection {
 export function applyOtpInput(
   raw: string,
   prevValue: string,
-  selection: OtpSelection = { start: 0, end: 0 }
+  selection: OtpSelection = { start: 0, end: 0 },
+  nativeSelection?: OtpSelection,
 ): { value: string; nextSelection: number } {
   const cleanPrev = prevValue.replace(/\D/g, '').slice(0, 6);
   const selStart = Math.min(Math.max(0, selection.start), cleanPrev.length);
   const selEnd = Math.min(Math.max(selStart, selection.end), cleanPrev.length);
 
-  // Caso 1: Deleção (backspace)
-  if (raw.length < cleanPrev.length) {
-    const cleanRaw = raw.replace(/\D/g, '').slice(0, 6);
-    const nextPos = Math.max(0, selStart === selEnd ? selStart - 1 : selStart);
-    return { value: cleanRaw, nextSelection: Math.min(cleanRaw.length, nextPos) };
-  }
-
-  // Caso 2: Conteúdo inserido com base na posição da seleção prévia
+  // O texto nativo já contém a inserção, substituição ou exclusão da seleção.
   const insertLen = raw.length - cleanPrev.length + (selEnd - selStart);
-  const inserted = raw.slice(selStart, selStart + insertLen);
+  const inserted = raw.slice(selStart, selStart + Math.max(0, insertLen));
   const insertedDigits = inserted.replace(/\D/g, '');
 
   // Colagem de código completo (>= 6 dígitos): substitui pelo código colado
@@ -59,26 +54,10 @@ export function applyOtpInput(
     return { value: fullCode, nextSelection: 6 };
   }
 
-  // Digitação de 1 dígito para correção ou avanço
-  if (insertedDigits.length === 1) {
-    if (selStart < cleanPrev.length) {
-      // Substitui o dígito selecionado e avança para o quadrado seguinte
-      const replaced = cleanPrev.slice(0, selStart) + insertedDigits + cleanPrev.slice(selStart + 1);
-      const nextPos = Math.min(6, selStart + 1);
-      return { value: replaced, nextSelection: nextPos };
-    }
-    // Inserção no fim (quando há menos de 6 dígitos)
-    const appended = (cleanPrev + insertedDigits).slice(0, 6);
-    return { value: appended, nextSelection: Math.min(6, cleanPrev.length + 1) };
-  }
-
-  // Colagem parcial (> 1 e < 6 dígitos)
-  if (insertedDigits.length > 1) {
-    const combined = (cleanPrev.slice(0, selStart) + insertedDigits + cleanPrev.slice(selStart + insertedDigits.length)).slice(0, 6);
-    return { value: combined, nextSelection: Math.min(6, selStart + insertedDigits.length) };
-  }
-
-  return { value: cleanPrev, nextSelection: selStart };
+  const nextValue = raw.replace(/\D/g, '').slice(0, 6);
+  const rawPosition = nativeSelection?.start ?? Math.max(0, selStart + insertLen);
+  const nextSelection = Math.min(nextValue.length, raw.slice(0, rawPosition).replace(/\D/g, '').length);
+  return { value: nextValue, nextSelection };
 }
 
 /**
@@ -104,30 +83,52 @@ export function OtpSixInput({
   const { colors } = useAppTheme();
   const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const selectionRef = useRef<OtpSelection>({ start: 0, end: 0 });
+  const previousSelectionRef = useRef<OtpSelection>(selectionRef.current);
   const slotPressedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const clipboardRequestRef = useRef(0);
   const [isFocused, setIsFocused] = useState(false);
   const [selection, setSelection] = useState<OtpSelection>({ start: 0, end: 0 });
 
   const cleanValue = value.replace(/\D/g, '').slice(0, 6);
+  const latestRef = useRef({ disabled, cleanValue });
+  latestRef.current = { disabled, cleanValue };
 
   const updateSelection = (start: number, end: number) => {
+    if (selectionRef.current.start === start && selectionRef.current.end === end) return;
     const sel = { start, end };
+    previousSelectionRef.current = selectionRef.current;
     selectionRef.current = sel;
     setSelection(sel);
   };
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const { start, end } = selectionRef.current;
+    updateSelection(Math.min(start, cleanValue.length), Math.min(end, cleanValue.length));
+  }, [cleanValue]);
+
+  useEffect(() => {
+    if (disabled) clipboardRequestRef.current += 1;
+  }, [disabled]);
+
   const handleSlotPress = (index: number) => {
     if (disabled) return;
     const targetPos = Math.min(index, cleanValue.length);
-    slotPressedRef.current = true;
-    updateSelection(targetPos, targetPos);
+    const targetEnd = Math.min(targetPos + 1, cleanValue.length);
+    slotPressedRef.current = !isFocused;
+    updateSelection(targetPos, targetEnd);
     inputRef.current?.focus();
 
     if (Platform.OS === 'web' && inputRef.current) {
       const el = inputRef.current as unknown as { setSelectionRange?: (start: number, end: number) => void };
       if (typeof el?.setSelectionRange === 'function') {
         try {
-          el.setSelectionRange(targetPos, targetPos);
+          el.setSelectionRange(targetPos, targetEnd);
         } catch {
           // ignore
         }
@@ -135,22 +136,43 @@ export function OtpSixInput({
     }
   };
 
-  const handleTextChange = (raw: string) => {
-    const result = applyOtpInput(raw, cleanValue, selectionRef.current);
+  const handleChange = (event: TextInputChangeEvent) => {
+    if (disabled) return;
+    const raw = event.nativeEvent.text;
+    const target = event.target as unknown as { selectionStart?: number; selectionEnd?: number };
+    // O mesmo evento traz texto e caret; onSelectionChange pode chegar antes ou depois.
+    const nativeSelection = event.nativeEvent.selection ?? (Platform.OS === 'web'
+      ? { start: target.selectionStart ?? raw.length, end: target.selectionEnd ?? raw.length }
+      : undefined);
+    const beforeSelection = [selectionRef.current, previousSelectionRef.current].find(({ start, end }) => {
+      const insertedLength = raw.length - cleanValue.length + end - start;
+      return insertedLength >= 0 && end <= cleanValue.length
+        && (!nativeSelection || start + insertedLength === nativeSelection.start)
+        && raw.slice(0, start) === cleanValue.slice(0, start)
+        && raw.slice(start + insertedLength) === cleanValue.slice(end);
+    }) ?? selectionRef.current;
+    const result = applyOtpInput(raw, cleanValue, beforeSelection, nativeSelection);
     onChange(result.value);
     updateSelection(result.nextSelection, result.nextSelection);
   };
 
   const handlePasteFromClipboard = async () => {
     if (disabled) return;
+    const request = ++clipboardRequestRef.current;
+    const beforeSelection = { ...selectionRef.current };
     try {
       const text = await Clipboard.getStringAsync();
-      if (text) {
-        handleTextChange(
-          cleanValue.slice(0, selectionRef.current.start) +
+      if (text && mountedRef.current && request === clipboardRequestRef.current
+        && !latestRef.current.disabled && latestRef.current.cleanValue === cleanValue) {
+        const result = applyOtpInput(
+          cleanValue.slice(0, beforeSelection.start) +
             text +
-            cleanValue.slice(selectionRef.current.end)
+            cleanValue.slice(beforeSelection.end),
+          cleanValue,
+          beforeSelection,
         );
+        onChange(result.value);
+        updateSelection(result.nextSelection, result.nextSelection);
       }
     } catch {
       // Ignora falha de clipboard silenciosamente
@@ -168,11 +190,12 @@ export function OtpSixInput({
       <TextInput
         ref={inputRef}
         value={cleanValue}
-        onChangeText={handleTextChange}
+        onChange={handleChange}
         selection={isFocused ? selection : undefined}
         onSelectionChange={(e) => {
-          selectionRef.current = e.nativeEvent.selection;
-          setSelection(e.nativeEvent.selection);
+          const { start, end } = e.nativeEvent.selection;
+          if (start > cleanValue.length || end > cleanValue.length) return;
+          updateSelection(start, end);
         }}
         keyboardType="number-pad"
         inputMode="numeric"
@@ -194,7 +217,7 @@ export function OtpSixInput({
           const currentPos = Math.min(cleanValue.length, 6);
           updateSelection(currentPos, currentPos);
         }}
-        onBlur={() => setIsFocused(false)}
+        onBlur={() => { slotPressedRef.current = false; setIsFocused(false); }}
         style={styles.hiddenRealInput}
       />
 
