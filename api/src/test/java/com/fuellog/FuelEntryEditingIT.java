@@ -272,7 +272,7 @@ class FuelEntryEditingIT {
 
     private String account() throws Exception {
         String email=UUID.randomUUID()+"@example.test", password="Only-test-password-42!";
-        assertThat(request("POST","/auth/register",null,null,Map.of("name","Teste edição","email",email,"password",password)).status()).isEqualTo(201);
+        assertThat(request("POST","/auth/register",null,null,RegistrationTestSupport.verified(jdbc, Map.of("name","Teste edição","email",email,"password",password))).status()).isEqualTo(201);
         var login=request("POST","/auth/login",null,null,Map.of("email",email,"password",password));
         assertThat(login.status()).isEqualTo(200); return login.body().path("access_token").asString();
     }

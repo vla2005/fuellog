@@ -117,7 +117,7 @@ class FuellogApiIT {
         for (String password : List.of("12345", "      ", "a".repeat(129))) {
             String email = UUID.randomUUID() + "@example.test";
             var rejected = request("POST", "/auth/register", null,
-                    Map.of("name", "Password boundary", "email", email, "password", password));
+                    RegistrationTestSupport.verified(jdbc, Map.of("name", "Password boundary", "email", email, "password", password)));
             assertThat(rejected.status()).as("%s", rejected.body()).isEqualTo(422);
             assertThat(rejected.body().path("fieldErrors").has("password")).isTrue();
             assertThat(jdbc.queryForObject("select count(*) from users where email = ?", Integer.class, email)).isZero();
@@ -125,7 +125,7 @@ class FuellogApiIT {
         for (String password : List.of("abc123", "a".repeat(128))) {
             String email = UUID.randomUUID() + "@example.test";
             assertThat(request("POST", "/auth/register", null,
-                    Map.of("name", "Password boundary", "email", email, "password", password)).status()).isEqualTo(201);
+                    RegistrationTestSupport.verified(jdbc, Map.of("name", "Password boundary", "email", email, "password", password))).status()).isEqualTo(201);
             var login = request("POST", "/auth/login", null, Map.of("email", email, "password", password));
             assertThat(login.status()).isEqualTo(200);
             assertThat(request("GET", "/me", login.body().path("access_token").asString(), null).status()).isEqualTo(200);
@@ -687,7 +687,7 @@ class FuellogApiIT {
     private Account account() throws Exception {
         String email = UUID.randomUUID() + "@example.test";
         assertThat(request("POST", "/auth/register", null,
-                Map.of("name", "Pessoa de teste", "email", email, "password", PASSWORD)).status()).isEqualTo(201);
+                RegistrationTestSupport.verified(jdbc, Map.of("name", "Pessoa de teste", "email", email, "password", PASSWORD))).status()).isEqualTo(201);
         var login = request("POST", "/auth/login", null, Map.of("email", email, "password", PASSWORD));
         assertThat(login.status()).isEqualTo(200);
         return new Account(email, login.body().path("access_token").asString(), login.body().path("refresh_token").asString(),

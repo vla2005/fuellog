@@ -3,6 +3,7 @@ package com.fuellog.identity.controllers;
 import com.fuellog.identity.dtos.IdentityDtos;
 import com.fuellog.identity.services.CurrentUserService;
 import com.fuellog.identity.services.IdentityService;
+import com.fuellog.identity.services.RegistrationService;
 
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,10 +16,18 @@ import java.util.UUID;
 public class IdentityController {
     private final IdentityService identity;
     private final CurrentUserService currentUser;
-    IdentityController(IdentityService identity, CurrentUserService currentUser) { this.identity = identity; this.currentUser = currentUser; }
+    private final RegistrationService registration;
+    IdentityController(IdentityService identity, CurrentUserService currentUser, RegistrationService registration) {
+        this.identity = identity; this.currentUser = currentUser; this.registration = registration;
+    }
+    @PostMapping("/auth/registration-code")
+    ResponseEntity<IdentityDtos.RegistrationCodeSent> registrationCode(@Valid @RequestBody IdentityDtos.RegistrationCodeRequest request, HttpServletRequest http) {
+        return ResponseEntity.accepted().cacheControl(CacheControl.noStore()).body(registration.requestCode(request.email(), http.getRemoteAddr()));
+    }
     @PostMapping("/auth/register")
     ResponseEntity<IdentityDtos.RegisteredUser> register(@Valid @RequestBody IdentityDtos.Register request) {
-        return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(identity.register(request.name(), request.email(), request.password()));
+        return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(registration.register(
+                request.name(), request.email(), request.password(), request.verificationId(), request.code()));
     }
     @PostMapping("/auth/login")
     ResponseEntity<IdentityDtos.LoginResult> login(@Valid @RequestBody IdentityDtos.Login request, HttpServletRequest http) {

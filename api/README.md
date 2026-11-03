@@ -45,6 +45,40 @@ O override publica apenas a API em `127.0.0.1:8080`. Se a porta estiver ocupada,
 | `FUELLOG_CORS_ALLOWED_ORIGINS` | Origens web separadas por vírgula; configure domínios reais no servidor. |
 | `API_PORT`, `API_BIND_ADDRESS` | Somente override local; padrões `8080` e `127.0.0.1`. |
 
+## Confirmação de e-mail no cadastro
+
+O cadastro exige um código enviado por SMTP. Configure no runtime `FUELLOG_MAIL_HOST`,
+`FUELLOG_MAIL_PORT` (padrão `587`), `FUELLOG_MAIL_USERNAME`, `FUELLOG_MAIL_PASSWORD` e
+`FUELLOG_MAIL_FROM`, com credenciais do provedor e remetente autorizado. Autenticação SMTP
+e STARTTLS são obrigatórios por padrão; `FUELLOG_MAIL_SMTP_AUTH` e
+`FUELLOG_MAIL_STARTTLS_ENABLED` permitem ajustar um servidor local de testes.
+Não desative TLS ao transmitir credenciais pela internet. A conexão, leitura e escrita
+têm timeout de cinco segundos. Não registre credenciais ou conteúdo dos e-mails.
+
+`POST /api/v1/auth/registration-code` recebe somente `{ "email": "pessoa@example.com" }`
+e retorna `202` com `verificationId`, `expiresAt` e `resendAfterSeconds: 60`.
+Depois, `POST /api/v1/auth/register` recebe `name`, `email`, `password`, `verificationId`
+e `code` com seis dígitos ASCII. A conta só é criada após confirmar o código; o login
+continua separado. Códigos expiram em dez minutos, aceitam cinco erros e não podem ser
+reutilizados. Um reenvio após 60 segundos invalida o código anterior. Não há fallback
+de cadastro sem confirmação, código na resposta ou código nos logs.
+Se a confirmação encontrar uma conta existente, o código válido é consumido antes
+de retornar o conflito genérico `409 ACCOUNT_CONFLICT`; a conta existente não muda.
+
+Sem host/remetente ou com falha no SMTP, a solicitação retorna `503
+REGISTRATION_DELIVERY_UNAVAILABLE`; o código da entrega malsucedida é invalidado.
+Contas existentes e login continuam disponíveis. Configure o provedor antes de ativar
+novos cadastros. Este repositório não contrata serviços nem registra domínios/remetentes.
+O healthcheck geral não consulta SMTP; falhas de entrega aparecem no endpoint de cadastro.
+
+Limites persistidos e independentes do login: cinco solicitações por e-mail/hora e
+30 por endereço do conector/hora, incluindo falhas e reenvios recusados. Cabeçalhos
+encaminhados não escolhem a origem. Limites/cooldown retornam `429
+REGISTRATION_RATE_LIMITED`; código inválido, expirado, usado ou esgotado retorna
+`400 REGISTRATION_CODE_INVALID`. As tabelas têm capacidade de 10.000 códigos e 20.000
+escopos, sem expulsar registros ativos; a limpeza remove até 100 expirados por operação.
+O Flyway V12 cria somente esse estado temporário e preserva usuários existentes.
+
 ## Coolify
 
 Crie uma aplicação do repositório com build pack **Docker Compose**, branch desejada, **Base Directory `/api`** e **Docker Compose Location `/docker-compose.yml`**. O contexto de build é `.` dentro de `api`. Use somente o Compose base, sem override local: não há portas publicadas no host. O nome de projeto definido pelo Coolify (por exemplo, UUID via `-p`) prevalece sobre `fuellog` e também prefixa a imagem, isolando recursos. Configure domínio HTTPS para o serviço `api`, porta interna `8080`, pelo proxy do Coolify.

@@ -7,7 +7,14 @@ import jakarta.validation.constraints.*;
 public final class IdentityDtos {
     private IdentityDtos() {}
     public record Register(@NotBlank @Size(max=100) String name, @NotBlank @Email @Size(max=254) String email,
-                    @NotBlank @Size(min=6, max=128) String password) {}
+                    @NotBlank @Size(min=6, max=128) String password, @NotNull UUID verificationId,
+                    @NotBlank @Pattern(regexp="[0-9]{6}") String code) {
+        @Override public String toString() { return "Register[redacted]"; }
+    }
+    public record RegistrationCodeRequest(@NotBlank @Email @Size(max=254) String email) {
+        @Override public String toString() { return "RegistrationCodeRequest[redacted]"; }
+    }
+    public record RegistrationCodeSent(UUID verificationId, Instant expiresAt, int resendAfterSeconds) {}
     public record Login(@NotBlank @Email @Size(max=254) String email, @NotBlank @Size(max=128) String password) {}
     public record Refresh(@NotBlank @Pattern(regexp="[A-Za-z0-9_-]{43}") String refresh_token) {
         @Override public String toString() { return "Refresh[redacted]"; }

@@ -261,7 +261,7 @@ class TwoFactorIT {
 
     private Account account() throws Exception {
         String email = UUID.randomUUID() + "@example.test";
-        var registered = request("POST", "/auth/register", null, Map.of("name", "Test", "email", email, "password", PASSWORD));
+        var registered = request("POST", "/auth/register", null, RegistrationTestSupport.verified(jdbc, Map.of("name", "Test", "email", email, "password", PASSWORD)));
         assertThat(registered.status()).isEqualTo(201);
         var login = login(email, PASSWORD);
         assertThat(login.status()).isEqualTo(200);

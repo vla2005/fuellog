@@ -202,7 +202,7 @@ class VehicleEditingIT {
         assertThat(wrongPassword.status()).isEqualTo(401);
         assertThat(wrongPassword.response().headers().firstValue("Cache-Control")).contains("no-store");
         assertThat(wrongPassword.response().headers().firstValue("WWW-Authenticate")).contains("Bearer error=\"invalid_token\"");
-        var validation=request("POST","/auth/register",null,Map.of("name","Editor","email","invalid","password",PASSWORD),null);
+        var validation=request("POST","/auth/register",null,RegistrationTestSupport.verified(jdbc, Map.of("name","Editor","email","invalid","password",PASSWORD)),null);
         assertProblem(validation,422,"VALIDATION_FAILED");
         assertThat(validation.response().headers().firstValue("Cache-Control")).contains("no-store");
         assertThat(validation.body().path("fieldErrors").has("email")).isTrue();
@@ -241,7 +241,7 @@ class VehicleEditingIT {
     }
     private String account() throws Exception {
         String email=UUID.randomUUID()+"@example.test";
-        assertThat(request("POST","/auth/register",null,Map.of("name","Vehicle editor","email",email,"password",PASSWORD),null).status()).isEqualTo(201);
+        assertThat(request("POST","/auth/register",null,RegistrationTestSupport.verified(jdbc, Map.of("name","Vehicle editor","email",email,"password",PASSWORD)),null).status()).isEqualTo(201);
         var login=request("POST","/auth/login",null,Map.of("email",email,"password",PASSWORD),null);
         assertThat(login.status()).isEqualTo(200); return login.body().path("access_token").asString();
     }

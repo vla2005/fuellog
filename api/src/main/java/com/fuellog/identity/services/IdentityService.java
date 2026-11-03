@@ -15,7 +15,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.BiFunction;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -44,16 +43,6 @@ public class IdentityService {
         this.twoFactor = twoFactor;
         this.loginRateLimit = loginRateLimit;
         dummyPassword = passwords.encode(UUID.randomUUID().toString());
-    }
-    public RegisteredUser register(String name, String email, String password) {
-        try {
-            return transaction.execute(status -> {
-                UserAccount user = users.saveAndFlush(new UserAccount(name.strip(), normalize(email), passwords.encode(password), now()));
-                return new RegisteredUser(user.id(), user.name(), user.email());
-            });
-        } catch (DataIntegrityViolationException e) {
-            throw new ApiException(409, "ACCOUNT_CONFLICT", "Não foi possível cadastrar esta conta.");
-        }
     }
     public LoginResult login(String email, String password, String source) {
         String normalizedEmail = normalize(email);

@@ -110,7 +110,7 @@ class ViKashIT {
     }
     String account() throws Exception {
         String email="vikash-"+UUID.randomUUID()+"@example.test";
-        assertThat(call("POST","/auth/register",null,Map.of("name","Teste","email",email,"password","test-password"),null).status()).isEqualTo(201);
+        assertThat(call("POST","/auth/register",null,RegistrationTestSupport.verified(jdbc, Map.of("name","Teste","email",email,"password","test-password")),null).status()).isEqualTo(201);
         return call("POST","/auth/login",null,Map.of("email",email,"password","test-password"),null).body().path("access_token").asString();
     }
     String connect(String token) throws Exception {

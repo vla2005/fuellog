@@ -18,10 +18,10 @@
   "paths": {
     "/auth/register": {
       "post": {
-        "summary": "Register an account; login is separate",
+        "summary": "Create an account after confirming its email; login is separate",
         "responses": {
           "201": {
-            "description": "Created; fuel entry creation returns idempotentReplay=false.",
+            "description": "Email verified and account created. No session or token is issued.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39,12 +39,20 @@
             }
           },
           "400": {
-            "description": "Invalid request format.",
+            "description": "REGISTRATION_CODE_INVALID: code is wrong, expired, used, exhausted after five failures, or belongs to another email. Failed attempts persist.",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
               }
             }
           },
@@ -56,6 +64,14 @@
                   "$ref": "#/components/schemas/Problem"
                 }
               }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
             }
           },
           "404": {
@@ -66,15 +82,31 @@
                   "$ref": "#/components/schemas/Problem"
                 }
               }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
             }
           },
           "409": {
-            "description": "Domain or idempotency conflict.",
+            "description": "ACCOUNT_CONFLICT: unable to register this account. The verified proof is consumed; existing accounts remain unchanged.",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
               }
             }
           },
@@ -86,6 +118,14 @@
                   "$ref": "#/components/schemas/Problem"
                 }
               }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
             }
           },
           "503": {
@@ -95,6 +135,14 @@
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
               }
             }
           }
@@ -4052,6 +4100,114 @@
           }
         }
       }
+    },
+    "/auth/registration-code": {
+      "post": {
+        "summary": "Send an email verification code before registration",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationCodeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "description": "Invalid request format."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "description": "Email validation failed."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "description": "REGISTRATION_RATE_LIMITED: wait before requesting another code. Resend cooldown 60 seconds; five requests/email/hour and 30 requests/connector peer/hour, including rejected requests."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "description": "REGISTRATION_DELIVERY_UNAVAILABLE or AUTH_DEPENDENCY_UNAVAILABLE: code delivery or persistent state unavailable; no account created."
+          },
+          "202": {
+            "description": "Code sent. Expires in ten minutes. Reissuing invalidates the previous verificationId and code. Response does not reveal account existence.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationCodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4091,12 +4247,25 @@
             "minLength": 6,
             "maxLength": 128,
             "writeOnly": true
+          },
+          "verificationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "minLength": 6,
+            "maxLength": 6,
+            "writeOnly": true
           }
         },
         "required": [
           "name",
           "email",
-          "password"
+          "password",
+          "verificationId",
+          "code"
         ]
       },
       "Login": {
@@ -5946,6 +6115,41 @@
         "required": [
           "session",
           "biometric"
+        ]
+      },
+      "RegistrationCodeRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "RegistrationCodeResponse": {
+        "type": "object",
+        "properties": {
+          "verificationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resendAfterSeconds": {
+            "type": "integer",
+            "const": 60
+          }
+        },
+        "required": [
+          "verificationId",
+          "expiresAt",
+          "resendAfterSeconds"
         ]
       }
     }

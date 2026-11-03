@@ -327,7 +327,7 @@ class BiometricSessionIT {
 
     private Account account() throws Exception {
         String email = UUID.randomUUID() + "@example.test";
-        var registration = request("POST", "/auth/register", null, Map.of("name", "Biometric test", "email", email, "password", PASSWORD));
+        var registration = request("POST", "/auth/register", null, RegistrationTestSupport.verified(jdbc, Map.of("name", "Biometric test", "email", email, "password", PASSWORD)));
         assertThat(registration.status()).isEqualTo(201);
         var login = request("POST", "/auth/login", null, Map.of("email", email, "password", PASSWORD));
         assertThat(login.status()).isEqualTo(200);

@@ -229,7 +229,7 @@ class ProfileIT {
     }
     private Account account() throws Exception {
         String email = nextEmail();
-        var registered = request("POST", "/auth/register", null, Map.of("name", "Profile test", "email", email, "password", PASSWORD));
+        var registered = request("POST", "/auth/register", null, RegistrationTestSupport.verified(jdbc, Map.of("name", "Profile test", "email", email, "password", PASSWORD)));
         assertThat(registered.status()).isEqualTo(201);
         var login = login(email);
         assertThat(login.status()).isEqualTo(200);

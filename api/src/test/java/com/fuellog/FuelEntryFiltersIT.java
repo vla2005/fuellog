@@ -29,6 +29,7 @@ class FuelEntryFiltersIT {
     @AfterAll static void stopDatabase() { postgres.stop(); }
     @LocalServerPort int port;
     @Autowired ObjectMapper json;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final HttpClient client=HttpClient.newHttpClient();
 
     @Test void dashboardAggregatesBeyondHistoryPagesAndKeepsDeclaredPriceSeparate() throws Exception {
@@ -204,7 +205,7 @@ class FuelEntryFiltersIT {
 
     private String account() throws Exception {
         String email=UUID.randomUUID()+"@example.test", password="Only-test-password-42!";
-        assertThat(request("POST","/auth/register",null,Map.of("name","Filtros","email",email,"password",password)).status()).isEqualTo(201);
+        assertThat(request("POST","/auth/register",null,RegistrationTestSupport.verified(jdbc, Map.of("name","Filtros","email",email,"password",password))).status()).isEqualTo(201);
         var login=request("POST","/auth/login",null,Map.of("email",email,"password",password));
         assertThat(login.status()).isEqualTo(200); return login.body().path("access_token").asString();
     }

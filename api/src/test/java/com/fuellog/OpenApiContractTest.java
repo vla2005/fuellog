@@ -56,6 +56,8 @@ class OpenApiContractTest {
         assertThat(spec.path("openapi").asString()).isEqualTo("3.1.0");
         Map<String, String> types = Map.ofEntries(
                 Map.entry("Register", "identity.dtos.IdentityDtos$Register"),
+                Map.entry("RegistrationCodeRequest", "identity.dtos.IdentityDtos$RegistrationCodeRequest"),
+                Map.entry("RegistrationCodeResponse", "identity.dtos.IdentityDtos$RegistrationCodeSent"),
                 Map.entry("Login", "identity.dtos.IdentityDtos$Login"),
                 Map.entry("Refresh", "identity.dtos.IdentityDtos$Refresh"),
                 Map.entry("RegisteredUser", "identity.dtos.IdentityDtos$RegisteredUser"),

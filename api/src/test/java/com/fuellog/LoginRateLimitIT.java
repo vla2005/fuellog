@@ -48,6 +48,7 @@ class LoginRateLimitIT {
     @LocalServerPort int port;
     @Autowired JdbcTemplate jdbc;
     @Autowired IdentityService identity;
+    @Autowired com.fuellog.identity.repositories.UserAccountRepository users;
     @Autowired LoginRateLimit limiter;
     @Autowired LoginRateLimitProperties limits;
     @Autowired PlatformTransactionManager transactions;
@@ -68,7 +69,7 @@ class LoginRateLimitIT {
             jdbc.update("delete from login_attempts");
             String email = state + "-" + UUID.randomUUID() + "@example.test";
             if (!"missing".equals(state)) {
-                var user = identity.register("Login quota", email, PASSWORD);
+                var user = users.saveAndFlush(new com.fuellog.identity.models.UserAccount("Login quota", email, passwords.encode(PASSWORD), NOW));
                 if ("disabled".equals(state)) jdbc.update("update users set disabled_at=? where id=?", Timestamp.from(NOW), user.id());
             }
             clearInvocations(passwords);
@@ -159,7 +160,7 @@ class LoginRateLimitIT {
 
     @Test void rejectedAttemptsDoNotExtendTheWindowAndLegitimateLoginResumesAtExpiry() {
         String email = UUID.randomUUID() + "@example.test";
-        identity.register("Expiry", email, PASSWORD);
+        users.saveAndFlush(new com.fuellog.identity.models.UserAccount("Expiry", email, passwords.encode(PASSWORD), NOW));
         assertLoginFailure(email, "wrong", "expiry-peer", 401);
         assertLoginFailure(email, "wrong", "expiry-peer", 401);
         clock.current.set(NOW.plusSeconds(299));
