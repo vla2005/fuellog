@@ -9,6 +9,14 @@ export interface RegisterRequest {
   name: string;
   email: string;
   password: string;
+  verificationId: string;
+  code: string;
+}
+
+export interface RegistrationCodeResponse {
+  verificationId: string;
+  expiresAt: string;
+  resendAfterSeconds: number;
 }
 
 export interface LoginRequest {

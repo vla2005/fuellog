@@ -584,8 +584,10 @@ test('signUpAndSignIn real AST: cadastro não ativa biometria mesmo se o disposi
   const signUpFactory = extractCallbackFromSessionContext('signUpAndSignIn');
 
   let passedOptions = null;
+  let registeredPayload;
   const signUpAndSignIn = signUpFactory({
-    registerUser: async () => ({ id: 'usr-new' }),
+    registerUser: async payload => { registeredPayload = payload; return { id: 'usr-new' }; },
+    getSessionEpoch: () => 0,
     signIn: async (payload, options) => {
       passedOptions = options;
       return { mfaRequired: false };
@@ -597,10 +599,31 @@ test('signUpAndSignIn real AST: cadastro não ativa biometria mesmo se o disposi
     name: 'Novo Usuário',
     email: 'novo@exemplo.com',
     password: 'password123',
+    verificationId: 'proof-id',
+    code: '012345',
   });
 
   assert.equal(res.registeredOnly, false);
+  assert.equal(registeredPayload.verificationId, 'proof-id');
+  assert.equal(registeredPayload.code, '012345');
   assert.equal(passedOptions, undefined, 'Cadastro nunca deve passar opt-in biométrico para o signIn');
+});
+
+test('signUpAndSignIn does not start login after the session changes during registration', async () => {
+  let release, epoch = 0, logins = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const signUp = extractCallbackFromSessionContext('signUpAndSignIn')({
+    registerUser: () => gate,
+    getSessionEpoch: () => epoch,
+    signIn: async () => { logins++; },
+    ApiError: MockApiError,
+    setPrefilledLoginEmail: () => assert.fail('Must not update a different session'),
+  });
+  const result = signUp({ name: 'User', email: 'user@example.test', password: 'password123', verificationId: 'proof', code: '123456' })
+    .then(value => ({ value }), error => ({ error }));
+  epoch++; release();
+  assert.ok((await result).error, 'Reject completion belonging to an old session');
+  assert.equal(logins, 0);
 });
 
 test('cancelTwoFactorChallenge real AST: limpeza da rota após sucesso não invalida sessão mas cancelamento em voo avança epoch', async () => {

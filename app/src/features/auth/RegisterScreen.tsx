@@ -1,6 +1,6 @@
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   Pressable,
@@ -10,7 +10,8 @@ import {
   View,
 } from 'react-native';
 
-import { ApiError } from '@/api/types';
+import { requestRegistrationCode } from '@/api/endpoints';
+import { ApiError, RegistrationCodeResponse } from '@/api/types';
 import { InlineNotice } from '@/components/feedback/InlineNotice';
 import {
   EyeIcon,
@@ -19,6 +20,7 @@ import {
   UserIcon,
 } from '@/components/icons/AppIcons';
 import { ScreenShell } from '@/components/layout/ScreenShell';
+import { OtpSixInput } from '@/components/inputs/OtpSixInput';
 import { AppSheet } from '@/components/overlays/AppSheet';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { AuthSceneHero } from '@/features/auth/AuthSceneHero';
@@ -29,7 +31,7 @@ import { radii, typography } from '@/theme/tokens';
 export function RegisterScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { signUpAndSignIn, showToast } = useSession();
+  const { signUpAndSignIn, showToast, getCurrentSessionEpoch } = useSession();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -38,6 +40,25 @@ export function RegisterScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [registration, setRegistration] = useState<{
+    name: string; email: string; password: string; verification: RegistrationCodeResponse;
+  } | null>(null);
+  const [code, setCode] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now);
+  const busy = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    if (!registration) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [registration]);
+  const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const expired = registration ? now >= Date.parse(registration.verification.expiresAt) : false;
   const [legalDocModal, setLegalDocModal] = useState<'terms' | 'privacy' | null>(
     null,
   );
@@ -58,6 +79,7 @@ export function RegisterScreen() {
   };
 
   const handleSubmit = async () => {
+    if (busy.current) return;
     setErrorMessage(null);
     setFieldErrors({});
 
@@ -84,13 +106,44 @@ export function RegisterScreen() {
       return;
     }
 
+    await sendCode({ name: cleanName, email: cleanEmail, password });
+  };
+
+  const sendCode = async (details: { name: string; email: string; password: string }) => {
+    if (busy.current) return;
+    busy.current = true;
     setSubmitting(true);
+    setErrorMessage(null);
+    const epoch = getCurrentSessionEpoch();
+    try {
+      const verification = await requestRegistrationCode(details.email);
+      if (!mounted.current || getCurrentSessionEpoch() !== epoch) return;
+      setRegistration({ ...details, verification });
+      setCode('');
+      setNow(Date.now());
+      setResendAt(Date.now() + verification.resendAfterSeconds * 1000);
+      Keyboard.dismiss();
+    } catch (err) {
+      if (!mounted.current || getCurrentSessionEpoch() !== epoch) return;
+      setErrorMessage(err instanceof ApiError ? err.message : 'Não foi possível enviar o código. Tente novamente.');
+      if (err instanceof ApiError && err.problem?.fieldErrors) setFieldErrors(err.problem.fieldErrors);
+    } finally {
+      busy.current = false;
+      if (mounted.current) setSubmitting(false);
+    }
+  };
+
+  const confirmRegistration = async () => {
+    if (busy.current || !registration || !/^[0-9]{6}$/.test(code) || Date.now() >= Date.parse(registration.verification.expiresAt)) return;
+    busy.current = true;
+    setSubmitting(true);
+    setErrorMessage(null);
     try {
       const result = await signUpAndSignIn({
-        name: cleanName,
-        email: cleanEmail,
-        password,
+        name: registration.name, email: registration.email, password: registration.password,
+        verificationId: registration.verification.verificationId, code,
       });
+      if (!mounted.current) return;
 
       if (result.registeredOnly) {
         showToast({
@@ -105,10 +158,11 @@ export function RegisterScreen() {
       showToast({
         tone: 'success',
         title: 'Conta criada e conectada',
-        subtitle: `Bem-vindo ao FuelLog, ${cleanName}!`,
+        subtitle: `Bem-vindo ao FuelLog, ${registration.name}!`,
       });
       router.replace('/');
     } catch (err: unknown) {
+      if (!mounted.current) return;
       if (err instanceof ApiError) {
         setErrorMessage(err.message);
         if (err.problem?.fieldErrors) {
@@ -118,7 +172,8 @@ export function RegisterScreen() {
         setErrorMessage('Não foi possível concluir o cadastro. Tente novamente.');
       }
     } finally {
-      setSubmitting(false);
+      busy.current = false;
+      if (mounted.current) setSubmitting(false);
     }
   };
 
@@ -127,6 +182,8 @@ export function RegisterScreen() {
 
   return (
     <ScreenShell
+      transitionKey={registration ? 'register-code' : 'register-details'}
+      transitionOrder={registration ? 1 : 0}
       omitTopSafeArea
       fullBleedHero={
         <AuthSceneHero
@@ -148,10 +205,10 @@ export function RegisterScreen() {
         style={styles.heroTextWrap}
       >
         <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>
-          Criar conta
+          {registration ? 'Confirme seu e-mail' : 'Criar conta'}
         </Text>
         <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
-          Acompanhe seus gastos com precisão.
+          {registration ? `Enviamos um código de 6 dígitos para ${registration.email}.` : 'Acompanhe seus gastos com precisão.'}
         </Text>
       </Pressable>
 
@@ -161,120 +218,163 @@ export function RegisterScreen() {
           <InlineNotice tone="danger" message={errorMessage} />
         ) : null}
 
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.label, { color: colors.textPrimary }]}>Nome</Text>
-          <View
-            style={[
-              styles.inputRow,
-              {
-                backgroundColor: inputBg,
-                borderColor: fieldErrors.name ? colors.dangerBorder : inputBorder,
-              },
-            ]}
-          >
-            <UserIcon size={20} color={colors.accentPrimary} />
-            <TextInput
-              accessibilityLabel="Nome"
-              value={name}
-              onChangeText={setName}
-              placeholder="Como podemos te chamar?"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="words"
-              autoComplete="name"
-              style={[styles.textInput, { color: colors.textPrimary }]}
+        {registration ? (
+          <>
+            <OtpSixInput
+              value={code}
+              onChange={setCode}
+              accessibilityLabel="Código de verificação do e-mail"
+              hasError={Boolean(errorMessage)}
+              disabled={submitting}
+              autoFocus
             />
-          </View>
-          {fieldErrors.name ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {fieldErrors.name}
+            <Text style={[styles.helperText, { color: expired ? colors.dangerText : colors.textSecondary }]}>
+              {expired ? 'Código expirado. Solicite um novo para continuar.' : 'O código vale por 10 minutos. Confira também sua caixa de spam.'}
             </Text>
-          ) : null}
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.label, { color: colors.textPrimary }]}>E-mail</Text>
-          <View
-            style={[
-              styles.inputRow,
-              {
-                backgroundColor: inputBg,
-                borderColor: fieldErrors.email ? colors.dangerBorder : inputBorder,
-              },
-            ]}
-          >
-            <MailIcon size={20} color={colors.accentPrimary} />
-            <TextInput
-              accessibilityLabel="E-mail"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="voce@email.com"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              style={[styles.textInput, { color: colors.textPrimary }]}
+            <PrimaryButton
+              label="Confirmar e criar conta"
+              onPress={confirmRegistration}
+              loading={submitting}
+              disabled={code.length !== 6 || expired}
+              stepped
             />
-          </View>
-          {fieldErrors.email ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {fieldErrors.email}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.label, { color: colors.textPrimary }]}>Senha</Text>
-          <View
-            style={[
-              styles.inputRow,
-              {
-                backgroundColor: inputBg,
-                borderColor: fieldErrors.password
-                  ? colors.dangerBorder
-                  : inputBorder,
-              },
-            ]}
-          >
-            <LockIcon size={20} color={colors.accentPrimary} />
-            <TextInput
-              accessibilityLabel="Senha"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="••••••••"
-              placeholderTextColor={colors.textMuted}
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[styles.textInput, { color: colors.textPrimary }]}
+            <PrimaryButton
+              label={resendSeconds > 0 ? `Reenviar em ${resendSeconds}s` : 'Reenviar código'}
+              variant="secondary"
+              disabled={submitting || resendSeconds > 0}
+              onPress={() => { if (Date.now() >= resendAt) void sendCode(registration); }}
             />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-              onPress={() => setShowPassword((prev) => !prev)}
-              style={styles.eyeButton}
-            >
-              <EyeIcon size={20} color={colors.textSecondary} off={showPassword} />
-            </Pressable>
-          </View>
-          {fieldErrors.password ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {fieldErrors.password}
-            </Text>
-          ) : (
-            <Text style={[styles.helperText, { color: colors.textSecondary }]}>
-              Mínimo de 6 caracteres.
-            </Text>
-          )}
-        </View>
+            <PrimaryButton
+              label="Alterar dados"
+              variant="ghost"
+              disabled={submitting}
+              onPress={() => {
+                if (busy.current) return;
+                setRegistration(null); setCode(''); setErrorMessage(null); setFieldErrors({});
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Nome</Text>
+              <View
+                style={[
+                  styles.inputRow,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: fieldErrors.name ? colors.dangerBorder : inputBorder,
+                  },
+                ]}
+              >
+                <UserIcon size={20} color={colors.accentPrimary} />
+                <TextInput
+                  accessibilityLabel="Nome"
+                  editable={!submitting}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Como podemos te chamar?"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="words"
+                  autoComplete="name"
+                  style={[styles.textInput, { color: colors.textPrimary }]}
+                />
+              </View>
+              {fieldErrors.name ? (
+                <Text style={[styles.errorText, { color: colors.dangerText }]}>
+                  {fieldErrors.name}
+                </Text>
+              ) : null}
+            </View>
 
-        <PrimaryButton
-          label="Criar conta"
-          onPress={handleSubmit}
-          loading={submitting}
-          stepped
-          style={{ marginTop: 4 }}
-        />
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>E-mail</Text>
+              <View
+                style={[
+                  styles.inputRow,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: fieldErrors.email ? colors.dangerBorder : inputBorder,
+                  },
+                ]}
+              >
+                <MailIcon size={20} color={colors.accentPrimary} />
+                <TextInput
+                  accessibilityLabel="E-mail"
+                  editable={!submitting}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="voce@email.com"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  style={[styles.textInput, { color: colors.textPrimary }]}
+                />
+              </View>
+              {fieldErrors.email ? (
+                <Text style={[styles.errorText, { color: colors.dangerText }]}>
+                  {fieldErrors.email}
+                </Text>
+              ) : null}
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Senha</Text>
+              <View
+                style={[
+                  styles.inputRow,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: fieldErrors.password
+                      ? colors.dangerBorder
+                      : inputBorder,
+                  },
+                ]}
+              >
+                <LockIcon size={20} color={colors.accentPrimary} />
+                <TextInput
+                  accessibilityLabel="Senha"
+                  editable={!submitting}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.textMuted}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.textInput, { color: colors.textPrimary }]}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  style={styles.eyeButton}
+                >
+                  <EyeIcon size={20} color={colors.textSecondary} off={showPassword} />
+                </Pressable>
+              </View>
+              {fieldErrors.password ? (
+                <Text style={[styles.errorText, { color: colors.dangerText }]}>
+                  {fieldErrors.password}
+                </Text>
+              ) : (
+                <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+                  Mínimo de 6 caracteres.
+                </Text>
+              )}
+            </View>
+
+            <PrimaryButton
+              label="Criar conta"
+              onPress={handleSubmit}
+              loading={submitting}
+              stepped
+              style={{ marginTop: 4 }}
+            />
+          </>
+        )}
       </View>
 
       {/* Legal & Login links */}

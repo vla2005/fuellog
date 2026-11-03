@@ -3,10 +3,36 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { setTimeout as delay } from 'node:timers/promises';
 
 process.env.EXPO_PUBLIC_API_URL = process.env.FUELLOG_API_URL ?? 'http://127.0.0.1:8080/api/v1';
 const base = process.env.EXPO_PUBLIC_API_URL;
 const credentials = () => ({ name: 'Transporte E2E', email: `transport-${randomUUID()}@example.test`, password: 'FuelLog-test-2026!' });
+
+// Run only against a disposable API whose SMTP points to a local Mailpit inbox.
+// API reference: https://mailpit.axllent.org/docs/api-v1/
+async function verificationProof(account, sendCode) {
+  const inbox = process.env.FUELLOG_TEST_MAILPIT_URL;
+  assert.ok(inbox, 'Configure FUELLOG_TEST_MAILPIT_URL and the disposable API SMTP before live transport tests');
+  assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(new URL(inbox).hostname), 'Use a local test inbox');
+  const verification = await sendCode(account.email);
+  const search = new URL('/api/v1/search', inbox);
+  search.searchParams.set('query', `to:${account.email}`);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const response = await fetch(search);
+    assert.equal(response.status, 200, 'Test inbox unavailable');
+    const message = (await response.json()).messages?.[0];
+    if (message) {
+      const detail = await fetch(new URL(`/api/v1/message/${encodeURIComponent(message.ID)}`, inbox));
+      assert.equal(detail.status, 200);
+      const code = (await detail.json()).Text?.match(/confirmação do FuelLog é:\s*([0-9]{6})/u)?.[1];
+      assert.ok(code, 'No FuelLog code found in test inbox');
+      return { verificationId: verification.verificationId, code };
+    }
+    await delay(250);
+  }
+  assert.fail('Confirmation email not received in test inbox');
+}
 
 function loadTransport() {
   let access = null;
@@ -35,7 +61,12 @@ function loadTransport() {
 
 async function realSession() {
   const account = credentials();
-  const registered = await fetch(`${base}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(account) });
+  const proof = await verificationProof(account, async email => {
+    const response = await fetch(`${base}/auth/registration-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    assert.equal(response.status, 202);
+    return response.json();
+  });
+  const registered = await fetch(`${base}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...account, ...proof }) });
   assert.equal(registered.status, 201);
   const response = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(account) });
   assert.equal(response.status, 200);
@@ -45,7 +76,8 @@ async function realSession() {
 test('cliente cadastra name, salva tokens snake_case e consulta /me real', async () => {
   const { endpoints, storage } = loadTransport();
   const account = credentials();
-  const registered = await endpoints.registerUser(account);
+  const proof = await verificationProof(account, endpoints.requestRegistrationCode);
+  const registered = await endpoints.registerUser({ ...account, ...proof });
   assert.equal(registered.name, account.name);
   const tokens = await endpoints.loginUser({ email: account.email, password: account.password });
   assert.equal(typeof tokens.access_token, 'string');

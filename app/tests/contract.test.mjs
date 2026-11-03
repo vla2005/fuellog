@@ -9,6 +9,7 @@ const declarations = new Map(source.statements.filter(statement => statement.nam
 
 const interfaces = {
   RegisterRequest: 'Register', LoginRequest: 'Login', RefreshRequest: 'Refresh',
+  RegistrationCodeResponse: 'RegistrationCodeResponse',
   RegisteredUser: 'RegisteredUser', MeResponse: 'Me', TokenResponse: 'TokenResponse',
   BiometricSession: 'BiometricSession', BiometricLoginResponse: 'BiometricLoginResponse',
   CreateVehicleRequest: 'CreateVehicle', Vehicle: 'Vehicle',

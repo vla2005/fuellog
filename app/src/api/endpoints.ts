@@ -23,6 +23,7 @@ import {
   MeResponse,
   PasswordChangeRequest,
   RegisterRequest,
+  RegistrationCodeResponse,
   RegisteredUser,
   SummaryResponse,
   TokenResponse,
@@ -68,6 +69,15 @@ export function getViKashRemoteStatus(entryId: string): Promise<ViKashRemoteStat
 }
 export function retryViKashEntry(entryId: string, resolution: 'RETRY' | 'OVERWRITE', remoteEtag?: string | null): Promise<void> {
   return apiRequest({ method: 'POST', path: `/integrations/vikash/entries/${encodeURIComponent(entryId)}/retry`, body: { resolution, remoteEtag } });
+}
+
+export function requestRegistrationCode(email: string): Promise<RegistrationCodeResponse> {
+  return apiRequest({
+    method: 'POST',
+    path: '/auth/registration-code',
+    body: { email },
+    authenticated: false,
+  });
 }
 
 export async function registerUser(payload: RegisterRequest): Promise<RegisteredUser> {

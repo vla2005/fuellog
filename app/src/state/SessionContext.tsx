@@ -696,12 +696,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     ): Promise<{ registeredOnly: boolean; email: string; loginError?: string }> => {
       const cleanEmail = payload.email.trim();
       const cleanName = payload.name.trim();
+      const epoch = getSessionEpoch();
 
       await registerUser({
         name: cleanName,
         email: cleanEmail,
         password: payload.password,
+        verificationId: payload.verificationId,
+        code: payload.code,
       });
+      if (getSessionEpoch() !== epoch) {
+        throw new ApiError({ kind: 'unauthorized', status: 401, message: 'A sessão mudou durante o cadastro. Entre novamente.' });
+      }
 
       try {
         await signIn({
