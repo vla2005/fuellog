@@ -54,12 +54,7 @@ public class RegistrationService {
         UUID id = UUID.randomUUID();
         String encoded = passwords.encode(code);
         if (!Boolean.TRUE.equals(transaction.execute(status -> registrations.issue(normalized, id, encoded, now)))) throw limited();
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(from); message.setTo(normalized); message.setSubject("FuelLog: confirme seu e-mail");
-        message.setText("Seu código de confirmação do FuelLog é: " + code + "\n\n"
-                + "Ele expira em 10 minutos, às " + now.plusSeconds(600) + " (UTC).\n"
-                + "Não compartilhe este código. Se você não solicitou o cadastro, ignore este e-mail.");
-        try { sender.send(message); }
+        try { RegistrationEmail.send(sender, from, normalized, code, now.plusSeconds(600)); }
         catch (MailException error) {
             transaction.executeWithoutResult(status -> registrations.consume(id));
             throw unavailable();

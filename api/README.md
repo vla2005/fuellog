@@ -75,6 +75,10 @@ Contas existentes e login continuam disponíveis. Configure o provedor antes de 
 novos cadastros. Este repositório não contrata serviços nem registra domínios/remetentes.
 O healthcheck geral não consulta SMTP; falhas de entrega aparecem no endpoint de cadastro.
 
+A mensagem inclui HTML com a identidade FuelLog e uma versão alternativa em texto simples.
+Mascote, wordmark e paisagem são PNGs incorporados por CID a partir dos recursos do JAR,
+sem imagens remotas ou rastreadores. O código permanece texto selecionável nas duas versões.
+
 Limites persistidos e independentes do login: cinco solicitações por e-mail/hora e
 30 por endereço do conector/hora, incluindo falhas e reenvios recusados. Cabeçalhos
 encaminhados não escolhem a origem. Limites/cooldown retornam `429

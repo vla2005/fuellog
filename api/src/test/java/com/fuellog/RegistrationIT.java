@@ -9,6 +9,8 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import jakarta.mail.*;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.*;
@@ -36,14 +38,15 @@ class RegistrationIT {
     @Autowired TestClock clock;
     @MockitoBean JavaMailSender mail;
     final HttpClient http = HttpClient.newHttpClient();
-    final List<SimpleMailMessage> delivered = new CopyOnWriteArrayList<>();
+    final List<MimeMessage> delivered = new CopyOnWriteArrayList<>();
 
     @BeforeEach void resetState() {
         jdbc.update("delete from registration_codes");
         jdbc.update("delete from registration_attempts");
         delivered.clear(); clock.current.set(NOW); reset(mail);
-        doAnswer(call -> { delivered.add(new SimpleMailMessage((SimpleMailMessage) call.getArgument(0))); return null; })
-                .when(mail).send(any(SimpleMailMessage.class));
+        when(mail.createMimeMessage()).thenAnswer(call -> new MimeMessage(Session.getInstance(new Properties())));
+        doAnswer(call -> { var message = (MimeMessage) call.getArgument(0); message.saveChanges(); delivered.add(message); return null; })
+                .when(mail).send(any(MimeMessage.class));
     }
 
     @Test void requestSendsOnlyHashedExpiringCodeThenVerifiedRegistrationConsumesIt() throws Exception {
@@ -56,8 +59,10 @@ class RegistrationIT {
         assertThat(body.propertyNames()).containsExactlyInAnyOrder("verificationId", "expiresAt", "resendAfterSeconds");
         assertThat(body.path("expiresAt").asString()).isEqualTo("2026-11-02T12:10:00Z");
         assertThat(body.path("resendAfterSeconds").asInt()).isEqualTo(60);
+        assertThat(delivered).hasSize(1);
+        assertThat(delivered.getFirst().isMimeType("multipart/related")).isTrue();
         String code = code();
-        assertThat(delivered.getFirst().getTo()).containsExactly(email);
+        assertThat(delivered.getFirst().getAllRecipients()).extracting(Object::toString).containsExactly(email);
         String hash = jdbc.queryForObject("select code_hash from registration_codes where email=?", String.class, email);
         assertThat(hash).isNotEqualTo(code);
         assertThat(passwords.matches(code, hash)).isTrue();
@@ -117,7 +122,7 @@ class RegistrationIT {
     }
 
     @Test void failedDeliveryInvalidatesCodeAndReturnsSafeUnavailable() throws Exception {
-        doThrow(new MailSendException("Synthetic private delivery failure")).when(mail).send(any(SimpleMailMessage.class));
+        doThrow(new MailSendException("Synthetic private delivery failure")).when(mail).send(any(MimeMessage.class));
         assertError(issue(email()), 503, "REGISTRATION_DELIVERY_UNAVAILABLE");
         assertThat(jdbc.queryForObject("select count(*) from registration_codes", Integer.class)).isZero();
     }
@@ -199,7 +204,18 @@ class RegistrationIT {
         } finally { jdbc.execute("drop schema if exists " + schema + " cascade"); }
     }
 
-    String code() { return java.util.regex.Pattern.compile("(?<![0-9])[0-9]{6}(?![0-9])").matcher(delivered.getLast().getText()).results().map(java.util.regex.MatchResult::group).findFirst().orElseThrow(); }
+    String code() throws Exception { return java.util.regex.Pattern.compile("(?<![0-9])[0-9]{6}(?![0-9])").matcher(plainText(delivered.getLast())).results().map(java.util.regex.MatchResult::group).findFirst().orElseThrow(); }
+    String plainText(Part part) throws Exception {
+        if (part.isMimeType("text/plain")) return (String) part.getContent();
+        if (part.isMimeType("multipart/*")) {
+            Multipart content = (Multipart) part.getContent();
+            for (int index = 0; index < content.getCount(); index++) {
+                String text = plainText(content.getBodyPart(index));
+                if (!text.isEmpty()) return text;
+            }
+        }
+        return "";
+    }
     String email() { return UUID.randomUUID() + "@example.test"; }
     HttpResponse<String> issue(String email) throws Exception { return call("/auth/registration-code", Map.of("email", email)); }
     HttpResponse<String> register(String email, String id, String code) throws Exception {
