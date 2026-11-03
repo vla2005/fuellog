@@ -87,7 +87,7 @@ export function DeleteFuelEntrySheet({ entry, vehicleName, onClose, onDeleted }:
       <PrimaryButton label="Cancelar" testID="fuel-delete-cancel" variant="secondary" disabled={pending} onPress={onClose} />
       {conflict ? <PrimaryButton label="Atualizar dados" variant="secondary" loading={pending} onPress={() => void refresh()} /> : null}
       <PrimaryButton label="Excluir abastecimento" variant="danger" loading={pending} disabled={conflict} onPress={() => void remove()} />
-      {pending ? <Text accessibilityRole="status" accessibilityLiveRegion="polite" style={{ color: colors.textSecondary }}>Aguarde a confirmação do servidor...</Text> : null}
+      {pending ? <Text role="status" accessibilityLiveRegion="polite" style={{ color: colors.textSecondary }}>Aguarde a confirmação do servidor...</Text> : null}
     </AppSheet>
   );
 }
