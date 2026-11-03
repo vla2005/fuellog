@@ -13,27 +13,34 @@ import { BiometricDeviceInfo, getBiometricDeviceInfo } from '@/api/biometricAuth
 import { setOnUnauthorizedListener } from '@/api/client';
 import {
   createVehicle as apiCreateVehicle,
+  createBiometricSession,
   updateVehicle as apiUpdateVehicle,
   getFuelTypes,
   getMe,
   listVehicles,
   loginUser,
+  loginWithBiometrics,
   logoutSession,
   refreshSession,
+  revokeBiometricSession,
+  revokePendingBiometricSessions,
   registerUser,
   verifyTwoFactor,
 } from '@/api/endpoints';
 import {
   bumpSessionEpoch,
+  clearActiveSession,
   clearStoredTokens,
   disableBiometricSession,
   enableBiometricSession,
   getAccessToken,
+  getBiometricSessionId,
   getRefreshToken,
   getScopedVehicleStorageKey,
   getSessionEpoch,
   getStoredSessionType,
   isBiometricSessionUnlocked,
+  saveBiometricLoginAtomically,
   unlockBiometricSession,
   UnlockBiometricResult,
 } from '@/api/tokenStorage';
@@ -127,7 +134,7 @@ interface SessionContextValue {
   dismissToast: () => void;
   unlockWithBiometrics: () => Promise<UnlockBiometricResult>;
   enableBiometricsOnCurrentSession: () => Promise<{ success: boolean; canceled: boolean; error?: string }>;
-  disableBiometricsOnCurrentSession: () => Promise<void>;
+  disableBiometricsOnCurrentSession: (alreadyRevoked?: boolean) => Promise<void>;
 }
 
 const DEFAULT_FUEL_CATALOG: FuelType[] = [
@@ -159,6 +166,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [biometricSuggestionOpen, setBiometricSuggestionOpen] = useState(false);
   const [biometricSuggestionBusy, setBiometricSuggestionBusy] = useState(false);
   const biometricSuggestionBusyRef = useRef(false);
+  const biometricUnlockBusyRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChallengeRef = useRef<{
     challengeToken: string;
@@ -259,6 +267,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setBiometricDeviceInfo(devInfo);
 
       const storedType = await getStoredSessionType().catch(() => 'none');
+      const biometricSessionId = await getBiometricSessionId();
       if (getSessionEpoch() !== epoch) {
         return;
       }
@@ -276,10 +285,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setIsBiometricActive(true);
       } else if (storedType === 'plain') {
         setHasBiometricLock(false);
-        setIsBiometricActive(false);
+        setIsBiometricActive(Boolean(biometricSessionId));
       } else {
-        setHasBiometricLock(false);
-        setIsBiometricActive(false);
+        setHasBiometricLock(Boolean(biometricSessionId));
+        setIsBiometricActive(Boolean(biometricSessionId));
         if (getSessionEpoch() === epoch) {
           clearInMemoryUserData();
           setStatus('unauthenticated');
@@ -307,6 +316,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      await revokePendingBiometricSessions().catch(() => {
+        if (getSessionEpoch() === epoch) {
+          showToast({ tone: 'warning', title: 'Revogação biométrica pendente', subtitle: 'Sua sessão está ativa. Conecte-se para concluir a remoção do acesso biométrico anterior.' });
+        }
+      });
+      if (getSessionEpoch() !== epoch) return;
+
       await loadUserWorkspace(me, epoch);
       if (getSessionEpoch() !== epoch) {
         return;
@@ -325,6 +341,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // Ignora falha de remoção durante limpeza de 401
         }
+        if (getSessionEpoch() !== epoch + 1) return;
         clearInMemoryUserData();
         setHasBiometricLock(false);
         setIsBiometricActive(false);
@@ -339,7 +356,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setBootError(message);
       setStatus('connection_error');
     }
-  }, [clearInMemoryUserData, loadUserWorkspace]);
+  }, [clearInMemoryUserData, loadUserWorkspace, showToast]);
 
   useEffect(() => {
     void bootstrapSession();
@@ -352,6 +369,34 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
     activeChallengeRef.current = null;
     bumpSessionEpoch();
+  }, []);
+
+  const enableBiometricsOnCurrentSession = useCallback(async (): Promise<{
+    success: boolean;
+    canceled: boolean;
+    error?: string;
+  }> => {
+    const epoch = getSessionEpoch();
+    const credential = await createBiometricSession();
+    if (getSessionEpoch() !== epoch) {
+      return { success: false, canceled: false, error: 'Sessão alterada.' };
+    }
+    try {
+      const res = await enableBiometricSession(credential, epoch);
+      if (getSessionEpoch() !== epoch) return { success: false, canceled: false, error: 'Sessão alterada.' };
+      if (res.success) {
+        setHasBiometricLock(false);
+        setIsBiometricActive(true);
+      } else {
+        await revokeBiometricSession(credential.session_id).catch(() => {});
+      }
+      return res;
+    } catch (err) {
+      if (getSessionEpoch() === epoch) {
+        await revokeBiometricSession(credential.session_id).catch(() => {});
+      }
+      throw err;
+    }
   }, []);
 
   const signIn = useCallback(
@@ -393,6 +438,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return { mfaRequired: false };
       }
 
+      let revocationPending = false;
+      await revokePendingBiometricSessions().catch(() => {
+        revocationPending = true;
+      });
+      if (getSessionEpoch() !== epoch) return { mfaRequired: false };
+
       await loadUserWorkspace(me, epoch);
       if (getSessionEpoch() !== epoch) {
         return { mfaRequired: false };
@@ -400,7 +451,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       if (shouldPreserveBiometrics) {
         try {
-          const bioResult = await enableBiometricSession(epoch);
+          const bioResult = await enableBiometricsOnCurrentSession();
           if (getSessionEpoch() !== epoch) {
             return { mfaRequired: false };
           }
@@ -461,6 +512,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setUser(me);
       setPrefilledLoginEmail(me.email);
       setBootError(null);
+      if (revocationPending) {
+        showToast({ tone: 'warning', title: 'Revogação biométrica pendente', subtitle: 'Sua sessão está ativa. Conecte-se para concluir a remoção do acesso biométrico anterior.' });
+      }
       setStatus('authenticated');
       return { mfaRequired: false };
     },
@@ -470,6 +524,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       biometricDeviceInfo,
       isBiometricActive,
       hasBiometricLock,
+      enableBiometricsOnCurrentSession,
     ],
   );
 
@@ -520,6 +575,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      let revocationPending = false;
+      await revokePendingBiometricSessions().catch(() => {
+        revocationPending = true;
+      });
+      if (getSessionEpoch() !== expectedEpoch) return;
+
       await loadUserWorkspace(me, expectedEpoch);
       if (getSessionEpoch() !== expectedEpoch) {
         return;
@@ -527,7 +588,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       if (shouldEnableBiometrics) {
         try {
-          const bioResult = await enableBiometricSession(expectedEpoch);
+          const bioResult = await enableBiometricsOnCurrentSession();
           if (getSessionEpoch() !== expectedEpoch) {
             return;
           }
@@ -589,6 +650,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setUser(me);
       setPrefilledLoginEmail(me.email);
       setBootError(null);
+      if (revocationPending) {
+        showToast({ tone: 'warning', title: 'Revogação biométrica pendente', subtitle: 'Sua sessão está ativa. Conecte-se para concluir a remoção do acesso biométrico anterior.' });
+      }
       setStatus('authenticated');
     },
     [
@@ -597,6 +661,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       biometricDeviceInfo,
       isBiometricActive,
       hasBiometricLock,
+      enableBiometricsOnCurrentSession,
     ],
   );
 
@@ -661,26 +726,36 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    const epoch = getSessionEpoch();
+    let clearingStarted = false;
     let storageRemovalError: unknown = null;
+    let biometricSessionId: string | null = null;
     try {
+      biometricSessionId = await getBiometricSessionId();
+      if (getSessionEpoch() !== epoch) return;
       try {
         await logoutSession();
       } catch {
         // Mesmo se o servidor estiver offline no logout, limpamos localmente a sessão
       }
+      if (getSessionEpoch() !== epoch) return;
       try {
-        await clearStoredTokens();
+        clearingStarted = true;
+        if (biometricSessionId) await clearActiveSession(epoch);
+        else await clearStoredTokens();
       } catch (err: unknown) {
         storageRemovalError = err;
       }
     } finally {
-      clearInMemoryUserData();
-      setHasBiometricLock(false);
-      setIsBiometricActive(false);
-      biometricSuggestionBusyRef.current = false;
-      setBiometricSuggestionBusy(false);
-      setBiometricSuggestionOpen(false);
-      setStatus('unauthenticated');
+      if (clearingStarted && getSessionEpoch() === epoch + 1) {
+        clearInMemoryUserData();
+        setHasBiometricLock(Boolean(biometricSessionId));
+        setIsBiometricActive(Boolean(biometricSessionId));
+        biometricSuggestionBusyRef.current = false;
+        setBiometricSuggestionBusy(false);
+        setBiometricSuggestionOpen(false);
+        setStatus('unauthenticated');
+      }
     }
 
     if (storageRemovalError) {
@@ -791,20 +866,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const unlockWithBiometrics = useCallback(async (): Promise<UnlockBiometricResult> => {
-    const epoch = getSessionEpoch();
-    const unlockRes = await unlockBiometricSession();
-
-    if (!unlockRes.success) {
-      if (unlockRes.invalidated) {
-        setHasBiometricLock(false);
-        setIsBiometricActive(false);
-        clearInMemoryUserData();
-        setStatus('unauthenticated');
-      }
-      return unlockRes;
+    if (biometricUnlockBusyRef.current) {
+      return { success: false, canceled: false, invalidated: false, error: 'Autenticação biométrica em andamento.' };
     }
-
+    biometricUnlockBusyRef.current = true;
+    const epoch = getSessionEpoch();
+    let activePublished = false;
     try {
+      const unlockRes = await unlockBiometricSession();
+      if (getSessionEpoch() !== epoch) {
+        return { success: false, canceled: false, invalidated: false, error: 'Sessão alterada.' };
+      }
+
+      if (!unlockRes.success) {
+        if (unlockRes.invalidated) {
+          await disableBiometricSession(epoch);
+          if (getSessionEpoch() !== epoch) return unlockRes;
+          setHasBiometricLock(false);
+          setIsBiometricActive(false);
+          clearInMemoryUserData();
+          setStatus('unauthenticated');
+        }
+        return unlockRes;
+      }
+
       if (getSessionEpoch() !== epoch) {
         return {
           success: false,
@@ -814,7 +899,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
-      await refreshSession();
+      if (unlockRes.legacy) {
+        // Migração exige um único desbloqueio da credencial antiga.
+        await refreshSession();
+        activePublished = true;
+        if (getSessionEpoch() !== epoch) {
+          return { success: false, canceled: false, invalidated: false, error: 'Sessão alterada.' };
+        }
+        await enableBiometricsOnCurrentSession();
+      } else {
+        const result = await loginWithBiometrics(unlockRes.refreshToken);
+        if (getSessionEpoch() !== epoch) {
+          return { success: false, canceled: false, invalidated: false, error: 'Sessão alterada.' };
+        }
+        await saveBiometricLoginAtomically(result.biometric, result.session, epoch);
+        activePublished = true;
+      }
 
       if (getSessionEpoch() !== epoch) {
         return {
@@ -845,11 +945,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
+      const biometricSessionId = await getBiometricSessionId();
+      if (getSessionEpoch() !== epoch) {
+        return { success: false, canceled: false, invalidated: false, error: 'Sessão alterada.' };
+      }
       setUser(me);
       setPrefilledLoginEmail(me.email);
       setBootError(null);
       setHasBiometricLock(false);
-      setIsBiometricActive(true);
+      setIsBiometricActive(Boolean(biometricSessionId));
       setStatus('authenticated');
 
       return unlockRes;
@@ -869,6 +973,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // Ignora
         }
+        if (getSessionEpoch() !== epoch + 1) {
+          return { success: false, canceled: false, invalidated: false, error: 'Sessão alterada.' };
+        }
         clearInMemoryUserData();
         setHasBiometricLock(false);
         setIsBiometricActive(false);
@@ -885,33 +992,49 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         err instanceof Error
           ? err.message
           : 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.';
+      if (activePublished) {
+        await clearActiveSession(epoch);
+        if (getSessionEpoch() === epoch + 1) {
+          const biometricSessionId = await getBiometricSessionId();
+          if (getSessionEpoch() !== epoch + 1) {
+            return { success: false, canceled: false, invalidated: false, error: 'Sessão alterada.' };
+          }
+          clearInMemoryUserData();
+          setHasBiometricLock(Boolean(biometricSessionId));
+          setStatus('unauthenticated');
+        }
+      }
       return {
         success: false,
         canceled: false,
         invalidated: false,
         error: message,
       };
+    } finally {
+      biometricUnlockBusyRef.current = false;
     }
-  }, [clearInMemoryUserData, loadUserWorkspace]);
+  }, [clearInMemoryUserData, loadUserWorkspace, enableBiometricsOnCurrentSession]);
 
-  const enableBiometricsOnCurrentSession = useCallback(async (): Promise<{
-    success: boolean;
-    canceled: boolean;
-    error?: string;
-  }> => {
+  const disableBiometricsOnCurrentSession = useCallback(async (alreadyRevoked = false): Promise<void> => {
     const epoch = getSessionEpoch();
-    const res = await enableBiometricSession(epoch);
-    if (res.success) {
-      setHasBiometricLock(false);
-      setIsBiometricActive(true);
+    let pendingError: unknown = null;
+    try { await revokePendingBiometricSessions(); } catch (err) {
+      if (!alreadyRevoked) throw err;
+      pendingError = err;
     }
-    return res;
-  }, []);
-
-  const disableBiometricsOnCurrentSession = useCallback(async (): Promise<void> => {
-    await disableBiometricSession();
-    setIsBiometricActive(false);
-    setHasBiometricLock(false);
+    const sessionId = await getBiometricSessionId();
+    if (getSessionEpoch() !== epoch) return;
+    if (sessionId && !alreadyRevoked) await revokeBiometricSession(sessionId);
+    if (getSessionEpoch() !== epoch) return;
+    try {
+      await disableBiometricSession(epoch, true);
+    } finally {
+      if (getSessionEpoch() === epoch) {
+        setIsBiometricActive(false);
+        setHasBiometricLock(false);
+      }
+    }
+    if (pendingError) throw pendingError;
   }, []);
 
   const dismissBiometricSuggestion = useCallback(() => {
@@ -1150,7 +1273,7 @@ function BiometricSuggestionModal({
         </View>
 
         <Text style={[modalStyles.description, { color: colors.textSecondary }]}>
-          Use sua biometria para entrar no FuelLog de forma rápida e segura nos próximos acessos, sem precisar digitar sua senha.
+          Depois de sair da conta, use sua biometria para entrar novamente sem digitar a senha. Ao reabrir o app, sua sessão continua automaticamente.
         </Text>
 
         <View style={modalStyles.actions}>

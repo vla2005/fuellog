@@ -318,12 +318,12 @@ export function SettingsScreen({
                   </Text>
                   <Text style={[styles.menuItemSub, { color: colors.textSecondary }]}>
                     {isBiometricActive
-                      ? `Ativada (${biometricDeviceInfo?.biometricLabel ?? 'Biometria'}) • Desbloqueio rápido neste aparelho`
+                      ? `Ativada (${biometricDeviceInfo?.biometricLabel ?? 'Biometria'}) • Entrar novamente após sair`
                       : biometricDeviceInfo?.isExpoGoIos
                         ? 'Indisponível no Expo Go • Requer build própria no iOS'
                         : !biometricDeviceInfo?.isSupported
                           ? (biometricDeviceInfo?.reasonNotSupported ?? 'Biometria não disponível neste aparelho')
-                          : 'Desativada • Toque para ativar o desbloqueio rápido'}
+                          : 'Desativada • Ative para entrar após sair da conta'}
                   </Text>
                 </View>
               </View>

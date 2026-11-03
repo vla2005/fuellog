@@ -48,7 +48,7 @@ export function TwoFactorSheet({
   onStatusChanged,
 }: TwoFactorSheetProps) {
   const { colors } = useAppTheme();
-  const { showToast, getCurrentSessionEpoch } = useSession();
+  const { showToast, getCurrentSessionEpoch, disableBiometricsOnCurrentSession } = useSession();
 
   const [mode, setMode] = useState<SheetMode>('status');
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -275,6 +275,11 @@ export function TwoFactorSheet({
       setTotpCode('');
       setRecoveryCodes(res.recoveryCodes);
       setMode('setup_recovery');
+      await disableBiometricsOnCurrentSession(true).catch(() => {
+        if (getCurrentSessionEpoch() === epoch) {
+          showToast({ tone: 'warning', title: 'Biometria desativada', subtitle: 'O servidor revogou o acesso biométrico. Não foi possível limpar o vínculo neste aparelho.' });
+        }
+      });
     } catch (err: unknown) {
       if (
         getCurrentSessionEpoch() !== epoch ||
@@ -366,6 +371,12 @@ export function TwoFactorSheet({
       }
       clearSecretsInMemory();
       setMode('status');
+      await disableBiometricsOnCurrentSession(true).catch(() => {
+        if (getCurrentSessionEpoch() === epoch) {
+          showToast({ tone: 'warning', title: 'Biometria desativada', subtitle: 'O servidor revogou o acesso biométrico. Não foi possível limpar o vínculo neste aparelho.' });
+        }
+      });
+      if (getCurrentSessionEpoch() !== epoch || !isVisibleRef.current) return;
       await fetchStatus();
       if (
         getCurrentSessionEpoch() === epoch &&

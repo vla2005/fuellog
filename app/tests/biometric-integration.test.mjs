@@ -1,58 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import ts from 'typescript';
-
-function extractCallbackFromSessionContext(callbackName, { memoized = false } = {}) {
-  const sourceText = readFileSync(
-    new URL('../src/state/SessionContext.tsx', import.meta.url),
-    'utf8',
-  );
-  const sourceFile = ts.createSourceFile(
-    'SessionContext.tsx',
-    sourceText,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TSX,
-  );
-
-  let arrowNode = null;
-  let callbackNode = null;
-  function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.name.getText(sourceFile) === callbackName &&
-      node.initializer &&
-      ts.isCallExpression(node.initializer) &&
-      node.initializer.arguments.length > 0
-    ) {
-      arrowNode = node.initializer.arguments[0];
-      callbackNode = node.initializer;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-
-  assert.ok(
-    arrowNode,
-    `VariableDeclaration ${callbackName} com useCallback(arrow) não encontrada no AST de SessionContext.tsx`,
-  );
-
-  const arrowCode = (memoized ? callbackNode : arrowNode).getText(sourceFile);
-  const transpiled = ts.transpileModule(`exports.run = ${arrowCode};`, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  });
-
-  return function createCallbackInstance(scope) {
-    const module = { exports: {} };
-    const keys = Object.keys(scope);
-    const values = Object.values(scope);
-    const fn = new Function('require', 'module', 'exports', ...keys, transpiled.outputText);
-    fn(() => {}, module, module.exports, ...values);
-    return module.exports.run;
-  };
-}
+import { extractCallbackFromSessionContext } from './helpers/session-fixtures.mjs';
 
 class MockApiError extends Error {
   constructor({ message, kind, status }) {
@@ -62,6 +10,186 @@ class MockApiError extends Error {
     this.status = status;
   }
 }
+
+test('bootstrap automático com B separado não exige biometria; após Sair e reload não chama API', async () => {
+  const factory = extractCallbackFromSessionContext('bootstrapSession');
+  let active = true;
+  let status;
+  let lock;
+  let biometric;
+  let protectedCalls = 0;
+  const run = factory({
+    getSessionEpoch: () => 1, setStatus: s => { status = s; }, setBootError: () => {},
+    getBiometricDeviceInfo: async () => ({ isSupported: true }), setBiometricDeviceInfo: () => {},
+    getStoredSessionType: async () => active ? 'plain' : 'none',
+    getBiometricSessionId: async () => 'session-B',
+    isBiometricSessionUnlocked: () => false,
+    setHasBiometricLock: value => { lock = value; }, setIsBiometricActive: value => { biometric = value; },
+    clearInMemoryUserData: () => {}, getAccessToken: () => null,
+    getRefreshToken: async () => active ? 'refresh-A' : null,
+    refreshSession: async () => { protectedCalls++; },
+    getMe: async () => { protectedCalls++; return { id: 'owner' }; },
+    loadUserWorkspace: async () => { protectedCalls++; }, setUser: () => {}, ApiError: MockApiError,
+  });
+  await run();
+  assert.equal(status, 'authenticated');
+  assert.equal(lock, false);
+  assert.equal(biometric, true);
+  assert.equal(protectedCalls, 3);
+  active = false;
+  protectedCalls = 0;
+  await run();
+  assert.equal(status, 'unauthenticated');
+  assert.equal(lock, true);
+  assert.equal(biometric, true);
+  assert.equal(protectedCalls, 0);
+});
+
+test('Sair revoga A e remove somente sessão ativa preservando opção biométrica', async () => {
+  const factory = extractCallbackFromSessionContext('signOut');
+  const calls = [];
+  let lock;
+  let active;
+  let epoch = 2;
+  const signOut = factory({
+    getSessionEpoch: () => epoch,
+    logoutSession: async () => { calls.push('revoke-A'); },
+    clearActiveSession: async () => { calls.push('remove-A'); epoch++; },
+    clearStoredTokens: async () => { assert.fail('B deve permanecer'); },
+    getBiometricSessionId: async () => 'B', clearInMemoryUserData: () => {},
+    setHasBiometricLock: v => { lock = v; }, setIsBiometricActive: v => { active = v; },
+    biometricSuggestionBusyRef: { current: false }, setBiometricSuggestionBusy: () => {},
+    setBiometricSuggestionOpen: () => {}, setStatus: () => {}, showToast: () => {},
+  });
+  await signOut();
+  assert.deepEqual(calls, ['revoke-A', 'remove-A']);
+  assert.equal(lock, true);
+  assert.equal(active, true);
+});
+
+test('logout atrasado não apaga UI da sessão que iniciou durante revogação', async () => {
+  let epoch = 1;
+  const run = extractCallbackFromSessionContext('signOut')({
+    getSessionEpoch: () => epoch, getBiometricSessionId: async () => 'B',
+    logoutSession: async () => { epoch++; },
+    clearActiveSession: async () => { assert.fail('sessão nova preservada'); },
+    clearInMemoryUserData: () => { assert.fail('UI da sessão nova preservada'); },
+    setHasBiometricLock: () => { assert.fail('flags da sessão nova preservadas'); },
+    setIsBiometricActive: () => {}, setStatus: () => {},
+  });
+  await run();
+});
+
+test('relogin biométrico usa API pública, persiste B/C e só autentica após getMe', async () => {
+  const factory = extractCallbackFromSessionContext('unlockWithBiometrics');
+  const calls = [];
+  const run = factory({
+    getSessionEpoch: () => 4,
+    unlockBiometricSession: async () => ({ success: true, refreshToken: 'B1', legacy: false }),
+    loginWithBiometrics: async token => { assert.equal(token, 'B1'); calls.push('public-login'); return { biometric: 'B2', session: 'C' }; },
+    saveBiometricLoginAtomically: async (b, c, epoch) => { assert.deepEqual([b, c, epoch], ['B2', 'C', 4]); calls.push('persist'); },
+    refreshSession: async () => { assert.fail('B não pode usar /auth/refresh'); },
+    getMe: async () => { calls.push('getMe'); return { id: 'owner', email: 'owner@example.test' }; },
+    loadUserWorkspace: async () => {}, setUser: () => {}, setPrefilledLoginEmail: () => {},
+    setBootError: () => {}, setHasBiometricLock: () => {}, setIsBiometricActive: () => {},
+    setStatus: value => { calls.push(value); }, ApiError: MockApiError,
+  });
+  assert.equal((await run()).success, true);
+  assert.deepEqual(calls, ['public-login', 'persist', 'getMe', 'authenticated']);
+});
+
+test('cancelar opt-in revoga B recém-criada e mantém sessão ativa', async () => {
+  const factory = extractCallbackFromSessionContext('enableBiometricsOnCurrentSession');
+  const calls = [];
+  const run = factory({
+    getSessionEpoch: () => 8,
+    createBiometricSession: async () => ({ refresh_token: 'new-B', session_id: 'B', refresh_expires_at: '2099-01-01T00:00:00Z' }),
+    enableBiometricSession: async (credential, epoch) => { assert.equal(credential.refresh_token, 'new-B'); assert.equal(epoch, 8); return { success: false, canceled: true }; },
+    revokeBiometricSession: async id => { calls.push(id); }, setHasBiometricLock: () => {}, setIsBiometricActive: () => {},
+  });
+  assert.equal((await run()).canceled, true);
+  assert.deepEqual(calls, ['B']);
+});
+
+test('migração legada desbloqueia uma vez, usa refresh normal e registra B independente', async () => {
+  const calls = [];
+  const run = extractCallbackFromSessionContext('unlockWithBiometrics')({
+    getSessionEpoch: () => 1,
+    unlockBiometricSession: async () => ({ success: true, refreshToken: 'legacy-A', legacy: true }),
+    refreshSession: async () => { calls.push('refresh-A'); },
+    enableBiometricsOnCurrentSession: async () => { calls.push('create-B'); return { success: true }; },
+    loginWithBiometrics: async () => { assert.fail('legado não é B'); },
+    getBiometricSessionId: async () => 'new-B',
+    getMe: async () => ({ id: 'owner', email: 'owner@example.test' }), loadUserWorkspace: async () => {},
+    setUser: () => {}, setPrefilledLoginEmail: () => {}, setBootError: () => {},
+    setHasBiometricLock: () => {}, setIsBiometricActive: () => {}, setStatus: value => { calls.push(value); },
+    ApiError: MockApiError,
+  });
+  assert.equal((await run()).success, true);
+  assert.deepEqual(calls, ['refresh-A', 'create-B', 'authenticated']);
+});
+
+for (const stage of ['cancel', 'network', 'unauthorized', 'getMe-network', 'stale']) {
+  test(`relogin biométrico ${stage}: não publica acesso e preserva B salvo rejeição terminal`, async () => {
+    let epoch = 1;
+    let cleared = 0;
+    let activeCleared = 0;
+    let authenticated = false;
+    let protectedCalls = 0;
+    const run = extractCallbackFromSessionContext('unlockWithBiometrics')({
+      getSessionEpoch: () => epoch,
+      unlockBiometricSession: async () => stage === 'cancel'
+        ? { success: false, canceled: true, invalidated: false, error: 'cancel' }
+        : { success: true, refreshToken: 'B' },
+      loginWithBiometrics: async () => {
+        if (stage === 'network') throw new Error('offline');
+        if (stage === 'unauthorized') throw new MockApiError({ kind: 'unauthorized', status: 401 });
+        if (stage === 'stale') epoch++;
+        return { biometric: 'B2', session: 'C' };
+      },
+      saveBiometricLoginAtomically: async () => {},
+      getMe: async () => { protectedCalls++; throw new Error('offline getMe'); },
+      clearActiveSession: async expected => { assert.equal(expected, epoch); epoch++; activeCleared++; },
+      clearStoredTokens: async () => { cleared++; epoch++; },
+      getBiometricSessionId: async () => 'B', clearInMemoryUserData: () => {},
+      setHasBiometricLock: () => {}, setIsBiometricActive: () => {},
+      setStatus: value => { authenticated ||= value === 'authenticated'; }, ApiError: MockApiError,
+    });
+    assert.equal((await run()).success, false);
+    assert.equal(authenticated, false);
+    assert.equal(cleared, stage === 'unauthorized' ? 1 : 0);
+    assert.equal(activeCleared, stage === 'getMe-network' ? 1 : 0);
+    assert.equal(protectedCalls, stage === 'getMe-network' ? 1 : 0);
+  });
+}
+
+test('desativação revoga B por id antes da limpeza e não altera sessão ativa', async () => {
+  const calls = [];
+  const run = extractCallbackFromSessionContext('disableBiometricsOnCurrentSession')({
+    getSessionEpoch: () => 3, getBiometricSessionId: async () => 'B-id',
+    revokeBiometricSession: async id => { calls.push(`revoke:${id}`); },
+    disableBiometricSession: async epoch => { assert.equal(epoch, 3); calls.push('remove-B'); },
+    setHasBiometricLock: value => { assert.equal(value, false); },
+    setIsBiometricActive: value => { assert.equal(value, false); },
+  });
+  await run();
+  assert.deepEqual(calls, ['revoke:B-id', 'remove-B']);
+});
+
+test('401 biométrico antigo não limpa UI de novo login durante remoção de credenciais', async () => {
+  let epoch = 1;
+  let clearedUi = false;
+  const run = extractCallbackFromSessionContext('unlockWithBiometrics')({
+    getSessionEpoch: () => epoch,
+    unlockBiometricSession: async () => ({ success: true, refreshToken: 'B' }),
+    loginWithBiometrics: async () => { throw new MockApiError({ kind: 'unauthorized', status: 401 }); },
+    clearStoredTokens: async () => { epoch += 2; },
+    clearInMemoryUserData: () => { clearedUi = true; },
+    setHasBiometricLock: () => {}, setIsBiometricActive: () => {}, setStatus: () => {}, ApiError: MockApiError,
+  });
+  assert.equal((await run()).success, false);
+  assert.equal(clearedUi, false);
+});
 
 test('bootstrapSession real AST: carrega capacidade biométrica com guard de época', async () => {
   const factory = extractCallbackFromSessionContext('bootstrapSession');
@@ -407,7 +535,8 @@ test('sincronização de flags em logout, senha alterada e unauthorized', async 
   let suggestionBusy = true;
   const signOut = signOutFactory({
     logoutSession: async () => {},
-    clearStoredTokens: async () => {},
+    getSessionEpoch: () => epoch,
+    clearStoredTokens: async () => { epoch += 1; },
     clearInMemoryUserData: () => {},
     setHasBiometricLock: (v) => { hasBiometricLock = v; },
     setIsBiometricActive: (v) => { isBiometricActive = v; },
@@ -423,6 +552,7 @@ test('sincronização de flags em logout, senha alterada e unauthorized', async 
   assert.equal(isBiometricActive, false, 'isBiometricActive deve resetar para false no logout');
   assert.equal(status, 'unauthenticated');
 
+  epoch = 5;
   // Teste handlePasswordChanged
   hasBiometricLock = true;
   isBiometricActive = true;
@@ -659,12 +789,14 @@ test('signOut e handlePasswordChanged fecham popup de biometria', async () => {
   const signOutFactory = extractCallbackFromSessionContext('signOut');
   const passwordChangeFactory = extractCallbackFromSessionContext('handlePasswordChanged');
 
+  let logoutEpoch = 0;
   let suggestionOpen = true;
   let suggestionBusy = true;
 
   const signOut = signOutFactory({
     logoutSession: async () => {},
-    clearStoredTokens: async () => {},
+    getSessionEpoch: () => logoutEpoch,
+    clearStoredTokens: async () => { logoutEpoch += 1; },
     clearInMemoryUserData: () => {},
     setHasBiometricLock: () => {},
     setIsBiometricActive: () => {},

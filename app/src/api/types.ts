@@ -50,6 +50,17 @@ export interface TokenResponse {
   session_id: string;
 }
 
+export interface BiometricSession {
+  refresh_token: string;
+  refresh_expires_at: string;
+  session_id: string;
+}
+
+export interface BiometricLoginResponse {
+  session: TokenResponse;
+  biometric: BiometricSession;
+}
+
 export interface CreateVehicleRequest {
   nickname: string;
   brand?: string | null;

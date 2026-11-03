@@ -1,7 +1,17 @@
 import { apiRequest, performSingleFlightRefresh } from './client';
-import { getSessionEpoch, saveTokenPairAtomically } from './tokenStorage';
+import {
+  completeBiometricSessionRevocation,
+  getPendingBiometricSessionIds,
+  getRefreshToken,
+  getSessionEpoch,
+  MAX_PENDING_BIOMETRIC_REVOCATIONS,
+  queueBiometricSessionRevocation,
+  saveTokenPairAtomically,
+} from './tokenStorage';
 import {
   ApiError,
+  BiometricSession,
+  BiometricLoginResponse,
   CreateFuelEntryRequest,
   CreateVehicleRequest,
   DashboardResponse,
@@ -87,7 +97,7 @@ export async function loginUser(payload: LoginRequest): Promise<LoginResult> {
   if (isTwoFactorChallenge(result)) {
     return result;
   }
-  await saveTokenPairAtomically(result.access_token, result.refresh_token, epochBeforeLogin);
+  await saveTokenPairAtomically(result.access_token, result.refresh_token, epochBeforeLogin, { clearBiometrics: true });
   return result;
 }
 
@@ -109,7 +119,7 @@ export async function verifyTwoFactor(
       status: 401,
     });
   }
-  await saveTokenPairAtomically(tokens.access_token, tokens.refresh_token, epochBeforeVerify);
+  await saveTokenPairAtomically(tokens.access_token, tokens.refresh_token, epochBeforeVerify, { clearBiometrics: true });
   return tokens;
 }
 
@@ -167,6 +177,56 @@ export async function disableTwoFactor(
 
 export async function refreshSession(): Promise<TokenResponse> {
   return performSingleFlightRefresh();
+}
+
+export async function createBiometricSession(): Promise<BiometricSession> {
+  const epoch = getSessionEpoch();
+  await revokePendingBiometricSessions();
+  const pending = await getPendingBiometricSessionIds();
+  if (pending.length >= MAX_PENDING_BIOMETRIC_REVOCATIONS) {
+    throw new Error('Há 32 revogações biométricas pendentes. Entre nas contas anteriores para concluí-las antes de ativar novamente.');
+  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const refreshToken = await getRefreshToken();
+    if (!refreshToken || getSessionEpoch() !== epoch) {
+      throw new ApiError({ message: 'Sessão alterada ou encerrada.', kind: 'unauthorized', status: 401 });
+    }
+    try {
+      return await apiRequest({ method: 'POST', path: '/me/biometric-session', body: { refresh_token: refreshToken } });
+    } catch (err) {
+      if (attempt !== 0 || getSessionEpoch() !== epoch || !(err instanceof ApiError) ||
+          err.status !== 409 || err.problem?.code !== 'BIOMETRIC_SESSION_REFRESH_CONFLICT') throw err;
+    }
+  }
+  throw new Error('Não foi possível vincular a biometria à sessão atual.');
+}
+
+export async function revokeBiometricSession(sessionId: string): Promise<void> {
+  const epoch = getSessionEpoch();
+  await queueBiometricSessionRevocation(sessionId, epoch);
+  if (getSessionEpoch() !== epoch) throw new Error('Sessão alterada antes da revogação biométrica.');
+  await apiRequest({ method: 'DELETE', path: `/me/biometric-session/${encodeURIComponent(sessionId)}` });
+  await completeBiometricSessionRevocation(sessionId, epoch);
+}
+
+export async function revokePendingBiometricSessions(): Promise<void> {
+  const epoch = getSessionEpoch();
+  const pending = await getPendingBiometricSessionIds();
+  for (const sessionId of pending) {
+    if (getSessionEpoch() !== epoch) throw new Error('Sessão alterada durante a revogação biométrica.');
+    try {
+      await apiRequest({ method: 'DELETE', path: `/me/biometric-session/${encodeURIComponent(sessionId)}` });
+      await completeBiometricSessionRevocation(sessionId, epoch);
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 404 || getSessionEpoch() !== epoch) throw err;
+      // Outra conta não pode revogar este vínculo; conserva o UUID para a conta dona.
+    }
+  }
+}
+
+export function loginWithBiometrics(refreshToken: string): Promise<BiometricLoginResponse> {
+  return apiRequest({ method: 'POST', path: '/auth/biometric-login',
+    body: { refresh_token: refreshToken }, authenticated: false, retryOn401: false });
 }
 
 export async function logoutSession(): Promise<void> {

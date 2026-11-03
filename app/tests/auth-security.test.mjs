@@ -11,17 +11,22 @@ function loadTransport() {
   let access = null;
   let refresh = null;
   let epoch = 0;
+  let biometric = 'previous-account-B';
   const storage = {
     getAccessToken: () => access,
     getRefreshToken: async () => refresh,
     getSessionEpoch: () => epoch,
-    saveTokenPairAtomically: async (a, r, expectedEpoch) => {
+    saveTokenPairAtomically: async (a, r, expectedEpoch, options) => {
       if (expectedEpoch !== undefined && epoch !== expectedEpoch) {
         throw new Error('Sessão alterada');
       }
       access = a;
       refresh = r;
+      if (options?.clearBiometrics) biometric = null;
     },
+    getBiometricSessionId: async () => biometric,
+    getPendingBiometricSessionIds: async () => [],
+    MAX_PENDING_BIOMETRIC_REVOCATIONS: 32,
     clearStoredTokens: async () => { access = null; refresh = null; epoch += 1; },
     bumpSessionEpoch: () => { epoch += 1; return epoch; },
   };
@@ -150,10 +155,57 @@ test('verifyTwoFactor: envia desafio público e salva tokens atomicamente', asyn
     assert.equal(tokens.access_token, 'new-verified-access-token');
     assert.equal(storage.getAccessToken(), 'new-verified-access-token', 'Token deve ser salvo no storage');
     assert.equal(await storage.getRefreshToken(), 'new-verified-refresh-token');
+    assert.equal(await storage.getBiometricSessionId(), null, 'MFA não herda vínculo de outra conta');
   } finally {
     globalThis.fetch = realFetch;
   }
 });
+
+test('login biométrico é público e nunca usa refresh normal ou publica tokens antes do armazenamento protegido', async () => {
+  const { endpoints, storage } = loadTransport();
+  const realFetch = globalThis.fetch;
+  const response = {
+    session: { access_token: 'access-C', refresh_token: 'refresh-C', token_type: 'Bearer', expires_in: 900,
+      access_expires_at: '2099-01-01T00:00:00Z', refresh_expires_at: '2099-02-01T00:00:00Z', session_id: 'session-C' },
+    biometric: { refresh_token: 'B2', refresh_expires_at: '2099-03-01T00:00:00Z', session_id: 'session-B' },
+  };
+  try {
+    globalThis.fetch = async (url, init) => {
+      assert.equal(String(url), `${base}/auth/biometric-login`);
+      assert.equal(init.headers.Authorization, undefined);
+      assert.deepEqual(JSON.parse(init.body), { refresh_token: 'B1' });
+      return Response.json(response);
+    };
+    assert.deepEqual(await endpoints.loginWithBiometrics('B1'), response);
+    assert.equal(storage.getAccessToken(), null);
+    assert.equal(await storage.getRefreshToken(), null);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+for (const alwaysConflict of [false, true]) {
+  test(`registro biométrico prova refresh ativo e repete conflito uma vez (persistente=${alwaysConflict})`, async () => {
+    const { endpoints, storage } = loadTransport();
+    const realFetch = globalThis.fetch;
+    await storage.saveTokenPairAtomically('access-A', 'refresh-A');
+    const bodies = [];
+    try {
+      globalThis.fetch = async (url, init) => {
+        assert.equal(String(url), `${base}/me/biometric-session`);
+        assert.match(init.headers.Authorization, /^Bearer access-A/);
+        bodies.push(JSON.parse(init.body));
+        if (bodies.length === 1 || alwaysConflict) {
+          await storage.saveTokenPairAtomically('access-A2', 'refresh-A2');
+          return Response.json({ code: 'BIOMETRIC_SESSION_REFRESH_CONFLICT', detail: 'refresh changed' }, { status: 409 });
+        }
+        return Response.json({ refresh_token: 'B', refresh_expires_at: '2099-01-01T00:00:00Z', session_id: 'B-id' }, { status: 201 });
+      };
+      if (alwaysConflict) await assert.rejects(endpoints.createBiometricSession(), err => err.status === 409);
+      else assert.equal((await endpoints.createBiometricSession()).refresh_token, 'B');
+      assert.deepEqual(bodies, [{ refresh_token: 'refresh-A' }, { refresh_token: 'refresh-A2' }]);
+      assert.equal(await storage.getRefreshToken(), 'refresh-A2');
+    } finally { globalThis.fetch = realFetch; }
+  });
+}
 
 test('verifyTwoFactor: mudança de epoch em voo descarta tokens recebidos', async () => {
   const { endpoints, storage } = loadTransport();
