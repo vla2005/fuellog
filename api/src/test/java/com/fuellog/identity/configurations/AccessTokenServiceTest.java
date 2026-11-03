@@ -157,7 +157,7 @@ class AccessTokenServiceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
     @Test void credentialAllowlistIsExactAndMethodBound() {
-        for (String path : List.of("register", "login", "refresh")) {
+        for (String path : List.of("register", "login", "refresh", "biometric-login")) {
             assertThat(IdentitySecurityConfiguration.publicCredentials("POST", "/api/v1/auth/" + path)).isTrue();
             assertThat(IdentitySecurityConfiguration.publicCredentials("GET", "/api/v1/auth/" + path)).isFalse();
         }

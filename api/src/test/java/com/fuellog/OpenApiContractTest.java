@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -59,6 +60,8 @@ class OpenApiContractTest {
                 Map.entry("Refresh", "identity.dtos.IdentityDtos$Refresh"),
                 Map.entry("RegisteredUser", "identity.dtos.IdentityDtos$RegisteredUser"),
                 Map.entry("TokenResponse", "identity.dtos.IdentityDtos$TokenResponse"),
+                Map.entry("BiometricSession", "identity.dtos.IdentityDtos$BiometricSession"),
+                Map.entry("BiometricLoginResponse", "identity.dtos.IdentityDtos$BiometricLoginResponse"),
                 Map.entry("Me", "identity.dtos.IdentityDtos$Me"),
                 Map.entry("PasswordChange", "identity.dtos.PasswordChangeDtos$ChangePassword"),
                 Map.entry("TwoFactorStatus", "identity.dtos.TwoFactorDtos$Status"),
@@ -130,6 +133,36 @@ class OpenApiContractTest {
             assertThat(responses.has("429")).isTrue();
         }
         assertThat(spec.path("paths").path("/auth/2fa/verify").path("post").path("security").isEmpty()).isTrue();
+    }
+
+    @Test void biometricContractSeparatesRememberedCredentialFromActiveSession() throws Exception {
+        var spec = new ObjectMapper().readTree(Files.readString(Path.of("..", "contracts", "openapi.json")));
+        var login = spec.path("paths").path("/auth/biometric-login").path("post");
+        assertThat(login.has("security")).isTrue();
+        assertThat(login.path("security").isEmpty()).isTrue();
+        assertThat(login.path("requestBody").path("content").path("application/json").path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/Refresh");
+        assertThat(login.path("responses").path("200").path("content").path("application/json").path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/BiometricLoginResponse");
+        var enrollment = spec.path("paths").path("/me/biometric-session").path("post");
+        var removal = spec.path("paths").path("/me/biometric-session/{sessionId}").path("delete");
+        assertThat(enrollment.has("security")).isFalse();
+        assertThat(removal.has("security")).isFalse();
+        assertThat(enrollment.path("requestBody").path("required").asBoolean()).isTrue();
+        assertThat(enrollment.path("requestBody").path("content").path("application/json").path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/Refresh");
+        assertThat(enrollment.path("responses").has("409")).isTrue();
+        assertThat(enrollment.path("responses").path("201").path("content").path("application/json").path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/BiometricSession");
+        for (var operation : List.of(login, enrollment, removal)) {
+            for (var response : operation.path("responses").properties())
+                assertThat(response.getValue().path("headers").path("Cache-Control").path("description").asString()).isEqualTo("no-store");
+        }
+        var credential = spec.path("components").path("schemas").path("BiometricSession");
+        assertThat(credential.path("required").valueStream().map(value -> value.asString()).toList())
+                .containsExactlyInAnyOrder("refresh_token", "refresh_expires_at", "session_id");
+        assertThat(credential.path("properties").path("refresh_token").path("pattern").asString()).isEqualTo("^[A-Za-z0-9_-]{43}$");
+        assertThat(credential.path("properties").has("access_token")).isFalse();
     }
 
     @Test

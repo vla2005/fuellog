@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -26,6 +27,20 @@ public class IdentityController {
     @PostMapping("/auth/refresh")
     ResponseEntity<IdentityDtos.TokenResponse> refresh(@Valid @RequestBody IdentityDtos.Refresh request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(identity.refresh(request.refresh_token()));
+    }
+    @PostMapping("/auth/biometric-login")
+    ResponseEntity<IdentityDtos.BiometricLoginResponse> biometricLogin(@Valid @RequestBody IdentityDtos.Refresh request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(identity.biometricLogin(request.refresh_token()));
+    }
+    @PostMapping("/me/biometric-session")
+    ResponseEntity<IdentityDtos.BiometricSession> createBiometricSession(@Valid @RequestBody IdentityDtos.Refresh request) {
+        return ResponseEntity.status(201).cacheControl(CacheControl.noStore())
+                .body(identity.createBiometricSession(currentUser.requireUserId(), currentUser.requireSessionId(), request.refresh_token()));
+    }
+    @DeleteMapping("/me/biometric-session/{sessionId}")
+    ResponseEntity<Void> revokeBiometricSession(@PathVariable UUID sessionId) {
+        identity.revokeBiometricSession(currentUser.requireUserId(), sessionId);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
     @PostMapping("/auth/logout")
     ResponseEntity<Void> logout() {

@@ -14,6 +14,7 @@ import static com.fuellog.identity.dtos.IdentityDtos.*;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.BiFunction;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -67,9 +68,9 @@ public class IdentityService {
         });
     }
     public TokenResponse verifyTwoFactor(String challengeToken, String code) {
-        Rotation result = transaction.execute(status -> {
-            try { return new Rotation(createSession(twoFactor.verifyLoginChallenge(challengeToken, code)), null); }
-            catch (TwoFactorService.Rejected error) { return new Rotation(null, error); }
+        Rotation<TokenResponse> result = transaction.execute(status -> {
+            try { return new Rotation<>(createSession(twoFactor.verifyLoginChallenge(challengeToken, code)), null); }
+            catch (TwoFactorService.Rejected error) { return new Rotation<>(null, error); }
         });
         if (result.error != null) throw result.error;
         return result.response;
@@ -81,22 +82,72 @@ public class IdentityService {
     }
     public TokenResponse refresh(String secret) {
         String hash = secrets.hash(secret);
-        Rotation result = transaction.execute(status -> rotate(hash));
+        Rotation<TokenResponse> result = transaction.execute(status ->
+                rotate(hash, false, (session, nextSecret) -> response(session, nextSecret, now())));
         // Replay revocation commits before returning an authentication failure.
         if (result.error != null) throw result.error;
         return result.response;
     }
-    private Rotation rotate(String hash) {
+    public BiometricSession createBiometricSession(UUID userId, UUID currentSessionId, String currentRefreshSecret) {
+        String hash = secrets.hash(currentRefreshSecret);
+        return transaction.execute(status -> {
+            UserAccount user = users.lockById(userId).orElseThrow(IdentityService::invalidRefresh);
+            if (user.disabledAt() != null) throw new ApiException(401, "USER_DISABLED", "Conta indisponível.");
+            UserSession current = sessions.lockById(currentSessionId).orElseThrow(IdentityService::invalidRefresh);
+            Instant now = now();
+            if (!current.userId().equals(userId) || current.biometricLogin() || !current.activeAt(now))
+                throw invalidRefresh();
+            RefreshToken proof = tokens.findByTokenHash(hash).orElseThrow(IdentityService::invalidRefresh);
+            if (!proof.sessionId().equals(currentSessionId)) throw invalidRefresh();
+            if (proof.usedAt() != null)
+                throw new ApiException(409, "BIOMETRIC_SESSION_REFRESH_CONFLICT", "A sessão foi atualizada. Tente novamente.");
+            if (proof.revokedAt() != null || !now.isBefore(proof.expiresAt())) throw invalidRefresh();
+            UserSession biometric = sessions.saveAndFlush(UserSession.forBiometricLogin(current, now));
+            String secret = secrets.generate();
+            tokens.saveAndFlush(new RefreshToken(biometric.id(), secrets.hash(secret), now, biometric.expiresAt()));
+            return biometricResponse(biometric, secret);
+        });
+    }
+    public void revokeBiometricSession(UUID userId, UUID sessionId) {
+        transaction.executeWithoutResult(status -> {
+            UserSession session = sessions.lockById(sessionId).orElseThrow(IdentityService::biometricNotFound);
+            if (!session.userId().equals(userId) || !session.biometricLogin()) throw biometricNotFound();
+            Instant now = now();
+            if (session.revokedAt() == null) session.revoke(now, "BIOMETRIC_DISABLED");
+            tokens.revokeFamily(session.id(), now);
+        });
+    }
+    public BiometricLoginResponse biometricLogin(String secret) {
+        String hash = secrets.hash(secret);
+        Rotation<BiometricLoginResponse> result = transaction.execute(status -> rotate(hash, true,
+                (session, nextSecret) -> new BiometricLoginResponse(createBiometricLoginSession(session), biometricResponse(session, nextSecret))));
+        // Replay revocation commits before returning an authentication failure.
+        if (result.error != null) throw result.error;
+        return result.response;
+    }
+    private TokenResponse createBiometricLoginSession(UserSession biometric) {
+        Instant now = now();
+        UserSession session = sessions.saveAndFlush(UserSession.fromBiometricLogin(biometric, now));
+        return issuePair(session, now);
+    }
+    private <T> Rotation<T> rotate(String hash, boolean biometric, BiFunction<UserSession, String, T> issue) {
         UUID sessionId = tokens.findSessionId(hash).orElseThrow(IdentityService::invalidRefresh);
+        // Serialize new active sessions with password/MFA changes before locking the remembered session.
+        UserAccount lockedUser = biometric ? users.lockById(sessions.findUserId(sessionId)
+                .orElseThrow(IdentityService::invalidRefresh)).orElseThrow(IdentityService::invalidRefresh) : null;
         UserSession session = sessions.lockById(sessionId).orElseThrow(IdentityService::invalidRefresh);
+        if (session.biometricLogin() != biometric) throw invalidRefresh();
         RefreshToken token = tokens.findByTokenHash(hash).orElseThrow(IdentityService::invalidRefresh);
         Instant now = now();
         if (token.usedAt() != null) {
-            session.revoke(now, "TOKEN_REUSE");
-            tokens.revokeFamily(session.id(), now);
-            return new Rotation(null, new ApiException(401, "REFRESH_TOKEN_REUSED", "Sessão encerrada. Entre novamente."));
+            if (biometric) revokeBiometricFamily(session, now);
+            else {
+                session.revoke(now, "TOKEN_REUSE");
+                tokens.revokeFamily(session.id(), now);
+            }
+            return new Rotation<>(null, new ApiException(401, "REFRESH_TOKEN_REUSED", "Sessão encerrada. Entre novamente."));
         }
-        UserAccount user = users.findById(session.userId()).orElseThrow(IdentityService::invalidRefresh);
+        UserAccount user = biometric ? lockedUser : users.findById(session.userId()).orElseThrow(IdentityService::invalidRefresh);
         if (user.disabledAt() != null) throw new ApiException(401, "USER_DISABLED", "Conta indisponível.");
         if (session.revokedAt() != null || token.revokedAt() != null)
             throw new ApiException(401, "REFRESH_TOKEN_REVOKED", "Sessão encerrada. Entre novamente.");
@@ -108,7 +159,17 @@ public class IdentityService {
         RefreshToken next = tokens.saveAndFlush(new RefreshToken(session.id(), secrets.hash(nextSecret), now, session.expiresAt()));
         token.replaceWith(next.id());
         session.recordUse(now);
-        return new Rotation(response(session, nextSecret, now), null);
+        return new Rotation<>(issue.apply(session, nextSecret), null);
+    }
+    private void revokeBiometricFamily(UserSession biometric, Instant now) {
+        UUID rootId = biometric.biometricParentSessionId() == null ? biometric.id() : biometric.biometricParentSessionId();
+        UserSession root = rootId.equals(biometric.id()) ? biometric : sessions.lockById(rootId).orElseThrow(IdentityService::invalidRefresh);
+        root.revoke(now, "TOKEN_REUSE");
+        tokens.revokeFamily(rootId, now);
+        sessions.lockBiometricChildren(rootId).forEach(child -> {
+            child.revoke(now, "TOKEN_REUSE");
+            tokens.revokeFamily(child.id(), now);
+        });
     }
     public void logout(UUID sessionId) {
         transaction.executeWithoutResult(status -> {
@@ -130,8 +191,12 @@ public class IdentityService {
         AccessTokenService.IssuedAccess jwt = access.issue(session, now);
         return new TokenResponse(jwt.value(), "Bearer", jwt.expiresIn(), jwt.expiresAt(), secret, session.expiresAt(), session.id());
     }
+    private BiometricSession biometricResponse(UserSession session, String secret) {
+        return new BiometricSession(secret, session.expiresAt(), session.id());
+    }
+    private static ApiException biometricNotFound() { return new ApiException(404, "RESOURCE_NOT_FOUND", "Recurso não encontrado."); }
     private Instant now() { return clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS); }
     public static ApiException invalidRefresh() { return new ApiException(401, "REFRESH_TOKEN_INVALID", "Sessão inválida. Entre novamente."); }
     private static String normalize(String email) { return email.strip().toLowerCase(Locale.ROOT); }
-    private record Rotation(TokenResponse response, ApiException error) {}
+    private record Rotation<T>(T response, ApiException error) {}
 }

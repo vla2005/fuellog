@@ -10,6 +10,11 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface UserSessionRepository extends JpaRepository<UserSession, UUID> {
+    @Query("select s.userId from UserSession s where s.id = :id")
+    Optional<UUID> findUserId(@Param("id") UUID id);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from UserSession s where s.biometricParentSessionId = :parentId and s.revokedAt is null order by s.id")
+    List<UserSession> lockBiometricChildren(@Param("parentId") UUID parentId);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from UserSession s where s.id = :id")
     Optional<UserSession> lockById(@Param("id") UUID id);

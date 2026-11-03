@@ -320,7 +320,8 @@
             }
           }
         },
-        "security": []
+        "security": [],
+        "description": "Only active-session refresh credentials are accepted. BIOMETRIC_LOGIN credentials are rejected before consumption or replay handling; use POST /auth/biometric-login for those credentials."
       }
     },
     "/auth/logout": {
@@ -3714,6 +3715,343 @@
           }
         ]
       }
+    },
+    "/auth/biometric-login": {
+      "post": {
+        "summary": "Rotate a remembered biometric credential and create a new active session",
+        "description": "Only BIOMETRIC_LOGIN credentials are accepted. The device unlocks this credential using local biometrics; no password is stored or sent. Atomically consumes the single-use credential, preserves its original six-month absolute expiry and session_id, and creates a separate active TokenResponse. Normal refresh credentials are rejected without consuming or revoking them. Reenrollment from a derived active session retains the root biometric family. Replay of any biometric credential commits revocation of the root, all remembered credentials and active sessions derived from that root, and every affected refresh family before returning 401. Retrying with the same credential is not idempotent.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Refresh"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rotated biometric credential and newly created active session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BiometricLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid, revoked, expired or reused credential, or disabled account. Reuse revokes the entire root biometric family, including related remembered credentials, derived active sessions and all their refresh families.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Credential validation failed.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication dependency unavailable; rotation and session creation are rolled back together.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/biometric-session": {
+      "post": {
+        "summary": "Create a separate remembered biometric credential",
+        "description": "Requires both the current active access token and its current unused refresh_token as proof; the refresh credential is verified without consumption. Revalidates account, session, ownership, revocation and expiry within the credential transaction. A previously rotated proof returns 409 BIOMETRIC_SESSION_REFRESH_CONFLICT without revoking the active session; the client may retry once with its latest refresh token. Creates a BIOMETRIC_LOGIN session with a hashed single-use secret and six-calendar-month absolute expiry, without issuing an access token. A credential enrolled from a biometric-derived active session remains in the same root family, so reenrollment cannot escape replay revocation. Logout preserves the separate remembered credential. Password and MFA security changes revoke it with other sessions. Each successful request creates a new credential; the client must store it securely and revoke previous enrollments when replacing them.",
+        "responses": {
+          "201": {
+            "description": "Remembered credential created without an access token.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BiometricSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication or the current session is invalid, expired or revoked, or the account is disabled.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication dependency unavailable; no credential is committed.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed current refresh proof.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BIOMETRIC_SESSION_REFRESH_CONFLICT: proof was rotated; retry once with the current refresh token without revoking the active session.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Current refresh proof validation failed.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Refresh"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/biometric-session/{sessionId}": {
+      "delete": {
+        "summary": "Revoke an owned remembered biometric credential",
+        "description": "The session must belong to the authenticated user and have BIOMETRIC_LOGIN purpose. Revokes its entire refresh family. Repeating deletion of the same owned credential returns 204. Preserves current active sessions, including sessions previously created by this credential.",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Remembered credential revoked without a response body.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid session identifier.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication or the current session is invalid, expired or revoked, or the account is disabled.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Remembered credential does not exist, is owned by another user or has a different purpose.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication dependency unavailable; revocation is rolled back.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5570,6 +5908,44 @@
           "items",
           "page",
           "totalElements"
+        ]
+      },
+      "BiometricSession": {
+        "type": "object",
+        "description": "Remembered device credential; cannot authorize protected routes or normal refresh. Session ID and absolute expiry remain unchanged when rotated.",
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "refresh_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "refresh_token",
+          "refresh_expires_at",
+          "session_id"
+        ]
+      },
+      "BiometricLoginResponse": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/TokenResponse"
+          },
+          "biometric": {
+            "$ref": "#/components/schemas/BiometricSession"
+          }
+        },
+        "required": [
+          "session",
+          "biometric"
         ]
       }
     }

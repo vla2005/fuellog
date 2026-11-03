@@ -17,6 +17,7 @@ public class RefreshToken {
     @Column(name = "revoked_at") private Instant revokedAt;
     @Column(name = "replaced_by_id") private UUID replacedById;
     public UUID id() { return id; }
+    public UUID sessionId() { return sessionId; }
     public Instant expiresAt() { return expiresAt; }
     public Instant usedAt() { return usedAt; }
     public Instant revokedAt() { return revokedAt; }
