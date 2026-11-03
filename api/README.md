@@ -50,8 +50,12 @@ O override publica apenas a API em `127.0.0.1:8080`. Se a porta estiver ocupada,
 O cadastro exige um código enviado por SMTP. Configure no runtime `FUELLOG_MAIL_HOST`,
 `FUELLOG_MAIL_PORT` (padrão `587`), `FUELLOG_MAIL_USERNAME`, `FUELLOG_MAIL_PASSWORD` e
 `FUELLOG_MAIL_FROM`, com credenciais do provedor e remetente autorizado. Autenticação SMTP
-e STARTTLS são obrigatórios por padrão; `FUELLOG_MAIL_SMTP_AUTH` e
-`FUELLOG_MAIL_STARTTLS_ENABLED` permitem ajustar um servidor local de testes.
+e STARTTLS são ativados por padrão. Na porta `587`, use `FUELLOG_MAIL_SSL_ENABLED=false`
+e `FUELLOG_MAIL_STARTTLS_ENABLED=true`. Para TLS implícito na porta `465`, use
+`FUELLOG_MAIL_SSL_ENABLED=true` e `FUELLOG_MAIL_STARTTLS_ENABLED=false`: a conexão
+inicia com TLS, sem o comando STARTTLS. O certificado deve ser confiável e corresponder
+ao hostname configurado; não há exceção para confiar em todos os certificados.
+`FUELLOG_MAIL_SMTP_AUTH` permite ajustar um servidor local de testes.
 Não desative TLS ao transmitir credenciais pela internet. A conexão, leitura e escrita
 têm timeout de cinco segundos. Não registre credenciais ou conteúdo dos e-mails.
 
